@@ -30,7 +30,7 @@ export function Login() {
     <div className="min-h-svh flex items-center justify-center px-4">
       <Card className="w-full max-w-sm">
         <CardHeader>
-          <CardTitle>料理ヘルパー</CardTitle>
+          <CardTitle>お料理ヘルパー</CardTitle>
           <CardDescription>メールアドレスにログイン用のリンクを送ります</CardDescription>
         </CardHeader>
         <CardContent>

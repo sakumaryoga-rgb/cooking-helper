@@ -14,8 +14,8 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['apple-touch-icon.png'],
       manifest: {
-        name: '料理ヘルパー',
-        short_name: '料理ヘルパー',
+        name: 'お料理ヘルパー',
+        short_name: 'お料理ヘルパー',
         description: '冷蔵庫の食材からつくれる料理を提案するアプリ',
         start_url: '/',
         display: 'standalone',

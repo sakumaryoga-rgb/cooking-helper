@@ -19,7 +19,7 @@ export function Layout({ groupName }) {
     <div className="min-h-svh flex flex-col bg-background">
       <header className="border-b sticky top-0 bg-background/80 backdrop-blur z-10">
         <div className="max-w-lg mx-auto px-4 h-14 flex items-center justify-between">
-          <span className="font-medium text-sm truncate">{groupName ?? '料理ヘルパー'}</span>
+          <span className="font-medium text-sm truncate">{groupName ?? 'お料理ヘルパー'}</span>
           <Button variant="ghost" size="icon" onClick={handleSignOut} aria-label="サインアウト">
             <LogOut className="size-4" />
           </Button>
