@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bgGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FBD65E"/>
+      <stop offset="1" stop-color="#F3B93C"/>
+    </linearGradient>
+    <linearGradient id="bodyGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#F5F1E3"/>
+    </linearGradient>
+    <linearGradient id="interiorGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3D4547"/>
+      <stop offset="1" stop-color="#23282A"/>
+    </linearGradient>
+    <filter id="softShadow" x="-50%" y="-50%" width="200%" height="200%">
+      <feDropShadow dx="0" dy="12" stdDeviation="16" flood-color="#7A5A00" flood-opacity="0.28"/>
+    </filter>
+  </defs>
+
+  <rect width="512" height="512" fill="url(#bgGrad)"/>
+
+  <g filter="url(#softShadow)">
+    <!-- open door, hinged at the body's left edge, swung wide open -->
+    <g transform="rotate(-35 150 260)">
+      <rect x="70" y="80" width="80" height="360" rx="28" fill="url(#bodyGrad)" stroke="#E6D9A0" stroke-width="6"/>
+      <rect x="84" y="180" width="18" height="160" rx="9" fill="#D8CB98"/>
+    </g>
+
+    <!-- fridge body -->
+    <rect x="150" y="60" width="270" height="400" rx="54" fill="url(#bodyGrad)" stroke="#E6D9A0" stroke-width="6"/>
+    <!-- freezer/fridge division seam -->
+    <line x1="168" y1="150" x2="402" y2="150" stroke="#E6D9A0" stroke-width="7" stroke-linecap="round"/>
+    <!-- feet -->
+    <rect x="190" y="452" width="26" height="14" rx="6" fill="#D8CB98"/>
+    <rect x="380" y="452" width="26" height="14" rx="6" fill="#D8CB98"/>
+
+    <!-- dark interior opening -->
+    <rect x="182" y="172" width="210" height="270" rx="26" fill="url(#interiorGrad)"/>
+
+    <!-- vegetable silhouettes, each in its own color, piled up and overflowing -->
+    <g stroke="#23282A" stroke-width="4" stroke-linejoin="round">
+      <!-- broccoli -->
+      <rect x="228" y="250" width="26" height="55" rx="10" fill="#4B6B3A"/>
+      <circle cx="220" cy="195" r="38" fill="#5FA34C"/>
+      <circle cx="258" cy="182" r="42" fill="#5FA34C"/>
+      <circle cx="268" cy="222" r="32" fill="#4F8A40"/>
+
+      <!-- carrot -->
+      <path d="M310,205 L360,205 L332,320 Z" fill="#F0923F"/>
+      <path d="M322,203 L332,110 L344,198 Z" fill="#5FA34C"/>
+      <path d="M312,203 L300,140 L328,196 Z" fill="#5FA34C"/>
+
+      <!-- tomato -->
+      <circle cx="290" cy="305" r="44" fill="#E3543F"/>
+      <ellipse cx="290" cy="270" rx="16" ry="10" fill="#5FA34C"/>
+
+      <!-- small round veggie -->
+      <circle cx="350" cy="290" r="26" fill="#C74B7A"/>
+      <path d="M340,270 L350,258 L360,270 Z" fill="#5FA34C"/>
+    </g>
+  </g>
+</svg>
