@@ -23,6 +23,9 @@ export function SwipeToDelete({ onDelete, children, className = '' }) {
 
   function handlePointerDown(e) {
     if (phase !== 'idle') return
+    // キャプチャしないと、行の外まで大きくスワイプした際に以降のpointermove/upが
+    // 別要素に取られて追跡が止まってしまう(特にマウス操作時)
+    e.currentTarget.setPointerCapture(e.pointerId)
     widthRef.current = rootRef.current?.offsetWidth || 320
     startXRef.current = e.clientX
     startTranslateRef.current = translateX
