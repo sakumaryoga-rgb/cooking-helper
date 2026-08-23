@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Plus } from 'lucide-react'
+import { ChevronDown, Plus } from 'lucide-react'
 import { supabase } from '@/supabaseClient'
 import { useIngredientCatalog } from '@/hooks/useIngredientCatalog'
 import { formatQuantity } from '@/lib/format'
@@ -23,6 +23,23 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 
 const UNIT_PRESETS = ['個', 'g', 'ml', '本', 'パック', '袋', '枚']
+
+// カテゴリごとの目印アイコン(hyponex 野菜大辞典の写真は著作物のため使えないので、
+// 一目で見分けられる絵文字アイコンを代わりに割り当てている)
+const CATEGORY_ICONS = {
+  肉類: '🥩',
+  魚介類: '🐟',
+  果菜類: '🍅',
+  葉茎菜類: '🥬',
+  根菜類: '🥕',
+  キノコ類: '🍄',
+  果物: '🍎',
+  '卵・乳製品': '🥚',
+  大豆製品: '🫘',
+  穀物: '🌾',
+  '麺・パン': '🍞',
+  '調味料・油': '🧂',
+}
 
 // カテゴリごとに(sort_orderで並んだ状態の)食材をグルーピングする。
 // 出現順=カテゴリの表示順になる。
@@ -54,6 +71,7 @@ export function IngredientPicker({ open, onOpenChange, groupId, ingredients, onS
   const [saving, setSaving] = useState(false)
   const [catalogSavingId, setCatalogSavingId] = useState(null)
   const [error, setError] = useState(null)
+  const [openCategories, setOpenCategories] = useState(() => new Set())
 
   const availableIngredients = useMemo(
     () => ingredients.filter((i) => !excludeIds.includes(i.id)),
@@ -76,12 +94,23 @@ export function IngredientPicker({ open, onOpenChange, groupId, ingredients, onS
   const catalogGroups = useMemo(() => groupByCategory(availableCatalog), [availableCatalog])
 
   const trimmedSearch = search.trim()
+  const isSearching = trimmedSearch.length > 0
 
   function reset() {
     setSearch('')
     setCreating(false)
     setNewUnit(UNIT_PRESETS[0])
     setError(null)
+    setOpenCategories(new Set())
+  }
+
+  function toggleCategory(category) {
+    setOpenCategories((prev) => {
+      const next = new Set(prev)
+      if (next.has(category)) next.delete(category)
+      else next.add(category)
+      return next
+    })
   }
 
   function handleOpenChange(next) {
@@ -185,21 +214,49 @@ export function IngredientPicker({ open, onOpenChange, groupId, ingredients, onS
                 )}
 
                 {!catalogLoading &&
-                  catalogGroups.map(({ category, items }) => (
-                    <CommandGroup key={category} heading={category}>
-                      {items.map((item) => (
-                        <CommandItem
-                          key={item.id}
-                          value={item.name}
-                          disabled={catalogSavingId === item.id}
-                          onSelect={() => handleSelectCatalog(item)}
-                        >
-                          <span className="flex-1">{item.name}</span>
-                          <span className="text-muted-foreground text-xs">{item.unit}</span>
-                        </CommandItem>
-                      ))}
-                    </CommandGroup>
-                  ))}
+                  catalogGroups.map(({ category, items }) => {
+                    const expanded = isSearching || openCategories.has(category)
+                    return (
+                      <div key={category}>
+                        {!isSearching && (
+                          <button
+                            type="button"
+                            className="flex items-center gap-2 w-full px-4 py-2 text-xs font-medium text-muted-foreground hover:bg-accent/60"
+                            onClick={() => toggleCategory(category)}
+                          >
+                            <span className="text-base leading-none">
+                              {CATEGORY_ICONS[category] ?? '🍽️'}
+                            </span>
+                            <span className="flex-1 text-left">{category}</span>
+                            <span className="text-muted-foreground">{items.length}</span>
+                            <ChevronDown
+                              className={`size-3.5 transition-transform ${expanded ? 'rotate-180' : ''}`}
+                            />
+                          </button>
+                        )}
+                        {expanded && (
+                          <CommandGroup heading={isSearching ? category : undefined}>
+                            {items.map((item) => (
+                              <CommandItem
+                                key={item.id}
+                                value={item.name}
+                                disabled={catalogSavingId === item.id}
+                                onSelect={() => handleSelectCatalog(item)}
+                              >
+                                {isSearching && (
+                                  <span className="text-base leading-none">
+                                    {CATEGORY_ICONS[category] ?? '🍽️'}
+                                  </span>
+                                )}
+                                <span className="flex-1">{item.name}</span>
+                                <span className="text-muted-foreground text-xs">{item.unit}</span>
+                              </CommandItem>
+                            ))}
+                          </CommandGroup>
+                        )}
+                      </div>
+                    )
+                  })}
               </CommandList>
             </Command>
 
