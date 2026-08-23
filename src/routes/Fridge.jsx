@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Plus, Minus, Search } from 'lucide-react'
 import { useIngredients } from '@/hooks/useIngredients'
 import { IngredientPicker } from '@/components/IngredientPicker'
+import { SwipeToDelete } from '@/components/SwipeToDelete'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { supabase } from '@/supabaseClient'
@@ -24,6 +25,11 @@ export function Fridge({ groupId }) {
     const next = Math.max(0, Number(ingredient.quantity) + delta)
     const { error } = await supabase.from('ingredients').update({ quantity: next }).eq('id', ingredient.id)
     if (error) console.error('数量の更新に失敗しました', error)
+  }
+
+  async function deleteIngredient(ingredient) {
+    const { error } = await supabase.from('ingredients').delete().eq('id', ingredient.id)
+    if (error) console.error('食材の削除に失敗しました', error)
   }
 
   return (
@@ -55,33 +61,37 @@ export function Fridge({ groupId }) {
       ) : (
         <ul className="flex flex-col divide-y divide-border rounded-lg border">
           {filtered.map((ingredient) => (
-            <li key={ingredient.id} className="flex items-center gap-3 px-3 py-2.5">
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium truncate">{ingredient.name}</p>
-                <p className="text-xs text-muted-foreground">
-                  {formatQuantity(ingredient.quantity)} {ingredient.unit}
-                </p>
-              </div>
-              <div className="flex items-center gap-1">
-                <Button
-                  size="icon"
-                  variant="outline"
-                  className="size-7"
-                  onClick={() => adjustQuantity(ingredient, -stepFor(ingredient.unit))}
-                  aria-label="減らす"
-                >
-                  <Minus className="size-3.5" />
-                </Button>
-                <Button
-                  size="icon"
-                  variant="outline"
-                  className="size-7"
-                  onClick={() => adjustQuantity(ingredient, stepFor(ingredient.unit))}
-                  aria-label="増やす"
-                >
-                  <Plus className="size-3.5" />
-                </Button>
-              </div>
+            <li key={ingredient.id}>
+              <SwipeToDelete onDelete={() => deleteIngredient(ingredient)}>
+                <div className="flex items-center gap-3 px-3 py-2.5">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{ingredient.name}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {formatQuantity(ingredient.quantity)} {ingredient.unit}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      size="icon"
+                      variant="outline"
+                      className="size-7"
+                      onClick={() => adjustQuantity(ingredient, -stepFor(ingredient.unit))}
+                      aria-label="減らす"
+                    >
+                      <Minus className="size-3.5" />
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="outline"
+                      className="size-7"
+                      onClick={() => adjustQuantity(ingredient, stepFor(ingredient.unit))}
+                      aria-label="増やす"
+                    >
+                      <Plus className="size-3.5" />
+                    </Button>
+                  </div>
+                </div>
+              </SwipeToDelete>
             </li>
           ))}
         </ul>

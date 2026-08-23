@@ -41,6 +41,8 @@ const CATEGORY_ICONS = {
   '調味料・油': '🧂',
 }
 
+const CATEGORIES = Object.keys(CATEGORY_ICONS)
+
 // カテゴリごとに(sort_orderで並んだ状態の)食材をグルーピングする。
 // 出現順=カテゴリの表示順になる。
 function groupByCategory(items) {
@@ -68,6 +70,7 @@ export function IngredientPicker({ open, onOpenChange, groupId, ingredients, onS
   const [search, setSearch] = useState('')
   const [creating, setCreating] = useState(false)
   const [newUnit, setNewUnit] = useState(UNIT_PRESETS[0])
+  const [newCategory, setNewCategory] = useState(CATEGORIES[0])
   const [saving, setSaving] = useState(false)
   const [catalogSavingId, setCatalogSavingId] = useState(null)
   const [error, setError] = useState(null)
@@ -100,6 +103,7 @@ export function IngredientPicker({ open, onOpenChange, groupId, ingredients, onS
     setSearch('')
     setCreating(false)
     setNewUnit(UNIT_PRESETS[0])
+    setNewCategory(CATEGORIES[0])
     setError(null)
     setOpenCategories(new Set())
   }
@@ -166,13 +170,79 @@ export function IngredientPicker({ open, onOpenChange, groupId, ingredients, onS
     if (!trimmedSearch) return
     setSaving(true)
     setError(null)
+
+    // 同名のマスタ食材が既にあればそちらの単位・カテゴリを優先して使う
+    const { data: existingCatalog } = await supabase
+      .from('ingredient_catalog')
+      .select('*')
+      .eq('name', trimmedSearch)
+      .maybeSingle()
+
+    let catalogItem = existingCatalog
+
+    if (!catalogItem) {
+      const { data: lastInCategory } = await supabase
+        .from('ingredient_catalog')
+        .select('sort_order')
+        .eq('category', newCategory)
+        .order('sort_order', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      const nextSortOrder = (lastInCategory?.sort_order ?? 0) + 10
+
+      const { data: inserted, error: catalogError } = await supabase
+        .from('ingredient_catalog')
+        .insert({ name: trimmedSearch, unit: newUnit, category: newCategory, sort_order: nextSortOrder })
+        .select()
+        .single()
+
+      if (catalogError) {
+        if (catalogError.code === '23505') {
+          // 他のメンバーがほぼ同時に同じ名前を登録した等の競合。既存行を再利用する。
+          const { data: raced } = await supabase
+            .from('ingredient_catalog')
+            .select('*')
+            .eq('name', trimmedSearch)
+            .maybeSingle()
+          catalogItem = raced
+        }
+        if (!catalogItem) {
+          setSaving(false)
+          setError('食材の追加に失敗しました。もう一度お試しください。')
+          return
+        }
+      } else {
+        catalogItem = inserted
+      }
+    }
+
     const { data, error: insertError } = await supabase
       .from('ingredients')
-      .insert({ group_id: groupId, name: trimmedSearch, unit: newUnit, quantity: 0 })
+      .insert({
+        group_id: groupId,
+        catalog_id: catalogItem.id,
+        name: catalogItem.name,
+        unit: catalogItem.unit,
+        quantity: 0,
+      })
       .select()
       .single()
     setSaving(false)
+
     if (insertError) {
+      if (insertError.code === '23505') {
+        const { data: existing } = await supabase
+          .from('ingredients')
+          .select('*')
+          .eq('group_id', groupId)
+          .eq('name', catalogItem.name)
+          .maybeSingle()
+        if (existing) {
+          onSelect(existing)
+          handleOpenChange(false)
+          return
+        }
+      }
       setError('追加に失敗しました。同じ名前の食材が既にあるかもしれません。')
       return
     }
@@ -294,6 +364,23 @@ export function IngredientPicker({ open, onOpenChange, groupId, ingredients, onS
                     onClick={() => setNewUnit(unit)}
                   >
                     {unit}
+                  </Button>
+                ))}
+              </div>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label>カテゴリ</Label>
+              <div className="flex flex-wrap gap-2">
+                {CATEGORIES.map((category) => (
+                  <Button
+                    key={category}
+                    type="button"
+                    size="sm"
+                    variant={newCategory === category ? 'default' : 'outline'}
+                    onClick={() => setNewCategory(category)}
+                  >
+                    <span className="text-base leading-none">{CATEGORY_ICONS[category]}</span>
+                    {category}
                   </Button>
                 ))}
               </div>
