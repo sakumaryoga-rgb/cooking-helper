@@ -14,13 +14,10 @@ function stepFor(unit) {
   return STEP_BY_UNIT[unit] ?? 1
 }
 
-const REMOVE_ANIMATION_MS = 200
-
 export function Fridge({ groupId }) {
   const { ingredients, loading, removeIngredient } = useIngredients(groupId)
   const [pickerOpen, setPickerOpen] = useState(false)
   const [query, setQuery] = useState('')
-  const [removingIds, setRemovingIds] = useState(() => new Set())
 
   const filtered = ingredients.filter((i) => i.name.includes(query.trim()))
 
@@ -28,12 +25,6 @@ export function Fridge({ groupId }) {
     const next = Math.max(0, Number(ingredient.quantity) + delta)
     const { error } = await supabase.from('ingredients').update({ quantity: next }).eq('id', ingredient.id)
     if (error) console.error('数量の更新に失敗しました', error)
-  }
-
-  function handleDelete(ingredient) {
-    // まず縮小アニメーションを見せてから、実データを削除する(Apple風の滑らかな削除体験)
-    setRemovingIds((prev) => new Set(prev).add(ingredient.id))
-    window.setTimeout(() => removeIngredient(ingredient.id), REMOVE_ANIMATION_MS)
   }
 
   return (
@@ -64,47 +55,40 @@ export function Fridge({ groupId }) {
         </p>
       ) : (
         <ul className="flex flex-col divide-y divide-border rounded-lg border">
-          {filtered.map((ingredient) => {
-            const removing = removingIds.has(ingredient.id)
-            return (
-              <li
-                key={ingredient.id}
-                className="overflow-hidden transition-[max-height,opacity] duration-200 ease-out"
-                style={{ maxHeight: removing ? 0 : 80, opacity: removing ? 0 : 1 }}
-              >
-                <SwipeToDelete onDelete={() => handleDelete(ingredient)}>
-                  <div className="flex items-center gap-3 px-3 py-2.5">
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate">{ingredient.name}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {formatQuantity(ingredient.quantity)} {ingredient.unit}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <Button
-                        size="icon"
-                        variant="outline"
-                        className="size-7"
-                        onClick={() => adjustQuantity(ingredient, -stepFor(ingredient.unit))}
-                        aria-label="減らす"
-                      >
-                        <Minus className="size-3.5" />
-                      </Button>
-                      <Button
-                        size="icon"
-                        variant="outline"
-                        className="size-7"
-                        onClick={() => adjustQuantity(ingredient, stepFor(ingredient.unit))}
-                        aria-label="増やす"
-                      >
-                        <Plus className="size-3.5" />
-                      </Button>
-                    </div>
+          {filtered.map((ingredient) => (
+            <li key={ingredient.id}>
+              <SwipeToDelete onDelete={() => removeIngredient(ingredient.id)}>
+                <div className="flex items-center gap-3 px-3 py-2.5">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{ingredient.name}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {formatQuantity(ingredient.quantity)} {ingredient.unit}
+                    </p>
                   </div>
-                </SwipeToDelete>
-              </li>
-            )
-          })}
+                  <div className="flex items-center gap-1">
+                    <Button
+                      size="icon"
+                      variant="outline"
+                      className="size-7"
+                      onClick={() => adjustQuantity(ingredient, -stepFor(ingredient.unit))}
+                      aria-label="減らす"
+                    >
+                      <Minus className="size-3.5" />
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="outline"
+                      className="size-7"
+                      onClick={() => adjustQuantity(ingredient, stepFor(ingredient.unit))}
+                      aria-label="増やす"
+                    >
+                      <Plus className="size-3.5" />
+                    </Button>
+                  </div>
+                </div>
+              </SwipeToDelete>
+            </li>
+          ))}
         </ul>
       )}
 
