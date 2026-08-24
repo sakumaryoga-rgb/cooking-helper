@@ -71,15 +71,20 @@ export function SwipeToDelete({ onDelete, children, className = '' }) {
   }
 
   function handleSlideEnd(e) {
+    console.log('[swipe-debug] slideEnd', { target: e.target === e.currentTarget, prop: e.propertyName, phase })
     if (e.target !== e.currentTarget || e.propertyName !== 'transform') return
     if (phase !== 'exiting') return
     // 高さを実測値→0へ変化させることで、崩れ落ちるような縮小アニメーションにする
-    setMeasuredHeight(rootRef.current?.offsetHeight ?? 0)
+    const h = rootRef.current?.offsetHeight ?? 0
+    console.log('[swipe-debug] measured height', h)
+    setMeasuredHeight(h)
     requestAnimationFrame(() => setPhase('collapsing'))
   }
 
   function handleRootTransitionEnd(e) {
+    console.log('[swipe-debug] rootTransitionEnd', { target: e.target === e.currentTarget, prop: e.propertyName, phase })
     if (e.propertyName !== 'max-height' || phase !== 'collapsing') return
+    console.log('[swipe-debug] calling onDelete')
     onDelete()
   }
 
