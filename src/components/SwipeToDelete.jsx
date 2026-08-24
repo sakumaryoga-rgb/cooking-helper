@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Trash2 } from 'lucide-react'
 
 const DELETE_WIDTH = 76
@@ -7,13 +7,24 @@ const OPEN_THRESHOLD = DELETE_WIDTH / 2
 // 削除まで滑らせる(iOS Mail等の「流れるように消える」スワイプ削除と同じ挙動)
 const COMMIT_RATIO = 0.45
 
+const EXITING_PHASES = new Set(['exiting', 'measured', 'collapsing'])
+
 // 左にスワイプすると削除ボタンが現れ、大きくスワイプするとそのまま
 // 流れるように消えるリスト行のラッパー。タップ自体は子要素(数量ボタン等)に
 // そのまま通す。onDelete は退場アニメーションが完了してから一度だけ呼ばれる。
+//
+// CSSのtransitionは「transitionプロパティ自体の変更」と「アニメーション対象の
+// 値の変更」を同じコミットで同時に行うと発火しない(ブラウザがそのフレームを
+// アニメーションの起点として認識できないため)。そのため各段階で
+// 1. transitionを有効にするレンダー
+// 2. その次のフレームで実際の目標値を変えるレンダー
+// を必ず分けている(phase='exiting'→次フレームでtranslateX/opacityを変更、
+// phase='measured'→次フレームでphase='collapsing'にしてmax-heightを変更)。
 export function SwipeToDelete({ onDelete, children, className = '' }) {
   const [translateX, setTranslateX] = useState(0)
   const [dragging, setDragging] = useState(false)
-  const [phase, setPhase] = useState('idle') // 'idle' | 'exiting' | 'collapsing'
+  const [phase, setPhase] = useState('idle') // 'idle' | 'exiting' | 'measured' | 'collapsing'
+  const [exited, setExited] = useState(false)
   const [measuredHeight, setMeasuredHeight] = useState(null)
   const startXRef = useRef(0)
   const startTranslateRef = useRef(0)
@@ -43,7 +54,6 @@ export function SwipeToDelete({ onDelete, children, className = '' }) {
   function commitDelete() {
     setDragging(false)
     setPhase('exiting')
-    setTranslateX(-(widthRef.current + DELETE_WIDTH))
   }
 
   function handlePointerUp(e) {
@@ -52,14 +62,15 @@ export function SwipeToDelete({ onDelete, children, className = '' }) {
     const delta = e.clientX - startXRef.current
     if (wasOpenRef.current && Math.abs(delta) < 4) {
       // 開いた状態でのタップは閉じるだけにする
-      setTranslateX(0)
+      requestAnimationFrame(() => setTranslateX(0))
       return
     }
     if (translateX < -widthRef.current * COMMIT_RATIO) {
       commitDelete()
       return
     }
-    setTranslateX((prev) => (prev < -OPEN_THRESHOLD ? -DELETE_WIDTH : 0))
+    const target = translateX < -OPEN_THRESHOLD ? -DELETE_WIDTH : 0
+    requestAnimationFrame(() => setTranslateX(target))
   }
 
   function handleClickCapture(e) {
@@ -70,21 +81,33 @@ export function SwipeToDelete({ onDelete, children, className = '' }) {
     }
   }
 
+  // phase='exiting'(transition有効化)の次のフレームで実際に画面外へ動かす
+  useEffect(() => {
+    if (phase !== 'exiting') return
+    const id = requestAnimationFrame(() => {
+      setTranslateX(-(widthRef.current + DELETE_WIDTH))
+      setExited(true)
+    })
+    return () => cancelAnimationFrame(id)
+  }, [phase])
+
   function handleSlideEnd(e) {
-    console.log('[swipe-debug] slideEnd', { target: e.target === e.currentTarget, prop: e.propertyName, phase })
     if (e.target !== e.currentTarget || e.propertyName !== 'transform') return
     if (phase !== 'exiting') return
     // 高さを実測値→0へ変化させることで、崩れ落ちるような縮小アニメーションにする
-    const h = rootRef.current?.offsetHeight ?? 0
-    console.log('[swipe-debug] measured height', h)
-    setMeasuredHeight(h)
-    requestAnimationFrame(() => setPhase('collapsing'))
+    setMeasuredHeight(rootRef.current?.offsetHeight ?? 0)
+    setPhase('measured')
   }
 
+  // phase='measured'(高さ固定+transition有効化)の次のフレームで0にする
+  useEffect(() => {
+    if (phase !== 'measured') return
+    const id = requestAnimationFrame(() => setPhase('collapsing'))
+    return () => cancelAnimationFrame(id)
+  }, [phase])
+
   function handleRootTransitionEnd(e) {
-    console.log('[swipe-debug] rootTransitionEnd', { target: e.target === e.currentTarget, prop: e.propertyName, phase })
     if (e.propertyName !== 'max-height' || phase !== 'collapsing') return
-    console.log('[swipe-debug] calling onDelete')
     onDelete()
   }
 
@@ -94,7 +117,7 @@ export function SwipeToDelete({ onDelete, children, className = '' }) {
       className={`relative overflow-hidden ${className}`}
       style={{
         maxHeight: phase === 'collapsing' ? 0 : (measuredHeight ?? undefined),
-        transition: phase === 'collapsing' ? 'max-height 180ms ease-in' : undefined,
+        transition: phase === 'measured' || phase === 'collapsing' ? 'max-height 180ms ease-in' : undefined,
       }}
       onTransitionEnd={handleRootTransitionEnd}
     >
@@ -111,13 +134,12 @@ export function SwipeToDelete({ onDelete, children, className = '' }) {
         className="relative bg-background touch-pan-y"
         style={{
           transform: `translateX(${translateX}px)`,
-          opacity: phase === 'exiting' ? 0 : 1,
-          transition:
-            dragging
-              ? 'none'
-              : phase === 'exiting'
-                ? 'transform 220ms ease-in, opacity 220ms ease-in'
-                : 'transform 200ms ease-out',
+          opacity: exited ? 0 : 1,
+          transition: dragging
+            ? 'none'
+            : EXITING_PHASES.has(phase)
+              ? 'transform 220ms ease-in, opacity 220ms ease-in'
+              : 'transform 200ms ease-out',
         }}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
