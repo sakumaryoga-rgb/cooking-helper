@@ -32,10 +32,8 @@ export function useIngredients(groupId) {
   // 体感速度優先で即座にローカルから消し、DB削除が失敗した場合だけ再取得して戻す
   const removeIngredient = useCallback(
     async (id) => {
-      console.log('[swipe-debug] removeIngredient called', id)
       setIngredients((prev) => prev.filter((i) => i.id !== id))
       const { error } = await supabase.from('ingredients').delete().eq('id', id)
-      console.log('[swipe-debug] delete result', { error })
       if (error) {
         console.error('食材の削除に失敗しました', error)
         refresh()
