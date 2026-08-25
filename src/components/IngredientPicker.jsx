@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { ChevronDown, Plus } from 'lucide-react'
 import { supabase } from '@/supabaseClient'
 import { useIngredientCatalog } from '@/hooks/useIngredientCatalog'
@@ -11,6 +11,14 @@ import {
   DialogDescription,
 } from '@/components/ui/dialog'
 import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogFooter,
+} from '@/components/ui/alert-dialog'
+import {
   Command,
   CommandEmpty,
   CommandGroup,
@@ -21,6 +29,9 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+
+const LONG_PRESS_MS = 550
+const LONG_PRESS_MOVE_TOLERANCE = 8
 
 const UNIT_PRESETS = ['個', 'g', 'ml', '本', 'パック', '袋', '枚']
 
@@ -60,6 +71,66 @@ function groupByCategory(items) {
   return groups
 }
 
+// マスタ食材の一覧行。長押しするとカタログからの完全削除を確認する
+// (通常のタップ選択とは別ジェスチャーなので、長押し発火後の後続クリックは握りつぶす)
+function CatalogItemRow({ item, category, isSearching, disabled, onSelect, onRequestDelete }) {
+  const timerRef = useRef(null)
+  const longPressFiredRef = useRef(false)
+  const startPosRef = useRef({ x: 0, y: 0 })
+
+  function clearTimer() {
+    if (timerRef.current) {
+      clearTimeout(timerRef.current)
+      timerRef.current = null
+    }
+  }
+
+  function handlePointerDown(e) {
+    startPosRef.current = { x: e.clientX, y: e.clientY }
+    longPressFiredRef.current = false
+    clearTimer()
+    timerRef.current = setTimeout(() => {
+      longPressFiredRef.current = true
+      onRequestDelete(item)
+    }, LONG_PRESS_MS)
+  }
+
+  function handlePointerMove(e) {
+    const dx = e.clientX - startPosRef.current.x
+    const dy = e.clientY - startPosRef.current.y
+    if (Math.abs(dx) > LONG_PRESS_MOVE_TOLERANCE || Math.abs(dy) > LONG_PRESS_MOVE_TOLERANCE) clearTimer()
+  }
+
+  function handlePointerUp() {
+    clearTimer()
+  }
+
+  function handleClickCapture(e) {
+    if (longPressFiredRef.current) {
+      e.preventDefault()
+      e.stopPropagation()
+      longPressFiredRef.current = false
+    }
+  }
+
+  return (
+    <CommandItem
+      value={item.name}
+      disabled={disabled}
+      onSelect={() => onSelect(item)}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerUp}
+      onClickCapture={handleClickCapture}
+    >
+      {isSearching && <span className="text-base leading-none">{CATEGORY_ICONS[category] ?? '🍽️'}</span>}
+      <span className="flex-1">{item.name}</span>
+      <span className="text-muted-foreground text-xs">{item.unit}</span>
+    </CommandItem>
+  )
+}
+
 // 冷蔵庫への追加・レシピの材料タグ付けの両方で使う、食材の選択コンポーネント。
 // 基本はマスタ食材(単位は食材ごとに自動決定)から選び、リストにないものだけ
 // 例外的に自由入力(単位は手動選択)で追加できる。
@@ -75,6 +146,8 @@ export function IngredientPicker({ open, onOpenChange, groupId, ingredients, onS
   const [catalogSavingId, setCatalogSavingId] = useState(null)
   const [error, setError] = useState(null)
   const [openCategories, setOpenCategories] = useState(() => new Set())
+  const [deleteTarget, setDeleteTarget] = useState(null)
+  const [deletingCatalog, setDeletingCatalog] = useState(false)
 
   const availableIngredients = useMemo(
     () => ingredients.filter((i) => !excludeIds.includes(i.id)),
@@ -118,13 +191,27 @@ export function IngredientPicker({ open, onOpenChange, groupId, ingredients, onS
   }
 
   function handleOpenChange(next) {
-    if (!next) reset()
+    if (!next) {
+      reset()
+      setDeleteTarget(null)
+    }
     onOpenChange(next)
   }
 
   function handleSelectExisting(ingredient) {
     onSelect(ingredient)
     handleOpenChange(false)
+  }
+
+  async function handleConfirmCatalogDelete() {
+    if (!deleteTarget) return
+    setDeletingCatalog(true)
+    const { error: deleteError } = await supabase.from('ingredient_catalog').delete().eq('id', deleteTarget.id)
+    setDeletingCatalog(false)
+    if (deleteError) {
+      console.error('食材マスタの削除に失敗しました', deleteError)
+    }
+    setDeleteTarget(null)
   }
 
   async function handleSelectCatalog(catalogItem) {
@@ -179,6 +266,28 @@ export function IngredientPicker({ open, onOpenChange, groupId, ingredients, onS
       .maybeSingle()
 
     let catalogItem = existingCatalog
+
+    // 既存のマスタ食材が別カテゴリに入っている場合、選んだカテゴリへ移す
+    // (以前は既存行をそのまま使い回してしまい、選択したカテゴリが無視されるバグがあった)
+    if (catalogItem && catalogItem.category !== newCategory) {
+      const { data: lastInTargetCategory } = await supabase
+        .from('ingredient_catalog')
+        .select('sort_order')
+        .eq('category', newCategory)
+        .order('sort_order', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      const movedSortOrder = (lastInTargetCategory?.sort_order ?? 0) + 10
+
+      const { data: moved, error: moveError } = await supabase
+        .from('ingredient_catalog')
+        .update({ category: newCategory, sort_order: movedSortOrder })
+        .eq('id', catalogItem.id)
+        .select()
+        .single()
+
+      if (!moveError && moved) catalogItem = moved
+    }
 
     if (!catalogItem) {
       const { data: lastInCategory } = await supabase
@@ -251,11 +360,12 @@ export function IngredientPicker({ open, onOpenChange, groupId, ingredients, onS
   }
 
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
+    <>
+      <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="p-0 gap-0 overflow-hidden">
         <DialogHeader className="px-4 pt-4 pb-2">
           <DialogTitle>食材を選択</DialogTitle>
-          <DialogDescription>食材を選ぶと単位は自動で設定されます</DialogDescription>
+          <DialogDescription>食材を選ぶと単位は自動で設定されます(長押しでマスタから完全削除)</DialogDescription>
         </DialogHeader>
 
         {!creating ? (
@@ -307,20 +417,15 @@ export function IngredientPicker({ open, onOpenChange, groupId, ingredients, onS
                         {expanded && (
                           <CommandGroup heading={isSearching ? category : undefined}>
                             {items.map((item) => (
-                              <CommandItem
+                              <CatalogItemRow
                                 key={item.id}
-                                value={item.name}
+                                item={item}
+                                category={category}
+                                isSearching={isSearching}
                                 disabled={catalogSavingId === item.id}
-                                onSelect={() => handleSelectCatalog(item)}
-                              >
-                                {isSearching && (
-                                  <span className="text-base leading-none">
-                                    {CATEGORY_ICONS[category] ?? '🍽️'}
-                                  </span>
-                                )}
-                                <span className="flex-1">{item.name}</span>
-                                <span className="text-muted-foreground text-xs">{item.unit}</span>
-                              </CommandItem>
+                                onSelect={handleSelectCatalog}
+                                onRequestDelete={setDeleteTarget}
+                              />
                             ))}
                           </CommandGroup>
                         )}
@@ -397,6 +502,26 @@ export function IngredientPicker({ open, onOpenChange, groupId, ingredients, onS
           </div>
         )}
       </DialogContent>
-    </Dialog>
+      </Dialog>
+
+      <AlertDialog open={!!deleteTarget} onOpenChange={(next) => !next && setDeleteTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>「{deleteTarget?.name}」を完全に削除しますか?</AlertDialogTitle>
+            <AlertDialogDescription>
+              食材マスタから削除され、他のメンバーの候補一覧にも表示されなくなります。この操作は元に戻せません。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <Button type="button" variant="ghost" onClick={() => setDeleteTarget(null)} disabled={deletingCatalog}>
+              いいえ
+            </Button>
+            <Button type="button" variant="destructive" onClick={handleConfirmCatalogDelete} disabled={deletingCatalog}>
+              {deletingCatalog ? '削除中...' : 'はい'}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   )
 }

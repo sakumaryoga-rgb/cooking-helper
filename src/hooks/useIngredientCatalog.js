@@ -12,7 +12,7 @@ export function useIngredientCatalog() {
     async function load() {
       const { data, error } = await supabase
         .from('ingredient_catalog')
-        .select('id, name, unit, category, sort_order')
+        .select('id, name, unit, category, sort_order, shelf_life_days')
         .order('sort_order')
 
       if (error) console.error('食材マスタの取得に失敗しました', error)

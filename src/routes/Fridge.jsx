@@ -1,12 +1,18 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Plus, Minus, Search } from 'lucide-react'
 import { useIngredients } from '@/hooks/useIngredients'
+import { useIngredientBatches } from '@/hooks/useIngredientBatches'
+import { useIngredientCatalog } from '@/hooks/useIngredientCatalog'
 import { IngredientPicker } from '@/components/IngredientPicker'
 import { SwipeToDelete } from '@/components/SwipeToDelete'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Switch } from '@/components/ui/switch'
 import { supabase } from '@/supabaseClient'
 import { formatQuantity } from '@/lib/format'
+import { addBatchQuantity, consumeBatchQuantity } from '@/lib/batches'
+import { getExpiryInfo, formatExpiryLabel } from '@/lib/shelfLife'
 
 // g/ml のような細かい単位はまとめて増減、個数系は1ずつ増減する
 const STEP_BY_UNIT = { g: 10, ml: 10 }
@@ -14,15 +20,73 @@ function stepFor(unit) {
   return STEP_BY_UNIT[unit] ?? 1
 }
 
+function expiryColorClass(daysLeft) {
+  if (daysLeft <= 1) return 'text-destructive'
+  if (daysLeft <= 3) return 'text-amber-600 dark:text-amber-400'
+  return 'text-muted-foreground'
+}
+
 export function Fridge({ groupId }) {
   const { ingredients, loading, removeIngredient } = useIngredients(groupId)
+  const { batches } = useIngredientBatches(groupId)
+  const { catalog } = useIngredientCatalog()
   const [pickerOpen, setPickerOpen] = useState(false)
   const [query, setQuery] = useState('')
+  const [dateAsPurchaseDate, setDateAsPurchaseDate] = useState(true)
 
-  const filtered = ingredients.filter((i) => i.name.includes(query.trim()))
+  const catalogById = useMemo(() => new Map(catalog.map((c) => [c.id, c])), [catalog])
+
+  const batchesByIngredient = useMemo(() => {
+    const map = new Map()
+    for (const batch of batches) {
+      if (!map.has(batch.ingredient_id)) map.set(batch.ingredient_id, [])
+      map.get(batch.ingredient_id).push(batch)
+    }
+    return map
+  }, [batches])
+
+  const rows = useMemo(() => {
+    const list = ingredients
+      .filter((i) => i.name.includes(query.trim()))
+      .map((ingredient) => ({
+        ingredient,
+        expiry: getExpiryInfo(ingredient, batchesByIngredient.get(ingredient.id), catalogById),
+      }))
+
+    list.sort((a, b) => {
+      if (a.expiry && b.expiry) return a.expiry.daysLeft - b.expiry.daysLeft
+      if (a.expiry) return -1
+      if (b.expiry) return 1
+      return a.ingredient.name.localeCompare(b.ingredient.name, 'ja')
+    })
+
+    return list
+  }, [ingredients, query, batchesByIngredient, catalogById])
 
   async function adjustQuantity(ingredient, delta) {
-    const next = Math.max(0, Number(ingredient.quantity) + delta)
+    const current = Number(ingredient.quantity)
+    const next = Math.max(0, current + delta)
+
+    if (delta > 0) {
+      await addBatchQuantity(ingredient.id, delta, { datedToday: dateAsPurchaseDate })
+    } else if (delta < 0) {
+      const consumed = current - next
+      if (consumed > 0) await consumeBatchQuantity(ingredient.id, consumed)
+    }
+
+    if (next === 0 && delta < 0) {
+      const { data: usedInRecipe } = await supabase
+        .from('recipe_ingredients')
+        .select('id')
+        .eq('ingredient_id', ingredient.id)
+        .limit(1)
+      // レシピで使われていない食材は、在庫が0になったら自動で冷蔵庫から消す
+      if (!usedInRecipe?.length) {
+        await removeIngredient(ingredient.id)
+        return
+      }
+    }
+
     const { error } = await supabase.from('ingredients').update({ quantity: next }).eq('id', ingredient.id)
     if (error) console.error('数量の更新に失敗しました', error)
   }
@@ -47,22 +111,41 @@ export function Fridge({ groupId }) {
         />
       </div>
 
+      <div className="flex items-center justify-between gap-2 rounded-lg border px-3 py-2">
+        <div className="flex flex-col">
+          <Label htmlFor="date-as-purchase" className="text-sm">
+            追加日を購入日にする
+          </Label>
+          <p className="text-xs text-muted-foreground">
+            オンだと「+」で増やした分を今日の日付で記録し、賞味期限の目安を計算します
+          </p>
+        </div>
+        <Switch id="date-as-purchase" checked={dateAsPurchaseDate} onCheckedChange={setDateAsPurchaseDate} />
+      </div>
+
       {loading ? (
         <p className="text-sm text-muted-foreground">読み込み中...</p>
-      ) : filtered.length === 0 ? (
+      ) : rows.length === 0 ? (
         <p className="text-sm text-muted-foreground py-8 text-center">
           まだ食材がありません。「追加」から登録しましょう。
         </p>
       ) : (
         <ul className="flex flex-col divide-y divide-border rounded-lg border">
-          {filtered.map((ingredient) => (
+          {rows.map(({ ingredient, expiry }) => (
             <li key={ingredient.id}>
               <SwipeToDelete onDelete={() => removeIngredient(ingredient.id)}>
                 <div className="flex items-center gap-3 px-3 py-2.5">
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium truncate">{ingredient.name}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {formatQuantity(ingredient.quantity)} {ingredient.unit}
+                    <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+                      <span>
+                        {formatQuantity(ingredient.quantity)} {ingredient.unit}
+                      </span>
+                      {expiry && (
+                        <span className={expiryColorClass(expiry.daysLeft)}>
+                          ・{formatExpiryLabel(expiry.daysLeft)}
+                        </span>
+                      )}
                     </p>
                   </div>
                   <div className="flex items-center gap-1">
