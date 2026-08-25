@@ -23,8 +23,12 @@ export function useIngredientCatalog() {
   }, [refresh])
 
   useEffect(() => {
+    // このフックは同時に複数箇所(Fridge/IngredientPicker等)から呼ばれるため、
+    // 固定チャンネル名だと2つ目のsubscribe()が
+    // 「cannot add postgres_changes callbacks after subscribe()」で例外になる。
+    // 呼び出しごとに一意な名前を使い、チャンネルが衝突しないようにする。
     const channel = supabase
-      .channel('ingredient-catalog')
+      .channel(`ingredient-catalog-${Math.random().toString(36).slice(2)}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'ingredient_catalog' }, () => refresh())
       .subscribe()
 
