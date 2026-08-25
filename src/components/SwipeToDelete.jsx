@@ -52,6 +52,8 @@ export function SwipeToDelete({ onDelete, children, className = '' }) {
   }
 
   function commitDelete() {
+    // 退場アニメーション中に(ダブルタップ等で)再度呼ばれても多重発火させない
+    if (phase !== 'idle') return
     setDragging(false)
     setPhase('exiting')
   }

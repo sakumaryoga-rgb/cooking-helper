@@ -11,7 +11,6 @@ import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { supabase } from '@/supabaseClient'
 import { formatQuantity } from '@/lib/format'
-import { addBatchQuantity, consumeBatchQuantity } from '@/lib/batches'
 import { getExpiryInfo, formatExpiryLabel } from '@/lib/shelfLife'
 
 // g/ml のような細かい単位はまとめて増減、個数系は1ずつ増減する
@@ -64,31 +63,21 @@ export function Fridge({ groupId }) {
   }, [ingredients, query, batchesByIngredient, catalogById])
 
   async function adjustQuantity(ingredient, delta) {
-    const current = Number(ingredient.quantity)
-    const next = Math.max(0, current + delta)
-
-    if (delta > 0) {
-      await addBatchQuantity(ingredient.id, delta, { datedToday: dateAsPurchaseDate })
-    } else if (delta < 0) {
-      const consumed = current - next
-      if (consumed > 0) await consumeBatchQuantity(ingredient.id, consumed)
+    // 在庫の増減・ロットの記録・在庫0時の自動削除を1トランザクションで行う
+    // (以前はクライアント側で複数回に分けて処理しており、連打や複数端末からの
+    // 同時操作で更新が失われることがあった)
+    const { data, error } = await supabase.rpc('adjust_ingredient_quantity', {
+      p_ingredient_id: ingredient.id,
+      p_delta: delta,
+      p_dated_today: dateAsPurchaseDate,
+    })
+    if (error) {
+      console.error('数量の更新に失敗しました', error)
+      return
     }
-
-    if (next === 0 && delta < 0) {
-      const { data: usedInRecipe } = await supabase
-        .from('recipe_ingredients')
-        .select('id')
-        .eq('ingredient_id', ingredient.id)
-        .limit(1)
-      // レシピで使われていない食材は、在庫が0になったら自動で冷蔵庫から消す
-      if (!usedInRecipe?.length) {
-        await removeIngredient(ingredient.id)
-        return
-      }
+    if (data?.[0]?.deleted) {
+      removeIngredient(ingredient.id)
     }
-
-    const { error } = await supabase.from('ingredients').update({ quantity: next }).eq('id', ingredient.id)
-    if (error) console.error('数量の更新に失敗しました', error)
   }
 
   return (

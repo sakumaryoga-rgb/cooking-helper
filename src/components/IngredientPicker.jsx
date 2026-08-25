@@ -119,7 +119,11 @@ function CatalogItemRow({ item, category, isSearching, disabled, onSelect, onReq
       disabled={disabled}
       onSelect={() => onSelect(item)}
       onPointerDown={handlePointerDown}
-      onPointerMove={handlePointerMove}
+      // cmdk の CommandItem は内部で独自の onPointerMove
+      // (ホバー選択用)を後から上書きするため、素の onPointerMove は
+      // 効かない。onPointerMoveCapture ならキャプチャフェーズで先に
+      // 発火するので、移動によるキャンセル判定はこちらで行う。
+      onPointerMoveCapture={handlePointerMove}
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerUp}
       onClickCapture={handleClickCapture}
