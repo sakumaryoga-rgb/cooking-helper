@@ -11,6 +11,14 @@ export function MakeableBadge({ status }) {
     )
   }
 
+  if (status.level === 'substitutable') {
+    return (
+      <Badge className="bg-sky-100 text-sky-700 border-sky-200 dark:bg-sky-950 dark:text-sky-300 dark:border-sky-900">
+        代替で作れます
+      </Badge>
+    )
+  }
+
   if (status.level === 'empty') {
     return (
       <Badge variant="outline" className="text-muted-foreground">

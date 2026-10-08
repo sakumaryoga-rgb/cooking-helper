@@ -7,6 +7,8 @@ import { useRecipes } from '@/hooks/useRecipes'
 
 vi.mock('@/hooks/useIngredients', () => ({ useIngredients: vi.fn() }))
 vi.mock('@/hooks/useRecipes', () => ({ useRecipes: vi.fn() }))
+vi.mock('@/hooks/useIngredientCatalog', () => ({ useIngredientCatalog: () => ({ catalog: [] }) }))
+vi.mock('@/hooks/useSubstitutions', () => ({ useSubstitutions: () => ({ rules: [] }) }))
 
 const line = (id, q) => ({ id: `${id}-l`, ingredient_id: id, required_quantity: q, ingredient: { id, name: id, unit: '個' } })
 

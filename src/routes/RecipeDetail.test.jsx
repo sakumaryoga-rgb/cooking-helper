@@ -11,6 +11,16 @@ import { __resetForTests, getState } from '@/lib/swUpdate'
 vi.mock('@/supabaseClient', () => ({ supabase: { rpc: vi.fn() } }))
 vi.mock('@/hooks/useIngredients', () => ({ useIngredients: vi.fn() }))
 vi.mock('@/hooks/useRecipes', () => ({ useRecipes: vi.fn() }))
+vi.mock('@/hooks/useIngredientCatalog', () => ({
+  useIngredientCatalog: () => ({ catalog: [{ id: 'c-thigh', name: '鶏もも肉', unit: 'g' }, { id: 'c-breast', name: '鶏むね肉', unit: 'g' }] }),
+}))
+const disableRule = vi.fn()
+vi.mock('@/hooks/useSubstitutions', () => ({
+  useSubstitutions: () => ({ rules: [{ id: 'rule1', from_catalog_id: 'c-thigh', to_catalog_id: 'c-breast', ratio: 1, note: null }], disableRule }),
+}))
+const refreshLogs = vi.fn()
+let cookLogs = []
+vi.mock('@/hooks/useCookLogs', () => ({ useCookLogs: () => ({ logs: cookLogs, refresh: refreshLogs }) }))
 
 const refreshIngredients = vi.fn()
 const recipe = {
@@ -57,7 +67,7 @@ describe('RecipeDetail', () => {
     expect(screen.getByText('あと2品')).toBeInTheDocument()
   })
 
-  it('調理の確定で、調整した使用量を cook_recipe に渡し在庫を再取得する', async () => {
+  it('調理の確定で、調整した使用量と送信IDを cook_recipe_v2 に渡し、在庫と記録を再取得する', async () => {
     setup([
       { id: 'chicken', name: '鶏もも肉', unit: 'g', quantity: 300 },
       { id: 'egg', name: '卵', unit: '個', quantity: 4 },
@@ -66,18 +76,70 @@ describe('RecipeDetail', () => {
     const dialog = await screen.findByRole('dialog')
     expect(getState().busy).toBe(true)
 
-    const [chickenInput] = within(dialog).getAllByRole('spinbutton')
+    const chickenInput = within(dialog).getByLabelText('鶏もも肉の使用量')
     await userEvent.clear(chickenInput)
     await userEvent.type(chickenInput, '150')
     await userEvent.click(within(dialog).getByRole('button', { name: '確定' }))
 
     await waitFor(() =>
-      expect(supabase.rpc).toHaveBeenCalledWith('cook_recipe', {
+      expect(supabase.rpc).toHaveBeenCalledWith('cook_recipe_v2', {
         p_recipe_id: 'r1',
-        p_used: { chicken: '150', egg: 2 },
+        p_items: [
+          { ingredient_id: 'chicken', quantity: 150, substitute_for: null },
+          { ingredient_id: 'egg', quantity: 2, substitute_for: null },
+        ],
+        p_request_id: expect.stringMatching(/^[0-9a-f-]{36}$/),
       })
     )
     await waitFor(() => expect(refreshIngredients).toHaveBeenCalled())
+    expect(refreshLogs).toHaveBeenCalled()
     await waitFor(() => expect(getState().busy).toBe(false))
+  })
+
+  it('足りない材料を代替で補えれば「代替で作れます」と出し、確定で代替先の在庫を使う', async () => {
+    setup([
+      { id: 'chicken', name: '鶏もも肉', unit: 'g', quantity: 50, catalog_id: 'c-thigh' },
+      { id: 'breast', name: '鶏むね肉', unit: 'g', quantity: 300, catalog_id: 'c-breast' },
+      { id: 'egg', name: '卵', unit: '個', quantity: 4 },
+    ])
+    expect(screen.getByText('代替で作れます')).toBeInTheDocument()
+    expect(screen.getByText(/代わりに 鶏むね肉 150g/)).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: /これを作る/ }))
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByText(/鶏もも肉の代わり/)).toBeInTheDocument()
+    await userEvent.click(within(dialog).getByRole('button', { name: '確定' }))
+    await waitFor(() =>
+      expect(supabase.rpc).toHaveBeenCalledWith(
+        'cook_recipe_v2',
+        expect.objectContaining({
+          p_items: [
+            { ingredient_id: 'chicken', quantity: 50, substitute_for: null },
+            { ingredient_id: 'breast', quantity: 150, substitute_for: '鶏もも肉' },
+            { ingredient_id: 'egg', quantity: 2, substitute_for: null },
+          ],
+        })
+      )
+    )
+  })
+
+  it('代替を使わないことにできる', async () => {
+    setup([
+      { id: 'chicken', name: '鶏もも肉', unit: 'g', quantity: 50, catalog_id: 'c-thigh' },
+      { id: 'breast', name: '鶏むね肉', unit: 'g', quantity: 300, catalog_id: 'c-breast' },
+      { id: 'egg', name: '卵', unit: '個', quantity: 4 },
+    ])
+    await userEvent.click(screen.getByRole('button', { name: 'この代替を使わない' }))
+    expect(disableRule).toHaveBeenCalledWith('rule1')
+  })
+
+  it('最近作った記録を取り消せる', async () => {
+    cookLogs = [{ id: 'log1', created_at: '2026-10-08T12:00:00Z', cook_log_items: [{ ingredient_name: '鶏もも肉', used_quantity: 200, unit: 'g' }] }]
+    setup([{ id: 'chicken', name: '鶏もも肉', unit: 'g', quantity: 100 }])
+    expect(screen.getByText('鶏もも肉 200g')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '取り消す' }))
+    await waitFor(() => expect(supabase.rpc).toHaveBeenCalledWith('undo_cook', { p_cook_log_id: 'log1' }))
+    expect(refreshIngredients).toHaveBeenCalled()
+    cookLogs = []
   })
 })
