@@ -26,7 +26,8 @@ describe('Recipes', () => {
       </MemoryRouter>
     )
     const links = screen.getAllByRole('link').filter((a) => a.getAttribute('href')?.startsWith('/recipes/') && !a.getAttribute('href').endsWith('/new'))
-    expect(links.map((a) => a.textContent)).toEqual(['卵焼き作れます', 'カレーあと2品'])
+    // あと少し(不足1〜2品)のレシピには、足りない材料と数量を添える
+    expect(links.map((a) => a.textContent)).toEqual(['卵焼き作れます', 'カレーpotato あと2個、carrot あと1個あと2品'])
   })
 
   it('レシピがなければ案内を表示する', () => {

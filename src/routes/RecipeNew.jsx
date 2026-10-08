@@ -4,6 +4,7 @@ import { Download, Loader2, Plus, X } from 'lucide-react'
 import { supabase } from '@/supabaseClient'
 import { useIngredients } from '@/hooks/useIngredients'
 import { useIngredientCatalog } from '@/hooks/useIngredientCatalog'
+import { useIngredientAliases } from '@/hooks/useIngredientAliases'
 import { IngredientPicker } from '@/components/IngredientPicker'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -20,6 +21,7 @@ const keyOf = () => `item-${nextKey++}`
 export function RecipeNew({ groupId, userId }) {
   const { ingredients } = useIngredients(groupId)
   const { catalog } = useIngredientCatalog()
+  const { aliases } = useIngredientAliases()
   const [title, setTitle] = useState('')
   const [url, setUrl] = useState('')
   const [source, setSource] = useState(null) // { sourceKey, site, servings, yieldText }
@@ -63,7 +65,7 @@ export function RecipeNew({ groupId, userId }) {
       .filter((line) => !isHeadingLine(line))
       .map((line) => {
         const parsed = parseIngredientLine(line)
-        return { key: keyOf(), rawText: line, ...resolveIngredient(parsed, ingredients, catalog) }
+        return { key: keyOf(), rawText: line, ...resolveIngredient(parsed, ingredients, catalog, aliases) }
       })
     setItems((prev) => [...prev.filter((i) => !i.rawText), ...imported])
     setImportMessage(`${recipe.site} から ${imported.length} 件の材料を読み込みました。分量と保存する材料を確かめてください`)

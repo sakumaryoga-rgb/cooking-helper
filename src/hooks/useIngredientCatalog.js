@@ -10,7 +10,7 @@ export function useIngredientCatalog() {
   const refresh = useCallback(async () => {
     const { data, error } = await supabase
       .from('ingredient_catalog')
-      .select('id, name, unit, category, sort_order, shelf_life_days')
+      .select('id, name, unit, category, sort_order, shelf_life_days, group_id')
       .order('sort_order')
 
     if (error) console.error('食材マスタの取得に失敗しました', error)

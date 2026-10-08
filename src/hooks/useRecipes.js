@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/supabaseClient'
 
 const RECIPE_SELECT =
-  '*, recipe_ingredients(id, ingredient_id, required_quantity, ingredient:ingredients(id, name, unit))'
+  '*, recipe_ingredients(id, ingredient_id, required_quantity, raw_text, ingredient:ingredients(id, name, unit))'
 
 // グループの保存レシピ一覧を取得し、他メンバーの変更をリアルタイムに反映する
 export function useRecipes(groupId) {

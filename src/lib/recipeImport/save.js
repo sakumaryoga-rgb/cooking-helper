@@ -12,6 +12,7 @@ async function ensureIngredient(supabase, groupId, row, fridge) {
   if (found) return found.id
 
   const insert = { group_id: groupId, name, unit: row.unit, quantity: 0 }
+  // 家庭専用の品目(group_id あり)も共通の品目も、冷蔵庫の行からはマスタの ID で参照する
   if (row.kind === 'catalog') insert.catalog_id = row.catalogItem.id
   const { data, error } = await supabase.from('ingredients').insert(insert).select('id').single()
   if (!error) return data.id

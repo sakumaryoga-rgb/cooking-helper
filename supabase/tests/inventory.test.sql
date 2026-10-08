@@ -207,7 +207,11 @@ select set_config('request.jwt.claim.sub', '', false);
 do $$
 begin
   assert (select count(*) from ingredients) = 0, 'anon は食材を読めない';
-  assert (select count(*) from ingredient_catalog) = 0, 'anon は食材マスタも読めない';
+  begin
+    perform count(*) from ingredient_catalog;
+    raise exception 'should have failed';
+  exception when insufficient_privilege then null; -- anon は食材マスタも読めない(migration 013)
+  end;
   begin
     perform adjust_ingredient_quantity(gen_random_uuid(), 1, true);
     raise exception 'should have failed';
@@ -217,8 +221,7 @@ begin
 end $$;
 
 -- ---------------------------------------------------------------
--- 7. 既知の問題を固定するテスト(Phase 2 の migration 013 で変える予定):
---    認証済みなら誰でも公式の食材マスタを削除できる
+-- 7. 共通の食材マスタは別世帯のユーザーでも削除できない(migration 013)
 -- ---------------------------------------------------------------
 reset role;
 set role authenticated;
@@ -228,7 +231,7 @@ declare n int;
 begin
   delete from ingredient_catalog where name = 'ラム肉';
   get diagnostics n = row_count;
-  assert n = 1, '現状は別世帯のユーザーでも公式マスタを削除できる(013で修正予定)';
+  assert n = 0, '共通の食材マスタは削除できない';
 end $$;
 
 reset role;
