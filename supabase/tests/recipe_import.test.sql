@@ -80,5 +80,48 @@ begin
   assert n = 0, 'R2 は R1 のレシピを変更できない';
 end $$;
 
+-- 冷蔵庫で削除しても、レシピが参照している食材は在庫0で残り、レシピの材料は消えない
+select set_config('request.jwt.claim.sub', '00000000-0000-4000-8000-0000000000a7', false);
+do $$
+declare
+  used uuid;
+  unused uuid;
+  deleted boolean;
+begin
+  select ingredient_id into used from recipe_ingredients where raw_text = '鶏むね肉 1枚(250g)';
+  update ingredients set quantity = 300 where id = used;
+  insert into ingredient_batches (ingredient_id, quantity, added_on) values (used, 300, current_date);
+  insert into ingredients (group_id, name, unit, quantity) values (my_group_id(), '使わない食材', '個', 2) returning id into unused;
+
+  deleted := remove_ingredient(used);
+  assert not deleted, 'レシピで使う食材は行を残す';
+  assert (select quantity from ingredients where id = used) = 0, '在庫は0になる';
+  assert not exists (select 1 from ingredient_batches where ingredient_id = used), 'ロットは消える';
+  assert exists (select 1 from recipe_ingredients where ingredient_id = used), 'レシピの材料は残る';
+
+  deleted := remove_ingredient(unused);
+  assert deleted, 'レシピで使わない食材は削除する';
+  assert not exists (select 1 from ingredients where id = unused), '行が消える';
+end $$;
+
+-- 別のグループの食材は削除できない
+select set_config('request.jwt.claim.sub', '00000000-0000-4000-8000-0000000000b7', false);
+do $$
+begin
+  perform remove_ingredient((select ingredient_id from recipe_ingredients limit 1));
+  raise exception 'should have failed';
+exception when others then
+  assert sqlerrm = '権限がありません', sqlerrm;
+end $$;
+
+reset role;
+set role anon;
+do $$
+begin
+  perform remove_ingredient(gen_random_uuid());
+  raise exception 'should have failed';
+exception when insufficient_privilege then null;
+end $$;
+
 reset role;
 \echo 'recipe_import.test.sql: all assertions passed'

@@ -15,9 +15,10 @@ vi.mock('@/hooks/useIngredientCatalog', () => ({ useIngredientCatalog: vi.fn() }
 vi.mock('@/components/IngredientPicker', () => ({ IngredientPicker: () => null }))
 
 const removeIngredient = vi.fn()
+const dropLocal = vi.fn()
 
 function setup(ingredients) {
-  useIngredients.mockReturnValue({ ingredients, loading: false, removeIngredient })
+  useIngredients.mockReturnValue({ ingredients, loading: false, removeIngredient, dropLocal })
   useIngredientBatches.mockReturnValue({ batches: [] })
   useIngredientCatalog.mockReturnValue({ catalog: [] })
   return render(<Fridge groupId="g1" />)
@@ -26,6 +27,7 @@ function setup(ingredients) {
 describe('Fridge の数量変更', () => {
   beforeEach(() => {
     removeIngredient.mockReset()
+    dropLocal.mockReset()
     supabase.rpc.mockReset()
     supabase.rpc.mockResolvedValue({ data: [{ new_quantity: 1, deleted: false }], error: null })
   })
@@ -61,7 +63,8 @@ describe('Fridge の数量変更', () => {
     supabase.rpc.mockResolvedValue({ data: [{ new_quantity: 0, deleted: true }], error: null })
     setup([{ id: 'i3', name: '大葉', unit: '枚', quantity: 1 }])
     await userEvent.click(screen.getByRole('button', { name: '減らす' }))
-    await waitFor(() => expect(removeIngredient).toHaveBeenCalledWith('i3'))
+    await waitFor(() => expect(dropLocal).toHaveBeenCalledWith('i3'))
+    expect(removeIngredient).not.toHaveBeenCalled()
   })
 
   it('RPCがエラーなら一覧から消さない', async () => {
@@ -71,6 +74,18 @@ describe('Fridge の数量変更', () => {
     await userEvent.click(screen.getByRole('button', { name: '減らす' }))
     await waitFor(() => expect(supabase.rpc).toHaveBeenCalled())
     expect(removeIngredient).not.toHaveBeenCalled()
+    expect(dropLocal).not.toHaveBeenCalled()
+  })
+
+  it('在庫0の食材(レシピの材料)は折りたたみ、開くと表示する', async () => {
+    setup([
+      { id: 'a', name: 'にんじん', unit: '本', quantity: 1 },
+      { id: 'b', name: 'しょうゆ', unit: 'ml', quantity: 0 },
+    ])
+    expect(screen.getByText('にんじん')).toBeInTheDocument()
+    expect(screen.queryByText('しょうゆ')).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '在庫なしの食材(1)を表示' }))
+    expect(screen.getByText('しょうゆ')).toBeInTheDocument()
   })
 
   it('検索語で一覧を絞り込む', async () => {

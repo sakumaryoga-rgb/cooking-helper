@@ -32,3 +32,38 @@ alter table recipe_ingredients add constraint recipe_ingredients_raw_text_length
 
 create unique index if not exists recipes_group_source_key_idx
   on recipes (group_id, source_key) where source_key is not null;
+
+-- ------------------------------------------------------------
+-- 冷蔵庫で食材を削除しても、レシピの材料を消さない
+-- ------------------------------------------------------------
+-- recipe_ingredients.ingredient_id は ingredients への on delete cascade のため、冷蔵庫の行を消すと
+-- レシピからもその材料が消えていた。レシピが参照している食材は行を残して在庫を0にし、
+-- 参照がなければ従来どおり行ごと削除する(adjust_ingredient_quantity の在庫0時と同じ扱い)。
+-- 戻り値: true = 行を削除した、false = 在庫0にして残した
+create or replace function remove_ingredient(p_ingredient_id uuid)
+returns boolean
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v_group uuid := my_group_id();
+begin
+  if auth.uid() is null or v_group is null
+     or not exists (select 1 from ingredients where id = p_ingredient_id and group_id = v_group) then
+    raise exception '権限がありません';
+  end if;
+
+  if exists (select 1 from recipe_ingredients where ingredient_id = p_ingredient_id) then
+    delete from ingredient_batches where ingredient_id = p_ingredient_id;
+    update ingredients set quantity = 0 where id = p_ingredient_id and group_id = v_group;
+    return false;
+  end if;
+
+  delete from ingredients where id = p_ingredient_id and group_id = v_group;
+  return true;
+end;
+$$;
+
+revoke all on function remove_ingredient(uuid) from public, anon;
+grant execute on function remove_ingredient(uuid) to authenticated;
