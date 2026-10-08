@@ -13,6 +13,20 @@ COOKDOOR の Supabase は Free プランのため、ダッシュボードから�
 - バックアップには家族のメールアドレスなどの個人情報が含まれる。リポジトリの外
   (例: `~/cookdoor-backups/`)に置き、共有しない。`.gitignore` でも `*.dump` を除外している。
 
+## まとめて実行する(推奨)
+
+`scripts/backup-and-verify.sh` が、下の1と2を1回で行う。接続文字列は非表示の入力で受け取り、
+バックアップ、照合レポート、復元に使った一時クラスタを `~/cookdoor-backups`(権限 700)に残す。
+最後に「判定: 合格」と出れば、件数とスキーマ(テーブル、RLS、ポリシー、関数、インデックス、制約)が
+本番と一致している。
+
+```bash
+bash scripts/backup-and-verify.sh
+```
+
+Realtime のパブリケーション登録は、スキーマを絞った `pg_dump -n` には含まれないため照合から外し、
+本番の登録内容をレポートに記録する。復旧時は migrations の `alter publication` で戻す。
+
 ## 1. バックアップを取る(読み取りのみ)
 
 ```bash
