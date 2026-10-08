@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import { supabase } from '@/supabaseClient'
 import { APP_VERSION } from '@/lib/appVersion'
+import { requestContactNotification } from '@/lib/contactNotify'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -64,6 +65,8 @@ export function Contact() {
       return
     }
     setSent(true)
+    // 運営者への通知(失敗してもお問い合わせは保存済み。未通知は管理画面に出る)
+    requestContactNotification()
   }
 
   if (sent) {
