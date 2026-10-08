@@ -26,7 +26,10 @@ function expiryColorClass(daysLeft) {
 }
 
 export function Fridge({ groupId }) {
-  const { ingredients, loading, removeIngredient } = useIngredients(groupId)
+  const { ingredients, loading, removeIngredient, dropLocal } = useIngredients(groupId)
+  const [showEmpty, setShowEmpty] = useState(false)
+  // 「追加」で選んだ食材は、在庫0でも通常の一覧に出す(このあと「＋」で増やすため)
+  const [pinnedIds, setPinnedIds] = useState(() => new Set())
   const { batches } = useIngredientBatches(groupId)
   const { catalog } = useIngredientCatalog()
   const [pickerOpen, setPickerOpen] = useState(false)
@@ -62,6 +65,59 @@ export function Fridge({ groupId }) {
     return list
   }, [ingredients, query, batchesByIngredient, catalogById])
 
+  // 在庫0の食材(レシピの材料として残っているもの)は折りたたむ。検索中はすべて出す
+  const searching = query.trim() !== ''
+  const visible = (r) => Number(r.ingredient.quantity) > 0 || pinnedIds.has(r.ingredient.id)
+  const inStock = searching ? rows : rows.filter(visible)
+  const emptyRows = searching ? [] : rows.filter((r) => !visible(r))
+
+  function handlePicked(ingredient) {
+    setPinnedIds((prev) => new Set(prev).add(ingredient.id))
+    setPickerOpen(false)
+  }
+
+  function renderRow({ ingredient, expiry }) {
+    return (
+      <li key={ingredient.id}>
+        <SwipeToDelete onDelete={() => removeIngredient(ingredient.id)}>
+          <div className="flex items-center gap-3 px-3 py-2.5">
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium truncate">{ingredient.name}</p>
+              <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+                <span>
+                  {formatQuantity(ingredient.quantity)} {ingredient.unit}
+                </span>
+                {expiry && (
+                  <span className={expiryColorClass(expiry.daysLeft)}>・{formatExpiryLabel(expiry.daysLeft)}</span>
+                )}
+              </p>
+            </div>
+            <div className="flex items-center gap-1">
+              <Button
+                size="icon"
+                variant="outline"
+                className="size-7"
+                onClick={() => adjustQuantity(ingredient, -stepFor(ingredient.unit))}
+                aria-label="減らす"
+              >
+                <Minus className="size-3.5" />
+              </Button>
+              <Button
+                size="icon"
+                variant="outline"
+                className="size-7"
+                onClick={() => adjustQuantity(ingredient, stepFor(ingredient.unit))}
+                aria-label="増やす"
+              >
+                <Plus className="size-3.5" />
+              </Button>
+            </div>
+          </div>
+        </SwipeToDelete>
+      </li>
+    )
+  }
+
   async function adjustQuantity(ingredient, delta) {
     // 在庫の増減・ロットの記録・在庫0時の自動削除を1トランザクションで行う
     // (以前はクライアント側で複数回に分けて処理しており、連打や複数端末からの
@@ -76,7 +132,7 @@ export function Fridge({ groupId }) {
       return
     }
     if (data?.[0]?.deleted) {
-      removeIngredient(ingredient.id)
+      dropLocal(ingredient.id)
     }
   }
 
@@ -119,49 +175,23 @@ export function Fridge({ groupId }) {
           まだ食材がありません。「追加」から登録しましょう。
         </p>
       ) : (
-        <ul className="flex flex-col divide-y divide-border rounded-lg border">
-          {rows.map(({ ingredient, expiry }) => (
-            <li key={ingredient.id}>
-              <SwipeToDelete onDelete={() => removeIngredient(ingredient.id)}>
-                <div className="flex items-center gap-3 px-3 py-2.5">
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">{ingredient.name}</p>
-                    <p className="text-xs text-muted-foreground flex items-center gap-1.5">
-                      <span>
-                        {formatQuantity(ingredient.quantity)} {ingredient.unit}
-                      </span>
-                      {expiry && (
-                        <span className={expiryColorClass(expiry.daysLeft)}>
-                          ・{formatExpiryLabel(expiry.daysLeft)}
-                        </span>
-                      )}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <Button
-                      size="icon"
-                      variant="outline"
-                      className="size-7"
-                      onClick={() => adjustQuantity(ingredient, -stepFor(ingredient.unit))}
-                      aria-label="減らす"
-                    >
-                      <Minus className="size-3.5" />
-                    </Button>
-                    <Button
-                      size="icon"
-                      variant="outline"
-                      className="size-7"
-                      onClick={() => adjustQuantity(ingredient, stepFor(ingredient.unit))}
-                      aria-label="増やす"
-                    >
-                      <Plus className="size-3.5" />
-                    </Button>
-                  </div>
-                </div>
-              </SwipeToDelete>
-            </li>
-          ))}
-        </ul>
+        <>
+          {inStock.length > 0 ? (
+            <ul className="flex flex-col divide-y divide-border rounded-lg border">{inStock.map(renderRow)}</ul>
+          ) : (
+            <p className="text-sm text-muted-foreground py-4 text-center">在庫のある食材はありません。</p>
+          )}
+          {emptyRows.length > 0 && (
+            <div className="flex flex-col gap-2">
+              <Button variant="ghost" size="sm" className="self-start" onClick={() => setShowEmpty((v) => !v)}>
+                {showEmpty ? '在庫なしの食材を隠す' : `在庫なしの食材(${emptyRows.length})を表示`}
+              </Button>
+              {showEmpty && (
+                <ul className="flex flex-col divide-y divide-border rounded-lg border opacity-80">{emptyRows.map(renderRow)}</ul>
+              )}
+            </div>
+          )}
+        </>
       )}
 
       <IngredientPicker
@@ -169,7 +199,7 @@ export function Fridge({ groupId }) {
         onOpenChange={setPickerOpen}
         groupId={groupId}
         ingredients={ingredients}
-        onSelect={() => setPickerOpen(false)}
+        onSelect={handlePicked}
       />
     </div>
   )
