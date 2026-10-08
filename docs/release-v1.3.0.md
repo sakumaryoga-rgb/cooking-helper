@@ -19,7 +19,7 @@
 
 | 順 | 操作 | 確認 |
 | --- | --- | --- |
-| 1 | SQL Editor で `supabase/migrations/012_recipe_import.sql` を全文実行 | エラーなく完了。下の確認SQL |
+| 1 | `supabase/manual/012_precheck.sql` → `supabase/migrations/012_recipe_import.sql`(全文)→ `supabase/manual/012_postcheck.sql` | postcheck がすべて true、件数が precheck と同じ |
 | 2 | v1.3.0 をマージして本番デプロイ、`v1.3.0` タグ | 下の動作確認 |
 
 ```sql
@@ -31,7 +31,8 @@ select indexname from pg_indexes where indexname = 'recipes_group_source_key_idx
 select count(*) from recipes;  -- 適用前と同じ
 ```
 
-012 は列とインデックスを追加するだけで、既存のレシピと材料は変わらない。既存の RLS がそのまま新しい列にも効く。
+012 は列・インデックス・関数 remove_ingredient を追加するだけで、既存のレシピと材料は変わらない(データの変更なし)。
+冷蔵庫での削除は remove_ingredient を通り、レシピで使う食材は在庫0で残る(レシピの材料が消えない)。既存の RLS がそのまま新しい列にも効く。
 Vercel の本番の環境変数 `VITE_SUPABASE_URL` と `VITE_SUPABASE_ANON_KEY` を、Function も使う(追加の設定は不要)。
 
 ## 動作確認(デプロイ後、iPhone)
