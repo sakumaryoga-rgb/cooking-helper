@@ -19,7 +19,8 @@ do $$
 declare g groups;
 begin
   g := create_group('A家');
-  assert g.invite_code ~ '^[0-9A-F]{8}$', '招待コードは英大文字と数字の8文字';
+  assert g.invite_code is null, '新しいグループには旧方式の招待コードを作らない(migration 011)';
+  perform set_config('test.a_token', (select invite_token from create_group_invite()), false);
   assert my_group_id() = g.id, '作成者はそのグループに所属する';
   begin
     perform create_group('二つ目');
@@ -118,12 +119,12 @@ select id as a_recipe from recipes where title = '卵焼き' \gset
 insert into ingredients (group_id, name, unit, quantity)
 select id, 'にんじん', '本', 2 from groups where name = 'A家';
 select id as a_carrot from ingredients where name = 'にんじん' \gset
-select invite_code as a_code, id as a_group from groups where name = 'A家' \gset
+select id as a_group from groups where name = 'A家' \gset
 
 set role authenticated;
 select set_config('request.jwt.claim.sub', '00000000-0000-4000-8000-00000000000b', false);
 select set_config('test.a_carrot', :'a_carrot', false), set_config('test.a_recipe', :'a_recipe', false),
-       set_config('test.a_group', :'a_group', false), set_config('test.a_code', :'a_code', false);
+       set_config('test.a_group', :'a_group', false);
 do $$
 declare n int;
 begin
@@ -161,7 +162,7 @@ begin
   assert n = 0, 'B は A の食材を更新できない';
 
   begin
-    perform join_group(current_setting('test.a_code'));
+    perform join_group_with_invite(current_setting('test.a_token'));
     raise exception 'should have failed';
   exception when others then
     assert sqlerrm = 'すでにグループに所属しています', sqlerrm;
@@ -175,7 +176,7 @@ begin
 end $$;
 
 -- ---------------------------------------------------------------
--- 5. 招待コードでの参加(C)
+-- 5. 招待リンク(トークン)での参加(C)。旧方式の招待コードは使えない
 -- ---------------------------------------------------------------
 set role authenticated;
 select set_config('request.jwt.claim.sub', '00000000-0000-4000-8000-00000000000c', false);
@@ -186,11 +187,14 @@ begin
     perform join_group('ZZZZZZZZ');
     raise exception 'should have failed';
   exception when others then
-    assert sqlerrm = '招待コードが見つかりません', sqlerrm;
+    assert sqlerrm like '招待コードは使えなくなりました%', sqlerrm;
   end;
 
-  g := join_group(lower(current_setting('test.a_code')));
-  assert g.name = 'A家', '小文字で入力しても参加できる';
+  g := join_group_with_invite('not-a-valid-token');
+  assert g is null, '存在しないトークンでは参加できない';
+
+  g := join_group_with_invite(current_setting('test.a_token'));
+  assert g.name = 'A家', '招待トークンで参加できる';
   assert (select count(*) from ingredients) = 1, '参加後は A の食材が見える';
 end $$;
 

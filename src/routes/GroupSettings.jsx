@@ -1,19 +1,71 @@
-import { useState } from 'react'
-import { Copy, Check } from 'lucide-react'
+import { useCallback, useEffect, useState } from 'react'
+import { Copy, Check, Link2 } from 'lucide-react'
+import { supabase } from '@/supabaseClient'
+import { buildInviteUrl } from '@/lib/invite'
 import { Button } from '@/components/ui/button'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
 import { APP_VERSION } from '@/lib/appVersion'
 import { APP_NAME } from '@/lib/brand'
 import { TELEMETRY_NOTICE } from '@/lib/telemetry/notice'
 
+function formatDate(value) {
+  return new Date(value).toLocaleDateString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+}
+
 export function GroupSettings({ group }) {
+  const [status, setStatus] = useState(null) // { active, expiresAt } | null
+  const [issued, setIssued] = useState(null) // 発行直後だけ表示する { url, expiresAt }
+  const [busy, setBusy] = useState(false)
   const [copied, setCopied] = useState(false)
-  const inviteUrl = `${window.location.origin}/onboarding?code=${group.invite_code}`
+  const [error, setError] = useState('')
+
+  const loadStatus = useCallback(async () => {
+    const { data, error: rpcError } = await supabase.rpc('get_group_invite_status')
+    if (rpcError) return
+    const row = Array.isArray(data) ? data[0] : data
+    setStatus(row?.invite_active ? { active: true, expiresAt: row.invite_expires_at } : { active: false })
+  }, [])
+
+  useEffect(() => {
+    loadStatus()
+  }, [loadStatus, group.id])
+
+  async function handleIssue() {
+    setBusy(true)
+    setError('')
+    const { data, error: rpcError } = await supabase.rpc('create_group_invite')
+    setBusy(false)
+    const row = Array.isArray(data) ? data[0] : data
+    if (rpcError || !row?.invite_token) {
+      setError('招待リンクを発行できませんでした')
+      return
+    }
+    setIssued({ url: buildInviteUrl(window.location.origin, row.invite_token), expiresAt: row.invite_expires_at })
+    setStatus({ active: true, expiresAt: row.invite_expires_at })
+    setCopied(false)
+  }
+
+  async function handleRevoke() {
+    setBusy(true)
+    setError('')
+    const { error: rpcError } = await supabase.rpc('revoke_group_invite')
+    setBusy(false)
+    if (rpcError) {
+      setError('招待リンクを無効にできませんでした')
+      return
+    }
+    setIssued(null)
+    setStatus({ active: false })
+  }
 
   async function handleCopy() {
-    await navigator.clipboard.writeText(inviteUrl)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
+    try {
+      await navigator.clipboard.writeText(issued.url)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      setError('コピーできませんでした。リンクを長押ししてコピーしてください')
+    }
   }
 
   return (
@@ -22,14 +74,39 @@ export function GroupSettings({ group }) {
       <Card>
         <CardHeader>
           <CardTitle>{group.name}</CardTitle>
-          <CardDescription>このリンクを共有すると、家族・友人がグループに参加できます</CardDescription>
+          <CardDescription>
+            招待リンクを共有すると、家族がグループに参加できます。リンクは7日間有効で、発行し直すと前のリンクは使えなくなります
+          </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
-          <div className="text-sm bg-muted rounded-md px-3 py-2 break-all">{inviteUrl}</div>
-          <Button variant="outline" onClick={handleCopy}>
-            {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
-            {copied ? 'コピーしました' : 'リンクをコピー'}
+          {issued ? (
+            <>
+              <div className="text-sm bg-muted rounded-md px-3 py-2 break-all select-all">{issued.url}</div>
+              <p className="text-xs text-muted-foreground">
+                このリンクは今だけ表示されます。{formatDate(issued.expiresAt)} まで有効です
+              </p>
+              <Button variant="outline" onClick={handleCopy}>
+                {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
+                {copied ? 'コピーしました' : 'リンクをコピー'}
+              </Button>
+            </>
+          ) : status?.active ? (
+            <p className="text-sm text-muted-foreground">
+              有効な招待リンクがあります({formatDate(status.expiresAt)} まで)。リンクを忘れた場合は発行し直してください
+            </p>
+          ) : (
+            <p className="text-sm text-muted-foreground">有効な招待リンクはありません</p>
+          )}
+          <Button onClick={handleIssue} disabled={busy}>
+            <Link2 className="size-4" />
+            {status?.active || issued ? '招待リンクを発行し直す' : '招待リンクを発行'}
           </Button>
+          {(status?.active || issued) && (
+            <Button variant="ghost" onClick={handleRevoke} disabled={busy}>
+              招待リンクを無効にする
+            </Button>
+          )}
+          {error && <p className="text-destructive text-sm">{error}</p>}
         </CardContent>
       </Card>
       <p className="text-center text-xs text-muted-foreground">
