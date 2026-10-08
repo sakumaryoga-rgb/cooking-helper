@@ -7,9 +7,10 @@ function call(headers = { authorization: 'Bearer user.token.x' }) {
 }
 
 const contacts = [
-  { contact_id: 'c1', contact_category: 'bug', contact_body: '在庫が減りません', contact_app_version: '1.9.0' },
-  { contact_id: 'c2', contact_category: 'question', contact_body: '使い方', contact_app_version: '1.9.0' },
+  { contact_id: 'c1aaaaaa-0000-4000-8000-000000000001', contact_created_at: '2026-10-09T03:00:00Z', contact_category: 'bug' },
+  { contact_id: 'c2bbbbbb-0000-4000-8000-000000000002', contact_created_at: '2026-10-09T03:05:00Z', contact_category: 'question' },
 ]
+const own = [{ contact_id: 'c3cccccc-0000-4000-8000-000000000003', contact_created_at: '2026-10-09T03:10:00Z', contact_category: 'other' }]
 let webhookStatus = 200
 
 beforeEach(() => {
@@ -23,11 +24,15 @@ beforeEach(() => {
     'fetch',
     vi.fn(async (url, init) => {
       const u = String(url)
-      if (u.endsWith('/auth/v1/user'))
-        return new Response('{}', { status: ['Bearer user.token.x', 'Bearer admin.token.x'].includes(init.headers.Authorization) ? 200 : 401 })
+      if (u.endsWith('/auth/v1/user')) {
+        const ids = { 'Bearer user.token.x': 'user-1', 'Bearer admin.token.x': 'admin-1' }
+        const id = ids[init.headers.Authorization]
+        return id ? new Response(JSON.stringify({ id })) : new Response('{}', { status: 401 })
+      }
       if (u.endsWith('/rpc/is_app_admin')) return new Response(JSON.stringify(init.headers.Authorization === 'Bearer admin.token.x'))
-      if (u.endsWith('/auth/v1/user') && init.headers.Authorization === 'Bearer admin.token.x') return new Response('{}')
+
       if (u.endsWith('/rpc/claim_contact_notifications')) return new Response(JSON.stringify(contacts))
+      if (u.endsWith('/rpc/claim_own_contact_notifications')) return new Response(JSON.stringify(JSON.parse(init.body).p_user_id === 'user-1' ? own : []))
       if (u.endsWith('/rpc/mark_contact_notification')) return new Response(null, { status: 204 })
       if (u === 'https://hooks.example/abc') return new Response('', { status: webhookStatus })
       return new Response('', { status: 404 })
@@ -42,24 +47,27 @@ afterEach(() => {
 const marks = () => fetch.mock.calls.filter(([u]) => String(u).endsWith('/rpc/mark_contact_notification')).map(([, i]) => JSON.parse(i.body))
 
 describe('/api/contact-notify', () => {
-  it('未通知を送って成功を記録する。件数は運営者にだけ返し、service_role の鍵は Supabase にだけ送る', async () => {
+  it('一般の利用者は、本人の直近のお問い合わせだけを通知でき、件数は返らない', async () => {
     expect(await call()).toEqual({ status: 200, json: { ok: true } })
+    const claims = fetch.mock.calls.filter(([u]) => String(u).includes('/rpc/claim_'))
+    expect(claims.map(([u, i]) => [String(u).split('/rpc/')[1], JSON.parse(i.body)])).toEqual([['claim_own_contact_notifications', { p_user_id: 'user-1' }]])
+    expect(marks()).toEqual([{ p_id: own[0].contact_id, p_ok: true, p_error: null }])
+  })
+
+  it('運営者は未通知の全件を通知でき、service_role の鍵は Supabase にだけ送る', async () => {
+    expect(await call({ authorization: 'Bearer admin.token.x' })).toEqual({ status: 200, json: { sent: 2, failed: 0 } })
     expect(marks()).toEqual([
-      { p_id: 'c1', p_ok: true, p_error: null },
-      { p_id: 'c2', p_ok: true, p_error: null },
+      { p_id: contacts[0].contact_id, p_ok: true, p_error: null },
+      { p_id: contacts[1].contact_id, p_ok: true, p_error: null },
     ])
     const webhookCalls = fetch.mock.calls.filter(([u]) => u === 'https://hooks.example/abc')
     expect(JSON.stringify(webhookCalls)).not.toContain('service-secret')
   })
 
-  it('運営者には送信件数を返す', async () => {
-    expect((await call({ authorization: 'Bearer admin.token.x' })).json).toEqual({ sent: 2, failed: 0 })
-  })
-
   it('送信に失敗したら理由を記録する(お問い合わせは保存済み)', async () => {
     webhookStatus = 500
     expect((await call({ authorization: 'Bearer admin.token.x' })).json).toEqual({ sent: 0, failed: 2 })
-    expect(marks()[0]).toEqual({ p_id: 'c1', p_ok: false, p_error: 'webhook 500' })
+    expect(marks()[0]).toEqual({ p_id: contacts[0].contact_id, p_ok: false, p_error: 'webhook 500' })
   })
 
   it('設定済みでも、未認証・偽のトークンでは通知を起動せず、お問い合わせを取り出しも記録もしない', async () => {
@@ -79,10 +87,17 @@ describe('/api/contact-notify', () => {
     expect(fetch.mock.calls.some(([u]) => String(u).includes('/rpc/'))).toBe(false)
   })
 
-  it('通知の文面に返信先は入らず、本文は300文字まで', () => {
-    const m = buildMessage({ contact_category: 'bug', contact_body: 'x'.repeat(400), contact_app_version: '1.9.0' })
+  it('通知の文面は受付番号・種類・受付日時だけで、本文や返信先は入らない', async () => {
+    const m = buildMessage({ contact_id: 'c1aaaaaa-0000-4000-8000-000000000001', contact_created_at: '2026-10-09T03:00:00Z', contact_category: 'bug', contact_body: '秘密の本文 u@example.com' })
     expect(m.subject).toBe('COOKDOOR お問い合わせ(不具合の報告)')
-    expect(m.text).toContain('x'.repeat(300))
-    expect(m.text).not.toContain('x'.repeat(301))
+    expect(m.text).toContain('受付番号: c1aaaaaa')
+    expect(m.text).toContain('種類: 不具合の報告')
+    expect(m.text).toContain('受付日時: 2026/10/9 12:00:00')
+    expect(m.text).not.toContain('秘密の本文')
+    expect(m.text).not.toContain('@')
+    // Webhook に実際に送る内容も同じ
+    await call()
+    const sentBody = fetch.mock.calls.find(([u]) => u === 'https://hooks.example/abc')[1].body
+    expect(sentBody).not.toMatch(/本文|@example/)
   })
 })
