@@ -1,5 +1,8 @@
-// POST /api/contact-notify — 未通知のお問い合わせを運営者に通知する(サーバー側だけで動く)。
-// お問い合わせの送信後にアプリが呼ぶ。管理画面の「今すぐ通知」からも呼ぶ。ログイン中の利用者だけが呼べる。
+// POST /api/contact-notify — お問い合わせを運営者に通知する(サーバー側だけで動く)。
+// 起動できるのは次の2つだけ(どちらも Supabase Auth でサーバーが本人を確かめる):
+//   - 運営者(管理画面の「今すぐ通知」・再通知): 未通知の全件
+//   - 一般の利用者(お問い合わせの送信後にアプリが呼ぶ): 本人が10分以内に送った未通知のものだけ
+// 通知には受付番号・種類・受付日時だけを送る(本文と返信先は送らない)。
 //
 // 必要な環境変数(Vercel の Production だけに設定する。VITE_ を付けないので、アプリの配信物には含まれない)
 //   SUPABASE_SERVICE_ROLE_KEY            未通知の取り出しと結果の記録に使う(service_role 専用の関数だけを呼ぶ)
@@ -31,13 +34,16 @@ function config() {
   }
 }
 
+// 本人の利用者 ID(確かめられなければ null)
 async function verifyUser(cfg, authorization) {
-  if (!/^Bearer [A-Za-z0-9._-]+$/.test(authorization ?? '')) return false
+  if (!/^Bearer [A-Za-z0-9._-]+$/.test(authorization ?? '')) return null
   try {
     const r = await fetch(`${cfg.url}/auth/v1/user`, { headers: { apikey: cfg.anonKey, Authorization: authorization }, signal: AbortSignal.timeout(5000) })
-    return r.ok
+    if (!r.ok) return null
+    const user = await r.json()
+    return typeof user?.id === 'string' ? user.id : null
   } catch {
-    return false
+    return null
   }
 }
 
@@ -68,12 +74,14 @@ async function rpc(cfg, name, body) {
   return text ? JSON.parse(text) : null
 }
 
+// 通知の文面: 受付番号・種類・受付日時だけ(自由入力の本文と返信先は含めない)
 export function buildMessage(contact) {
-  const label = CATEGORY_LABELS[contact.contact_category] ?? contact.contact_category
-  const body = String(contact.contact_body ?? '').slice(0, 300)
+  const label = CATEGORY_LABELS[contact.contact_category] ?? 'その他'
+  const id = String(contact.contact_id ?? '').slice(0, 8)
+  const at = new Date(contact.contact_created_at).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })
   return {
     subject: `COOKDOOR お問い合わせ(${label})`,
-    text: `COOKDOOR にお問い合わせがありました(${label}、v${contact.contact_app_version ?? '-'})\n\n${body}\n\n管理画面: https://cookdoor.app/admin`,
+    text: `COOKDOOR にお問い合わせがありました\n受付番号: ${id}\n種類: ${label}\n受付日時: ${at}\n内容は管理画面で確認してください: https://cookdoor.app/admin`,
   }
 }
 
@@ -105,11 +113,16 @@ export default async function handler(req, res) {
   if (cfg.vercelEnv && cfg.vercelEnv !== 'production') return json(res, 503, { error: 'not_configured' })
   const provider = cfg.webhook || (cfg.resendKey && cfg.emailTo && cfg.emailFrom)
   if (!cfg.url || !cfg.anonKey || !cfg.serviceKey || !provider) return json(res, 503, { error: 'not_configured' })
-  if (!(await verifyUser(cfg, req.headers.authorization))) return json(res, 401, { error: 'unauthorized' })
+  const userId = await verifyUser(cfg, req.headers.authorization)
+  if (!userId) return json(res, 401, { error: 'unauthorized' })
+  const admin = await isAdmin(cfg, req.headers.authorization)
 
   let claimed
   try {
-    claimed = (await rpc(cfg, 'claim_contact_notifications', { p_limit: 10 })) ?? []
+    claimed =
+      (admin
+        ? await rpc(cfg, 'claim_contact_notifications', { p_limit: 10 })
+        : await rpc(cfg, 'claim_own_contact_notifications', { p_user_id: userId })) ?? []
   } catch {
     return json(res, 502, { error: 'claim_failed' })
   }
@@ -131,6 +144,6 @@ export default async function handler(req, res) {
     }
   }
   // 送信件数は運営者にだけ返す(一般の利用者には、お問い合わせの件数も分からないようにする)
-  if (await isAdmin(cfg, req.headers.authorization)) return json(res, 200, { sent, failed })
+  if (admin) return json(res, 200, { sent, failed })
   return json(res, 200, { ok: true })
 }
