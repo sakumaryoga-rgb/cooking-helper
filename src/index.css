@@ -57,21 +57,23 @@ body {
 }
 
 :root {
-  --background: oklch(1 0 0);
+  /* COOKDOOR のブランド色(設計書 9 章): 黄色をアクセント(黄色の上の文字は濃い茶色)、
+     トマトの赤を「期限」と「不足」の警告色、クリームの白を背景にする */
+  --background: #fbf8f1;
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.145 0 0);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
+  --primary: #fed712;
+  --primary-foreground: #3b2a1c;
   --secondary: oklch(0.97 0 0);
   --secondary-foreground: oklch(0.205 0 0);
   --muted: oklch(0.97 0 0);
   --muted-foreground: oklch(0.556 0 0);
   --accent: oklch(0.97 0 0);
   --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
+  --destructive: #e53d26;
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
@@ -135,4 +137,14 @@ body {
   html {
     @apply font-sans;
   }
+}
+/* iPhone の上下の安全領域(ノッチ・ホームインジケーター)。index.html は viewport-fit=cover */
+@utility pt-safe {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+@utility pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+@utility bottom-nav {
+  bottom: calc(3.75rem + env(safe-area-inset-bottom, 0px));
 }

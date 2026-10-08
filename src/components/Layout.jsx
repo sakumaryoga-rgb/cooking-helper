@@ -1,58 +1,55 @@
 import { NavLink, Outlet } from 'react-router-dom'
-import { Refrigerator, ChefHat, Users, LogOut } from 'lucide-react'
-import { Button } from '@/components/ui/button'
-import { supabase } from '@/supabaseClient'
+import { Home, ChefHat, Refrigerator, Settings } from 'lucide-react'
 import { AdSlot } from '@/components/AdSlot'
 import { BrandMark } from '@/components/BrandMark'
 import { APP_NAME } from '@/lib/brand'
 
+// 下部タブ4つ(設計書 4 章)。親指が届く下側に置き、iPhone の安全領域の分だけ余白を足す
 const NAV_ITEMS = [
-  { to: '/fridge', label: '冷蔵庫', icon: Refrigerator },
+  { to: '/', label: 'ホーム', icon: Home, end: true },
   { to: '/recipes', label: 'レシピ', icon: ChefHat },
-  { to: '/group', label: 'グループ', icon: Users },
+  { to: '/fridge', label: '冷蔵庫', icon: Refrigerator },
+  { to: '/settings', label: '設定', icon: Settings },
 ]
 
 export function Layout({ groupName }) {
-  // この端末だけをログアウトする。既定の global だと、同じアカウントの他の端末
-  // (家族の iPhone、Safari とホーム画面のアプリ)も次のトークン更新でログアウトされる
-  // (docs/auth-session-investigation.md)
-  async function handleSignOut() {
-    await supabase.auth.signOut({ scope: 'local' })
-  }
-
   return (
     <div className="min-h-svh flex flex-col bg-background">
-      <header className="border-b sticky top-0 bg-background/80 backdrop-blur z-10">
-        <div className="max-w-lg mx-auto px-4 h-14 flex items-center justify-between">
+      <header className="pt-safe border-b sticky top-0 bg-background/90 backdrop-blur z-10">
+        <div className="max-w-lg mx-auto px-4 h-14 flex items-center">
           <span className="flex min-w-0 items-center gap-2">
             <BrandMark size="sm" showName={false} />
             <span className="font-medium text-sm truncate">{groupName ?? APP_NAME}</span>
           </span>
-          <Button variant="ghost" size="icon" onClick={handleSignOut} aria-label="サインアウト">
-            <LogOut className="size-4" />
-          </Button>
         </div>
       </header>
 
-      <main className="flex-1 max-w-lg w-full mx-auto px-4 py-4 pb-24">
+      <main className="flex-1 max-w-lg w-full mx-auto px-4 py-4 pb-[calc(6rem+env(safe-area-inset-bottom,0px))]">
         <Outlet />
         <AdSlot />
       </main>
 
-      <nav className="border-t bg-background/80 backdrop-blur fixed bottom-0 inset-x-0 z-10">
-        <div className="max-w-lg mx-auto grid grid-cols-3">
-          {NAV_ITEMS.map(({ to, label, icon: Icon }) => (
+      <nav className="pb-safe border-t bg-background/95 backdrop-blur fixed bottom-0 inset-x-0 z-20" aria-label="メイン">
+        <div className="max-w-lg mx-auto grid grid-cols-4">
+          {NAV_ITEMS.map(({ to, label, icon: Icon, end }) => (
             <NavLink
               key={to}
               to={to}
+              end={end}
               className={({ isActive }) =>
-                `flex flex-col items-center gap-1 py-2.5 text-xs ${
-                  isActive ? 'text-foreground' : 'text-muted-foreground'
+                `flex h-15 flex-col items-center justify-center gap-1 text-xs ${
+                  isActive ? 'text-foreground font-medium' : 'text-muted-foreground'
                 }`
               }
             >
-              <Icon className="size-5" />
-              {label}
+              {({ isActive }) => (
+                <>
+                  <span className={`flex h-7 w-12 items-center justify-center rounded-full ${isActive ? 'bg-primary text-primary-foreground' : ''}`}>
+                    <Icon className="size-5" />
+                  </span>
+                  {label}
+                </>
+              )}
             </NavLink>
           ))}
         </div>
