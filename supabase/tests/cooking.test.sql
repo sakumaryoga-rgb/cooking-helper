@@ -39,12 +39,12 @@ begin
   perform set_config('test.thigh', thigh::text, false);
   perform set_config('test.breast', breast::text, false);
 
-  -- 1. 調理: 日付なし → 古い順にロットを消費し、記録が残る
+  -- 1. 調理: 期限の近い順(推定期限は購入日 + 日持ち日数)にロットを消費し、日付なしは最後。記録が残る
   log1 := cook_recipe_v2(r, jsonb_build_array(jsonb_build_object('ingredient_id', thigh, 'quantity', 120)), '11111111-1111-4111-8111-111111111111');
   assert (select quantity from ingredients where id = thigh) = 130, '250 - 120 = 130';
-  assert not exists (select 1 from ingredient_batches where ingredient_id = thigh and added_on is null), '日付なしロットから先に消費';
-  assert (select quantity from ingredient_batches where ingredient_id = thigh and added_on = current_date - 10) = 30, '次に古いロットから70';
-  assert (select quantity from ingredient_batches where ingredient_id = thigh and added_on = current_date) = 100, '今日のロットは残る';
+  assert not exists (select 1 from ingredient_batches where ingredient_id = thigh and added_on = current_date - 10), '10日前のロットから先に消費';
+  assert (select quantity from ingredient_batches where ingredient_id = thigh and added_on = current_date) = 80, '次に今日のロットから20';
+  assert (select quantity from ingredient_batches where ingredient_id = thigh and added_on is null) = 50, '日付なしロットは最後まで残る';
   assert (select used_quantity from cook_log_items where cook_log_id = log1) = 120, '記録に使用量';
 
   -- 2. 二重送信: 同じ request_id は1回だけ
@@ -69,14 +69,14 @@ begin
   assert undo_cook(log2), '取り消せる';
   assert (select quantity from ingredients where id = thigh) = 130, 'もも肉が130に戻る';
   assert (select quantity from ingredients where id = breast) = 300, 'むね肉が300に戻る';
-  assert (select quantity from ingredient_batches where ingredient_id = thigh and added_on = current_date - 10) = 30, '古いロットが戻る';
-  assert (select quantity from ingredient_batches where ingredient_id = thigh and added_on = current_date) = 100, '今日のロットが戻る';
+  assert (select quantity from ingredient_batches where ingredient_id = thigh and added_on = current_date) = 80, '今日のロットが戻る';
+  assert (select quantity from ingredient_batches where ingredient_id = thigh and added_on is null) = 50, '日付なしロットが戻る';
   assert not undo_cook(log2), '2回目の取り消しは何もしない';
   assert (select quantity from ingredients where id = thigh) = 130, '二重には戻さない';
 
   assert undo_cook(log1), '最初の調理も取り消せる';
   assert (select quantity from ingredients where id = thigh) = 250, '元の250に戻る';
-  assert (select quantity from ingredient_batches where ingredient_id = thigh and added_on is null) = 50, '日付なしロットも戻る';
+  assert (select quantity from ingredient_batches where ingredient_id = thigh and added_on = current_date - 10) = 100, '10日前のロットも戻る';
   assert (select coalesce(sum(quantity), 0) from ingredient_batches where ingredient_id = thigh) = 250, 'ロットの合計も250';
 
   -- 5. 不正な指定

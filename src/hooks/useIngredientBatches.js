@@ -14,7 +14,7 @@ export function useIngredientBatches(groupId) {
 
     const { data, error } = await supabase
       .from('ingredient_batches')
-      .select('id, ingredient_id, quantity, added_on, created_at')
+      .select('id, ingredient_id, quantity, added_on, best_before, use_by, created_at')
 
     if (error) console.error('食材ロットの取得に失敗しました', error)
     setBatches(data ?? [])

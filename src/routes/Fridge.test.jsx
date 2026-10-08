@@ -98,10 +98,43 @@ describe('Fridge の数量変更', () => {
     setup([{ id: 'b', name: 'しょうゆ', unit: 'ml', quantity: 0 }])
     expect(screen.queryByText('しょうゆ')).not.toBeInTheDocument()
     await act(async () => pickerProps.onSelect({ id: 'b', name: 'しょうゆ', unit: 'ml', quantity: 0 }))
+    // 選んだ直後に、量と期限を入れるダイアログが開く
+    expect(await screen.findByRole('dialog', { name: 'しょうゆ を増やす' })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'キャンセル' }))
     expect(screen.getByText('しょうゆ')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /在庫なしの食材/ })).not.toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '増やす' }))
     expect(supabase.rpc).toHaveBeenCalledWith('adjust_ingredient_quantity', expect.objectContaining({ p_ingredient_id: 'b' }))
+  })
+
+  it('期限切れ・推定・未設定を区別して表示し、期限の近い順に並べ、ロットを開ける', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-10-08T12:00:00'))
+    useIngredientBatches.mockReturnValue({
+      batches: [
+        { id: 'b1', ingredient_id: 'milk', quantity: 500, added_on: '2026-10-01', use_by: '2026-10-07' },
+        { id: 'b2', ingredient_id: 'egg', quantity: 6, added_on: '2026-10-07', best_before: null, use_by: null },
+      ],
+    })
+    useIngredients.mockReturnValue({
+      ingredients: [
+        { id: 'rice', name: '米', unit: 'g', quantity: 1000 },
+        { id: 'egg', name: '卵', unit: '個', quantity: 6 },
+        { id: 'milk', name: '牛乳', unit: 'ml', quantity: 500 },
+      ],
+      loading: false,
+      removeIngredient,
+      dropLocal,
+    })
+    useIngredientCatalog.mockReturnValue({ catalog: [] })
+    render(<Fridge groupId="g1" />)
+    const names = screen.getAllByRole('button', { expanded: false }).map((b) => b.textContent)
+    expect(names[0]).toMatch(/^牛乳.*消費期限 10\/7・期限切れ/)
+    expect(names[1]).toMatch(/^卵.*推定 10\/14・あと6日/)
+    expect(names[2]).toMatch(/^米.*期限未設定/)
+    await userEvent.click(screen.getByRole('button', { name: /^卵/ }))
+    expect(screen.getByRole('list', { name: '卵のロット' })).toHaveTextContent('6個・10/7購入')
+    vi.useRealTimers()
   })
 
   it('検索語で一覧を絞り込む', async () => {

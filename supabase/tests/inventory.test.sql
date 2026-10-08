@@ -53,11 +53,11 @@ begin
   assert (select quantity from ingredient_batches where ingredient_id = ing and added_on is null) = 8, '日付なしロットは8';
   assert (select quantity from ingredient_batches where ingredient_id = ing and added_on = current_date) = 10, '日付ありロットは10';
 
-  -- 減らすときは日付なしロットから先に消費する
+  -- 減らすときは期限の近いロットから消費し、期限のない(日付なし)ロットは最後(FEFO、migration 015)
   select * into r from adjust_ingredient_quantity(ing, -12, true);
   assert r.new_quantity = 6, '－12で6';
-  assert not exists (select 1 from ingredient_batches where ingredient_id = ing and added_on is null), '日付なしロットが先に消える';
-  assert (select quantity from ingredient_batches where ingredient_id = ing) = 6, '日付ありロットが6残る';
+  assert not exists (select 1 from ingredient_batches where ingredient_id = ing and added_on = current_date), '日付ありロット(推定期限あり)が先に消える';
+  assert (select quantity from ingredient_batches where ingredient_id = ing and added_on is null) = 6, '日付なしロットが6残る';
   assert (select quantity from ingredients where id = ing) = 6, '在庫の数量も6';
 
   -- 在庫0になり、レシピから参照されていなければ食材ごと削除する

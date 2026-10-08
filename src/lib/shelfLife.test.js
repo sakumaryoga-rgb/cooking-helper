@@ -57,3 +57,38 @@ describe('formatExpiryLabel', () => {
     expect(formatExpiryLabel(days)).toBe(label)
   })
 })
+
+describe('ロットの期限(入力した期限と推定)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-10-08T12:00:00'))
+  })
+  afterEach(() => vi.useRealTimers())
+
+  const catalog = new Map([['meat', { id: 'meat', shelf_life_days: 3 }]])
+  const ing = { id: 'i', catalog_id: 'meat' }
+
+  it('入力した期限を推定より優先し、種類を区別する', async () => {
+    const { getBatchExpiry, describeExpiry } = await import('./shelfLife')
+    expect(getBatchExpiry({ added_on: '2026-10-01', use_by: '2026-10-10' }, ing, catalog)).toMatchObject({ kind: 'use_by', daysLeft: 2, estimated: false })
+    expect(getBatchExpiry({ added_on: '2026-10-01', best_before: '2026-10-20' }, ing, catalog)).toMatchObject({ kind: 'best_before', daysLeft: 12 })
+    const est = getBatchExpiry({ added_on: '2026-10-07' }, ing, catalog)
+    expect(est).toMatchObject({ kind: 'estimated', daysLeft: 2, estimated: true })
+    expect(describeExpiry(est)).toBe('推定 10/10・あと2日')
+    expect(getBatchExpiry({ added_on: null }, ing, catalog)).toBeNull()
+  })
+
+  it('食材の期限は在庫のあるロットのうち最も早いもの。期限切れ・間近・未設定を区別する', async () => {
+    const { getExpiryState } = await import('./shelfLife')
+    const info = getExpiryInfo(ing, [
+      { added_on: '2026-10-08', best_before: '2026-10-30', quantity: 1 },
+      { added_on: '2026-10-08', use_by: '2026-10-07', quantity: 1 },
+      { added_on: '2026-10-08', use_by: '2026-10-01', quantity: 0 },
+    ], catalog)
+    expect(info).toMatchObject({ kind: 'use_by', daysLeft: -1 })
+    expect(getExpiryState(info)).toBe('expired')
+    expect(getExpiryState({ daysLeft: 2 })).toBe('soon')
+    expect(getExpiryState({ daysLeft: 3 })).toBe('ok')
+    expect(getExpiryState(null)).toBe('none')
+  })
+})
