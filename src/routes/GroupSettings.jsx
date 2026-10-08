@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
 import { APP_VERSION } from '@/lib/appVersion'
 import { APP_NAME } from '@/lib/brand'
+import { TELEMETRY_NOTICE } from '@/lib/telemetry/notice'
 
 export function GroupSettings({ group }) {
   const [copied, setCopied] = useState(false)
@@ -34,6 +35,7 @@ export function GroupSettings({ group }) {
       <p className="text-center text-xs text-muted-foreground">
         {APP_NAME} バージョン {APP_VERSION}
       </p>
+      <p className="text-center text-xs text-muted-foreground">{TELEMETRY_NOTICE}</p>
       <details className="text-xs text-muted-foreground">
         <summary className="cursor-pointer text-center">ホーム画面のアイコンが古いままの場合</summary>
         <div className="mt-2 flex flex-col gap-1.5 rounded-lg bg-muted px-3 py-2.5">

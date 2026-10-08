@@ -4,7 +4,8 @@
 
 - リリースごとに `v<package.json の version>` の注釈付きタグを付ける。
 - タグは main にマージした後のコミット(マージコミット)に付ける。ブランチ上のコミットには付けない。
-- v1.0.0 以前の本番(88f53b5、package.json は 0.0.0)には `v0.0.0` を付けてある。ロールバックの戻り先として使う。
+- v1.0.0 以前の本番(88f53b5、package.json は 0.0.0)には `v0.0.0` を付けてある。
+- 戻り先は「1つ前のタグ」。v1.0.1 なら `v1.0.0`(74da011)、v1.0.0 なら `v0.0.0`(88f53b5)。
 
 ```bash
 git switch main && git pull
@@ -18,7 +19,8 @@ git push origin v1.0.0
 
 ### 方法A: Vercel の Instant Rollback(最短)
 
-1. Vercel の Deployments で、Environment が Production の直前のデプロイ(v1.0.0 なら 88f53b5)を開く。
+1. Vercel の Deployments で、Environment が Production の直前のデプロイを開く
+   (v1.0.1 なら 74da011、v1.0.0 なら 88f53b5)。
 2. メニューから「Instant Rollback」を選ぶ。ビルドは行われず、数秒で切り替わる。
 3. Instant Rollback の後は、main に push しても本番ドメインが自動では切り替わらない。
    修正版を出すときは、そのデプロイを「Promote to Production」で本番に戻す。
@@ -28,7 +30,8 @@ git push origin v1.0.0
 
 ### 方法B: main で revert して再デプロイ
 
-v1.0.0 はマージコミット1つで main に入る前提。`<merge>` はそのマージコミットの SHA。
+各版はマージコミット1つで main に入る前提。`<merge>` は戻したい版のマージコミットの SHA
+(v1.0.1 は ca87aaa、v1.0.0 は 74da011)。
 スカッシュマージした場合は `-m 1` を付けずに `git revert <squash のコミット>` とする。
 
 ```bash
@@ -38,7 +41,7 @@ npm run lint && npm test && npm run build
 git push origin main        # Vercel が production として再ビルドする
 ```
 
-- revert 後の main の内容が `v0.0.0` と一致することを確かめる: `git diff v0.0.0 main --stat` が空。
+- revert 後の main の内容が戻り先のタグと一致することを確かめる(例: `git diff v1.0.0 main --stat` が空)。
 - Preview から古い版を「Promote」しない。v0.0.0 のコードには Preview で本番DBに接続しない仕組みがないため、
   古いコードの Preview ビルドは本番DBにつながる。戻すときは方法A か方法B だけを使う。
 
