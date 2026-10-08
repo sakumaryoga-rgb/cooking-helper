@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/supabaseClient'
 import { Button } from '@/components/ui/button'
 import { CONTACT_CATEGORIES } from '@/routes/Contact'
+import { requestContactNotification } from '@/lib/contactNotify'
 
 const GATE_MESSAGES = {
   forbidden: 'この画面は運営者だけが使えます',
@@ -45,11 +46,34 @@ function Table({ caption, columns, rows }) {
   )
 }
 
+// 保存期間を過ぎた記録と、自動削除(pg_cron)の登録状況
+function RetentionStatus({ retention }) {
+  if (!retention) return <p className="text-xs text-muted-foreground">データがありません</p>
+  const jobs = retention.cron_jobs ?? []
+  const rows = [
+    ['画面の利用記録', retention.page_views_overdue, 'purge-usage-and-error-logs', 'select * from purge_usage_and_error_logs();'],
+    ['エラーの記録', retention.client_errors_overdue, 'purge-usage-and-error-logs', 'select * from purge_usage_and_error_logs();'],
+    ['お問い合わせの返信先', retention.emails_overdue, 'purge-contact-emails', 'select purge_contact_emails();'],
+  ]
+  return (
+    <ul className="flex flex-col gap-1 rounded-lg border bg-card px-3 py-2 text-xs">
+      {rows.map(([label, overdue, job, sql]) => (
+        <li key={label} className="flex flex-col gap-0.5">
+          <span>
+            {label}: 90日を過ぎて残っている {overdue ?? 0} 件・自動削除 {jobs.includes(job) ? 'あり' : 'なし(手動)'}
+          </span>
+          {overdue > 0 && <code className="text-destructive">SQL Editor で {sql}</code>}
+        </li>
+      ))}
+    </ul>
+  )
+}
+
 function rate(success, total) {
   return total > 0 ? `${Math.round((success / total) * 100)}%` : '-'
 }
 
-function ContactRow({ contact, onSave }) {
+function ContactRow({ contact, onSave, onRetryNotify }) {
   const [status, setStatus] = useState(contact.status)
   const [note, setNote] = useState(contact.admin_note ?? '')
   const [saving, setSaving] = useState(false)
@@ -62,8 +86,24 @@ function ContactRow({ contact, onSave }) {
         </span>
         <span>{contact.reply_email ?? (contact.email_purged ? '返信先は削除済み' : '返信先なし')}</span>
       </div>
-      <p className="whitespace-pre-wrap text-sm">{contact.body}</p>
-      <div className="flex items-center gap-2">
+      <p className="whitespace-pre-wrap break-words text-sm">{contact.body}</p>
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        {contact.notified_at ? (
+          <span className="text-muted-foreground">通知済み</span>
+        ) : contact.notify_error ? (
+          <>
+            <span className="text-destructive">
+              通知に失敗({contact.notify_attempts}回): {contact.notify_error}
+            </span>
+            <Button size="sm" variant="ghost" onClick={() => onRetryNotify(contact.id)}>
+              再通知
+            </Button>
+          </>
+        ) : (
+          <span className="text-muted-foreground">未通知</span>
+        )}
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
         <select aria-label="対応状況" className="h-8 rounded-md border bg-background px-1 text-xs" value={status} onChange={(e) => setStatus(e.target.value)}>
           {Object.entries(STATUS_LABELS).map(([id, l]) => (
             <option key={id} value={id}>
@@ -95,6 +135,8 @@ export function Admin() {
   const [data, setData] = useState(null)
   const [gate, setGate] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [statusFilter, setStatusFilter] = useState('open')
+  const [notifyMessage, setNotifyMessage] = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -123,16 +165,45 @@ export function Admin() {
     else setGate(result ?? 'error')
   }
 
+  async function retryNotify(id) {
+    const { data: result } = await supabase.rpc('admin_retry_contact_notification', { p_id: id })
+    if (result !== 'ok') {
+      setGate(result ?? 'error')
+      return
+    }
+    await notifyNow()
+  }
+
+  async function notifyNow() {
+    setNotifyMessage('通知しています...')
+    const result = await requestContactNotification()
+    setNotifyMessage(
+      result.error === 'not_configured'
+        ? '通知先が設定されていません(docs/operations.md の「お問い合わせの通知」)'
+        : result.error
+          ? '通知できませんでした。時間をおいて試してください'
+          : `通知しました(成功 ${result.sent} 件、失敗 ${result.failed} 件)`
+    )
+    load()
+  }
+
   if (loading && !data) return <p className="text-sm text-muted-foreground">読み込み中...</p>
   if (gate !== 'ok') return <p className="text-sm text-muted-foreground">{GATE_MESSAGES[gate] ?? '読み込めませんでした'}</p>
 
+  const counts = data.contact_counts ?? {}
+  const visibleContacts = (data.contacts ?? []).filter((c) => statusFilter === 'all' || c.status === statusFilter)
   const imports = data.imports ?? []
   const totals = imports.reduce((t, r) => ({ total: t.total + r.total, success: t.success + r.success }), { total: 0, success: 0 })
 
   return (
     <div className="flex flex-col gap-5">
       <div className="flex items-center justify-between">
-        <h1 className="text-lg font-medium">管理</h1>
+        <h1 className="text-lg font-medium">
+          管理
+          {(counts.open ?? 0) > 0 && (
+            <span className="ml-2 rounded-full bg-destructive px-2 py-0.5 text-xs text-white">未対応 {counts.open}</span>
+          )}
+        </h1>
         <select aria-label="集計期間" className="h-8 rounded-md border bg-background px-1 text-xs" value={days} onChange={(e) => setDays(Number(e.target.value))}>
           {[7, 30, 90].map((d) => (
             <option key={d} value={d}>
@@ -203,19 +274,50 @@ export function Admin() {
       />
 
       <section className="flex flex-col gap-1.5">
+        <h2 className="text-sm font-medium">保存期間(90日)</h2>
+        <RetentionStatus retention={data.retention} />
+      </section>
+
+      <section className="flex flex-col gap-1.5">
         <h2 className="text-sm font-medium">お問い合わせ(新しい順、最大100件)</h2>
+        <div className="flex flex-wrap items-center gap-1.5" role="tablist" aria-label="対応状況で絞り込み">
+          {[['open', '未対応'], ['in_progress', '対応中'], ['closed', '完了'], ['all', 'すべて']].map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              aria-selected={statusFilter === id}
+              className={`rounded-full border px-3 py-1 text-xs ${statusFilter === id ? 'border-primary bg-primary text-primary-foreground font-medium' : 'bg-background text-muted-foreground'}`}
+              onClick={() => setStatusFilter(id)}
+            >
+              {label}
+              {id !== 'all' && ` ${counts[id] ?? 0}`}
+            </button>
+          ))}
+        </div>
+        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+          <span>
+            未通知 {counts.unnotified ?? 0} 件(うち失敗 {counts.notify_failed ?? 0} 件)
+          </span>
+          {(counts.unnotified ?? 0) > 0 && (
+            <Button size="sm" variant="outline" onClick={notifyNow}>
+              今すぐ通知
+            </Button>
+          )}
+          {notifyMessage && <span>{notifyMessage}</span>}
+        </div>
         {data.emails_overdue > 0 && (
           <p className="rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive">
             受付から90日を過ぎても削除されていない返信先が {data.emails_overdue} 件あります。自動削除が動いていません。SQL Editor で
             「select purge_contact_emails();」を実行してください
           </p>
         )}
-        {(data.contacts ?? []).length === 0 ? (
-          <p className="text-xs text-muted-foreground">お問い合わせはありません</p>
+        {visibleContacts.length === 0 ? (
+          <p className="text-xs text-muted-foreground">該当するお問い合わせはありません</p>
         ) : (
           <ul className="flex flex-col divide-y divide-border rounded-lg border bg-card">
-            {data.contacts.map((c) => (
-              <ContactRow key={`${c.id}-${c.status}-${c.admin_note ?? ''}`} contact={c} onSave={saveContact} />
+            {visibleContacts.map((c) => (
+              <ContactRow key={`${c.id}-${c.status}-${c.admin_note ?? ''}-${c.notify_attempts}`} contact={c} onSave={saveContact} onRetryNotify={retryNotify} />
             ))}
           </ul>
         )}

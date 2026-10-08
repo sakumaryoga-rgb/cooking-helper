@@ -88,7 +88,7 @@ describe('規約とプライバシーポリシー(ドラフト)', () => {
       </MemoryRouter>
     )
     expect(screen.getByText('公開前のドラフト')).toBeInTheDocument()
-    expect(screen.getAllByText(/【未確定】/).length).toBeGreaterThanOrEqual(3)
+    expect(screen.getAllByText(/【未確定】/).length).toBeGreaterThanOrEqual(4)
   })
 
   it('プライバシーポリシーは実際の収集内容(保存期間、伏せ字、外部サービス)と一致する', () => {

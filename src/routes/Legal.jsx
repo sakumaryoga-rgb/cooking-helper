@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom'
 import { APP_NAME } from '@/lib/brand'
-import { LEGAL_STATUS, LEGAL_VERSIONS, UNDECIDED } from '@/lib/legal'
+import { LEGAL_STATUS, LEGAL_VERSIONS, LEGAL_INFO, legalValue } from '@/lib/legal'
 import { TELEMETRY_RETENTION_DAYS } from '@/lib/telemetry/notice'
 
 function Page({ title, version, children }) {
@@ -9,6 +9,7 @@ function Page({ title, version, children }) {
       <h1 className="text-lg font-medium">{title}</h1>
       <p className="text-xs text-muted-foreground">
         版: {version}
+        {LEGAL_INFO.effectiveDate && `(${LEGAL_INFO.effectiveDate} 施行)`}
         {LEGAL_STATUS === 'draft' && <span className="ml-2 rounded bg-primary px-1.5 py-0.5 text-primary-foreground">公開前のドラフト</span>}
       </p>
       {LEGAL_STATUS === 'draft' && (
@@ -47,7 +48,7 @@ export function Terms() {
   return (
     <Page title={`${APP_NAME} 利用規約`} version={LEGAL_VERSIONS.terms}>
       <p>
-        この利用規約(以下「本規約」)は、{UNDECIDED}運営者名(以下「運営者」)が提供する {APP_NAME}(以下「本サービス」)の利用条件を定めるものです。
+        この利用規約(以下「本規約」)は、{legalValue('operatorName', '運営者名')}(以下「運営者」)が提供する {APP_NAME}(以下「本サービス」)の利用条件を定めるものです。
         利用者は、本規約に同意したうえで本サービスを利用します。
       </p>
       <Section title="第1条(本サービスの内容)">
@@ -85,16 +86,17 @@ export function Terms() {
         <p>運営者は、事前の通知なく本サービスの内容を変更し、または提供を停止・終了することがあります。</p>
       </Section>
       <Section title="第8条(免責)">
-        <p>運営者は、本サービスの利用によって利用者に生じた損害について、運営者の故意または重大な過失による場合を除き、責任を負いません。{UNDECIDED}責任の上限</p>
+        <p>運営者は、本サービスの利用によって利用者に生じた損害について、運営者の故意または重大な過失による場合を除き、責任を負いません。運営者が責任を負う場合も、その額は{legalValue('liabilityCap', '責任の上限')}を上限とします。</p>
       </Section>
       <Section title="第9条(規約の変更)">
         <p>運営者は本規約を変更できます。重要な変更は本サービス内でお知らせし、改めて同意をお願いします。</p>
       </Section>
       <Section title="第10条(準拠法・管轄)">
-        <p>本規約は日本法に準拠します。{UNDECIDED}合意管轄裁判所</p>
+        <p>本規約は日本法に準拠し、本サービスに関する紛争は{legalValue('court', '合意管轄裁判所')}を第一審の専属的合意管轄裁判所とします。</p>
       </Section>
       <Section title="お問い合わせ先">
-        <p>{UNDECIDED}運営者の連絡先(アプリ内の「お問い合わせ」からも受け付けます)</p>
+        <p>{legalValue('operatorName', '運営者名')}</p>
+        <p>連絡先: {legalValue('contactEmail', '連絡先メールアドレス')}(アプリ内の「お問い合わせ」からも受け付けます)</p>
       </Section>
     </Page>
   )
@@ -103,7 +105,7 @@ export function Terms() {
 export function Privacy() {
   return (
     <Page title={`${APP_NAME} プライバシーポリシー`} version={LEGAL_VERSIONS.privacy}>
-      <p>{UNDECIDED}運営者名(以下「運営者」)は、{APP_NAME}(以下「本サービス」)での個人情報を、次のとおり取り扱います。</p>
+      <p>{legalValue('operatorName', '運営者名')}(以下「運営者」)は、{APP_NAME}(以下「本サービス」)での個人情報を、次のとおり取り扱います。</p>
       <Section title="1. 取得する情報">
         <ul className="list-disc pl-5">
           <li>メールアドレス(ログインのため)</li>
@@ -138,7 +140,8 @@ export function Privacy() {
           <li>Supabase(データベース・ログイン)</li>
           <li>Vercel(アプリの配信・レシピ取り込みのサーバー処理)</li>
         </ul>
-        <p>レシピ取り込みでは、本サービスのサーバーが対応サイトにページを1回だけ取りに行きます。利用者の個人情報は送りません。外部の解析サービスや広告は使っていません。{UNDECIDED}データの保存地域</p>
+        <p>レシピ取り込みでは、本サービスのサーバーが対応サイトにページを1回だけ取りに行きます。利用者の個人情報は送りません。外部の解析サービスや広告は使っていません。データの保存地域: {legalValue('dataRegion', 'データの保存地域')}</p>
+        <p>お問い合わせの通知に外部の通知サービス(Slack・Discord・メール送信サービスのいずれか)を使う場合は、種類・本文の先頭だけを送り、返信先のメールアドレスは送りません。</p>
       </Section>
       <Section title="5. 端末への保存">
         <p>ログイン状態と、開いた招待リンクを、端末のブラウザ(localStorage)に保存します。広告や追跡のための Cookie は使いません。</p>
@@ -150,7 +153,9 @@ export function Privacy() {
         <p>本ポリシーを改定する場合は、本サービス内でお知らせします。</p>
       </Section>
       <Section title="お問い合わせ先">
-        <p>{UNDECIDED}運営者名・住所・連絡先</p>
+        <p>{legalValue('operatorName', '運営者名')}</p>
+        <p>住所: {legalValue('addressPolicy', '住所の扱い')}</p>
+        <p>連絡先: {legalValue('contactEmail', '連絡先メールアドレス')}(アプリ内の「お問い合わせ」からも受け付けます)</p>
       </Section>
     </Page>
   )
