@@ -22,24 +22,59 @@ select a.user_id, u.email, a.created_at, a.disabled_at from app_admins a join au
 お問い合わせの対応状況・再通知だけで、各家庭の在庫・レシピは返さず、変更もしない。
 運営者でない呼び出しは1時間に5回で締め出される。
 
-## お問い合わせの通知
+## お問い合わせの Notion 登録(BASKETBALL STATS と同じ方式)
 
-お問い合わせは必ず DB に保存される。送信の後にアプリが `/api/contact-notify`(Vercel Function)を呼び、
-サーバーが未通知のものを取り出して通知する。同じお問い合わせは同時に2回送らない(取り出すときに印を付ける)。
-失敗すると理由が管理画面に出て、10分後の次の通知で再び送る。5回失敗したら止まり、管理画面の「再通知」で戻す。
-通知には受付番号・種類・受付日時だけを送り、本文と返信先のメールアドレスは送らない(内容は管理画面で見る)。
-通知を起動できるのは、運営者(未通知の全件)と、お問い合わせを送った本人(10分以内の自分の未通知分だけ、migration 019)。
-どちらもサーバーが Supabase Auth で本人を確かめる。未認証・偽のトークンでは何もしない。応答の送信件数は運営者にだけ返す。
-通知済み・対応状況を変えられるのは、service_role(このサーバー関数)と運営者の RPC だけ。
+お問い合わせは必ず Supabase(contact_messages)に保存される。送信の後にアプリが `/api/contact-notify`(Vercel Function)を呼び、
+サーバーが Notion のデータベースにページを作って、そのページ ID を `notion_page_id` に記録する(migration 020)。
 
-| 方式 | 費用 | 必要な設定(Vercel の Production 環境変数) |
+- 起動できるのは、運営者(未登録の全件)と、送った本人(10分以内の自分の分だけ)。サーバーが Supabase Auth で本人を確かめる。
+- 二重登録しない: 取り出すときに DB で印を付け、さらに Notion に同じ受付番号のページがあれば作らずにそのページ ID を使う。
+- 失敗すると理由が管理画面に出て、10分後の次の呼び出しで再び登録する。5回失敗したら止まり、管理画面の「再送」で戻す。
+- Notion に送るのは受付番号・種類・受付日時・本文・対応状況(「未対応」)。返信先のメールアドレスは送らない(管理画面で見る)。
+- Notion 側で対応状況を変えても Supabase には戻らない(管理画面の対応状況とは別に管理する)。
+
+### Notion のデータベースを作る
+
+1. Notion で新しいページを作り、「データベース(フルページ)」を選ぶ。名前は「COOKDOOR お問い合わせ」。
+2. 次のプロパティ(列)を作る。名前と種類を正確に合わせる。
+
+| プロパティ名 | 種類 | 選択肢(Select の場合) |
 | --- | --- | --- |
-| Slack / Discord の Incoming Webhook(推奨) | 無料 | `SUPABASE_SERVICE_ROLE_KEY`、`CONTACT_NOTIFY_WEBHOOK_URL` |
-| Resend(メール) | 無料枠あり。送信元ドメインの認証が必要 | `SUPABASE_SERVICE_ROLE_KEY`、`RESEND_API_KEY`、`CONTACT_NOTIFY_EMAIL_TO`、`CONTACT_NOTIFY_EMAIL_FROM` |
+| 名前 | タイトル(最初からある列) | |
+| 受付番号 | テキスト | |
+| 種別 | セレクト | 使い方の質問、不具合の報告、機能の要望、アカウント・データ、その他 |
+| 受信日時 | 日付 | |
+| 内容 | テキスト | |
+| ステータス | セレクト | 未対応、対応中、完了 |
+| 担当者 | ユーザー(任意) | |
 
-`SUPABASE_SERVICE_ROLE_KEY` は Supabase の Project Settings → API の service_role key。**VITE_ を付けない**
-(付けるとアプリの配信物に含まれて公開される)。設定するまでは通知されず、管理画面に「未通知」と出る。
-設定後、管理画面の「今すぐ通知」で動作を確かめる。
+### Integration を作ってデータベースに接続する
+
+1. https://www.notion.so/profile/integrations を開き、「新しいインテグレーション」を作る。種類は「内部」、ワークスペースは上のデータベースがある所、
+   機能は「コンテンツを読み取る」「コンテンツを挿入する」をオン(更新は不要)。
+2. 「内部インテグレーションシークレット」をコピーする(これが `NOTION_API_KEY`)。
+3. データベースのページ右上の「…」→「接続」(コネクト)で、作った Integration を追加する。追加しないと 404 になる。
+4. データベースの URL の `notion.so/` の後ろ、`?v=` の前の32文字がデータベース ID(これが `NOTION_DATABASE_ID`)。
+
+### スマホへの通知
+
+- Notion の有料プランなら: データベース右上の「⚡」(オートメーション)→ トリガー「ページが追加されたとき」→
+  アクション「通知を送信」で自分を選ぶ。Notion アプリ(スマホ)に通知が届く。
+- 無料プランでも: 「担当者」プロパティを作り、自分の Notion ユーザー ID を `NOTION_ASSIGNEE_USER_ID` に設定する。
+  ページが作られるたびに自分が担当者に入り、Notion アプリに通知が届く。ユーザー ID は、Integration のシークレットで
+  `GET https://api.notion.com/v1/users` を呼ぶと分かる(または運営者に確認してもらう)。
+
+### Vercel の環境変数(Production だけ、Sensitive、VITE_ を付けない)
+
+| 名前 | 値 |
+| --- | --- |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase の Project Settings → API Keys → Legacy API Keys の service_role |
+| `NOTION_API_KEY` | Integration のシークレット |
+| `NOTION_DATABASE_ID` | データベース ID |
+| `NOTION_ASSIGNEE_USER_ID` | (任意)通知を受けたい人の Notion ユーザー ID |
+
+設定後に Production を再デプロイし、テストのお問い合わせを送って、Notion にページができることと、管理画面で「Notion 登録済み」になることを確かめる。
+Discord の Webhook(`CONTACT_NOTIFY_WEBHOOK_URL`)は使わなくなった。登録してあれば Vercel から削除してよい。
 
 ## 保存期間(90日)と自動削除
 
