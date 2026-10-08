@@ -144,7 +144,10 @@ reset role;
 do $$
 begin
   update contact_messages set created_at = now() - interval '91 days' where reply_email = 'u@example.com';
+  perform set_config('request.jwt.claim.sub', '00000000-0000-4000-8000-00000000ad01', false);
+  assert (admin_dashboard(30) ->> 'emails_overdue')::int = 1, '削除前は「90日を過ぎて未削除」が1件と分かる';
   assert purge_contact_emails() = 1, '1件消す';
+  assert (admin_dashboard(30) ->> 'emails_overdue')::int = 0, '削除後は0件';
   assert exists (select 1 from contact_messages where reply_email is null and email_purged_at is not null and body like '使い方%'), '本文は残る';
 end $$;
 

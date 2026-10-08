@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 
 // 利用規約とプライバシーポリシーへの同意。同意するまでアプリの画面には進まない(招待リンクは端末に保持されたまま)
-export function ConsentScreen({ revised, onAgree }) {
+export function ConsentScreen({ revised, loadError, onAgree, onRetry }) {
   const [checked, setChecked] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -39,6 +39,14 @@ export function ConsentScreen({ revised, onAgree }) {
             <input type="checkbox" className="mt-0.5 size-4" checked={checked} onChange={(e) => setChecked(e.target.checked)} />
             利用規約とプライバシーポリシーに同意します
           </label>
+          {loadError && (
+            <div className="flex items-center justify-between gap-2 rounded-md bg-muted px-3 py-2 text-xs">
+              <span>同意の記録を確認できませんでした。同意済みの場合は、再読み込みしてください</span>
+              <Button size="sm" variant="outline" onClick={onRetry}>
+                再読み込み
+              </Button>
+            </div>
+          )}
           {error && <p className="text-sm text-destructive">{error}</p>}
           <Button onClick={handleAgree} disabled={!checked || saving}>
             {saving ? '記録中...' : '同意して始める'}

@@ -204,6 +204,12 @@ export function Admin() {
 
       <section className="flex flex-col gap-1.5">
         <h2 className="text-sm font-medium">お問い合わせ(新しい順、最大100件)</h2>
+        {data.emails_overdue > 0 && (
+          <p className="rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive">
+            受付から90日を過ぎても削除されていない返信先が {data.emails_overdue} 件あります。自動削除が動いていません。SQL Editor で
+            「select purge_contact_emails();」を実行してください
+          </p>
+        )}
         {(data.contacts ?? []).length === 0 ? (
           <p className="text-xs text-muted-foreground">お問い合わせはありません</p>
         ) : (

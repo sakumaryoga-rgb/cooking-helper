@@ -103,7 +103,7 @@ export function Contact() {
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="contact-email">返信先のメールアドレス(任意)</Label>
         <Input id="contact-email" type="email" inputMode="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} />
-        <p className="text-xs text-muted-foreground">返信先は90日後に削除します</p>
+        <p className="text-xs text-muted-foreground">返信先は、受付から90日を過ぎたら削除します(お返事のためだけに使います)</p>
       </div>
       <div aria-hidden="true" className="absolute -left-[9999px] h-0 w-0 overflow-hidden">
         <label htmlFor="contact-website">Website</label>

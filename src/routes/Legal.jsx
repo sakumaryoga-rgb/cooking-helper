@@ -11,6 +11,11 @@ function Page({ title, version, children }) {
         版: {version}
         {LEGAL_STATUS === 'draft' && <span className="ml-2 rounded bg-primary px-1.5 py-0.5 text-primary-foreground">公開前のドラフト</span>}
       </p>
+      {LEGAL_STATUS === 'draft' && (
+        <p className="rounded-md border border-primary bg-primary/15 px-3 py-2 text-xs">
+          この文面は公開前のドラフトです。正式な規約ではありません。【未確定】の項目は、正式公開までに決めます。
+        </p>
+      )}
       {children}
       <p className="pt-4 text-xs text-muted-foreground">
         <Link to="/terms" className="underline">
@@ -123,7 +128,7 @@ export function Privacy() {
       <Section title="3. 保存期間">
         <ul className="list-disc pl-5">
           <li>品質改善のための記録: {TELEMETRY_RETENTION_DAYS}日</li>
-          <li>お問い合わせの返信先メールアドレス: 受付から90日(本文は対応記録として残します)</li>
+          <li>お問い合わせの返信先メールアドレス: 受付から90日を過ぎたら削除します(本文は対応記録として残します)</li>
           <li>アカウントとグループのデータ: 利用を続ける間、または削除の依頼まで</li>
         </ul>
       </Section>

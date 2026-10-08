@@ -50,12 +50,19 @@ describe('規約への同意の判定', () => {
     expect(b.result.current).toMatchObject({ needsConsent: true, revised: false })
   })
 
-  it('記録を読めないときは、ログインと既存データの利用を止めない', async () => {
+  it('同意が必須の環境で記録を読めないときは未同意として扱い、再試行で同意済みと分かれば進める', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
     readError = { message: 'network' }
     const { result } = renderHook(() => useConsent('u1', { required: true }))
     await waitFor(() => expect(result.current.loading).toBe(false))
-    expect(result.current.needsConsent).toBe(false)
+    expect(result.current).toMatchObject({ needsConsent: true, loadError: true })
+
+    readError = null
+    rows = current
+    await act(async () => {
+      await result.current.retry()
+    })
+    expect(result.current).toMatchObject({ needsConsent: false, loadError: false })
   })
 
   it('同意すると両方の今の版を記録する(同意済みの重複は無視)', async () => {

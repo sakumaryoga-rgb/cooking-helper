@@ -253,6 +253,8 @@ begin
                                   'no_recipe_data', count(*) filter (where outcome = 'no_recipe_data')) i
         from recipe_import_runs where created_at >= v_since group by site) x), '[]'::jsonb),
     'imports_since', (select min(created_at) from recipe_import_runs),
+    -- 90日を過ぎても消えていない返信先(自動削除が動いていない場合に気づけるように)
+    'emails_overdue', (select count(*) from contact_messages where reply_email is not null and created_at < now() - interval '90 days'),
     'contacts', coalesce((
       select jsonb_agg(c order by c->>'created_at' desc) from (
         select jsonb_build_object('id', id, 'created_at', created_at, 'category', category, 'body', body,

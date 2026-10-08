@@ -63,6 +63,7 @@ describe('管理画面', () => {
                 errors_top: [],
                 imports: [{ site: 'delishkitchen', total: 4, success: 3, fetch_failed: 1, no_recipe_data: 0 }],
                 imports_since: '2026-10-08T00:00:00Z',
+                emails_overdue: 2,
                 contacts: [{ id: 'c1', created_at: '2026-10-08T00:00:00Z', category: 'bug', body: '在庫が減りません', reply_email: 'u@example.com', status: 'open', admin_note: null, app_version: '1.8.0' }],
               },
               error: null,
@@ -72,6 +73,7 @@ describe('管理画面', () => {
     render(<Admin />)
     expect(await screen.findByText(/成功率 75%/)).toBeInTheDocument()
     expect(screen.getByText('在庫が減りません')).toBeInTheDocument()
+    expect(screen.getByText(/削除されていない返信先が 2 件/)).toBeInTheDocument()
     await userEvent.selectOptions(screen.getByLabelText('対応状況'), 'closed')
     await userEvent.click(screen.getByRole('button', { name: '保存' }))
     expect(supabase.rpc).toHaveBeenCalledWith('admin_update_contact', { p_id: 'c1', p_status: 'closed', p_note: '' })
@@ -98,7 +100,7 @@ describe('規約とプライバシーポリシー(ドラフト)', () => {
     const page = screen.getByRole('article')
     expect(within(page).getByText(/品質改善のための記録: 90日/)).toBeInTheDocument()
     expect(within(page).getByText(/料理の内容や入力した文字は含みません/)).toBeInTheDocument()
-    expect(within(page).getByText(/受付から90日/)).toBeInTheDocument()
+    expect(within(page).getByText(/受付から90日を過ぎたら削除/)).toBeInTheDocument()
     expect(within(page).getByText(/Supabase/)).toBeInTheDocument()
   })
 })

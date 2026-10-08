@@ -77,7 +77,7 @@ export default function App() {
         ) : consent.loading ? (
           <Route path="*" element={<FullScreenLoader />} />
         ) : consent.needsConsent ? (
-          <Route path="*" element={<ConsentScreen revised={consent.revised} onAgree={consent.agree} />} />
+          <Route path="*" element={<ConsentScreen revised={consent.revised} loadError={consent.loadError} onAgree={consent.agree} onRetry={consent.retry} />} />
         ) : groupLoading ? (
           <Route path="*" element={<FullScreenLoader />} />
         ) : !group ? (
