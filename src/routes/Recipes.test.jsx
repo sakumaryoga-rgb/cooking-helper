@@ -28,8 +28,32 @@ describe('Recipes', () => {
       </MemoryRouter>
     )
     const links = screen.getAllByRole('link').filter((a) => a.getAttribute('href')?.startsWith('/recipes/') && !a.getAttribute('href').endsWith('/new'))
-    // あと少し(不足1〜2品)のレシピには、足りない材料と数量を添える
+    // 不足のあるレシピには、足りない材料と数量をそのまま書く
     expect(links.map((a) => a.textContent)).toEqual(['卵焼き作れます', 'カレーpotato あと2個、carrot あと1個あと2品'])
+  })
+
+  it('「不足あり」で絞り込み、材料名で検索できる', async () => {
+    const { default: userEvent } = await import('@testing-library/user-event')
+    useIngredients.mockReturnValue({ ingredients: [{ id: 'egg', name: 'egg', unit: '個', quantity: 2 }] })
+    useRecipes.mockReturnValue({
+      loading: false,
+      recipes: [
+        { id: 'curry', title: 'カレー', recipe_ingredients: [line('potato', 2)] },
+        { id: 'tamago', title: '卵焼き', recipe_ingredients: [line('egg', 2)] },
+      ],
+    })
+    render(
+      <MemoryRouter>
+        <Recipes groupId="g1" />
+      </MemoryRouter>
+    )
+    await userEvent.click(screen.getByRole('tab', { name: /不足あり/ }))
+    expect(screen.getByText('カレー')).toBeInTheDocument()
+    expect(screen.queryByText('卵焼き')).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('tab', { name: /すべて/ }))
+    await userEvent.type(screen.getByLabelText('レシピを検索'), 'egg')
+    expect(screen.getByText('卵焼き')).toBeInTheDocument()
+    expect(screen.queryByText('カレー')).not.toBeInTheDocument()
   })
 
   it('レシピがなければ案内を表示する', () => {

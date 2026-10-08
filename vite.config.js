@@ -47,7 +47,7 @@ export default defineConfig({
         display: 'standalone',
         // 起動時のスプラッシュ(Android)を公式アイコンの黄色にする
         background_color: '#FED712',
-        theme_color: '#FBFBFA',
+        theme_color: '#FBF8F1',
         icons: [
           { src: 'icons/cookdoor-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
           { src: 'icons/cookdoor-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },

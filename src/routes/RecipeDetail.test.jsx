@@ -103,11 +103,13 @@ describe('RecipeDetail', () => {
       { id: 'egg', name: '卵', unit: '個', quantity: 4 },
     ])
     expect(screen.getByText('代替で作れます')).toBeInTheDocument()
-    expect(screen.getByText(/代わりに 鶏むね肉 150g/)).toBeInTheDocument()
+    const select = screen.getByLabelText('鶏もも肉の代替')
+    expect(select).toHaveValue('rule1')
+    expect(within(select).getByRole('option', { name: /鶏むね肉 150g/ })).toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('button', { name: /これを作る/ }))
     const dialog = await screen.findByRole('dialog')
-    expect(within(dialog).getByText(/鶏もも肉の代わり/)).toBeInTheDocument()
+    expect(within(dialog).getByText('鶏もも肉の代わり')).toBeInTheDocument()
     await userEvent.click(within(dialog).getByRole('button', { name: '確定' }))
     await waitFor(() =>
       expect(supabase.rpc).toHaveBeenCalledWith(
@@ -129,8 +131,51 @@ describe('RecipeDetail', () => {
       { id: 'breast', name: '鶏むね肉', unit: 'g', quantity: 300, catalog_id: 'c-breast' },
       { id: 'egg', name: '卵', unit: '個', quantity: 4 },
     ])
-    await userEvent.click(screen.getByRole('button', { name: 'この代替を使わない' }))
+    await userEvent.click(screen.getByRole('button', { name: '今後使わない' }))
     expect(disableRule).toHaveBeenCalledWith('rule1')
+  })
+
+  it('代替を「使わない」にすると不足になり、不足量を出す', async () => {
+    setup([
+      { id: 'chicken', name: '鶏もも肉', unit: 'g', quantity: 50, catalog_id: 'c-thigh' },
+      { id: 'breast', name: '鶏むね肉', unit: 'g', quantity: 300, catalog_id: 'c-breast' },
+      { id: 'egg', name: '卵', unit: '個', quantity: 4 },
+    ])
+    await userEvent.selectOptions(screen.getByLabelText('鶏もも肉の代替'), 'none')
+    expect(screen.getByText('あと1品')).toBeInTheDocument()
+    expect(screen.getByText(/不足 150g/)).toBeInTheDocument()
+  })
+
+  it('人数を変えると必要量が変わる', async () => {
+    useIngredients.mockReturnValue({ ingredients: [{ id: 'chicken', name: '鶏もも肉', unit: 'g', quantity: 300 }, { id: 'egg', name: '卵', unit: '個', quantity: 4 }], refresh: refreshIngredients })
+    useRecipes.mockReturnValue({ recipes: [{ ...recipe, servings: 2 }], loading: false })
+    render(
+      <MemoryRouter initialEntries={['/recipes/r1']}>
+        <Routes>
+          <Route path="/recipes/:id" element={<RecipeDetail groupId="g1" />} />
+        </Routes>
+      </MemoryRouter>
+    )
+    expect(screen.getByText('2人分')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '人数を増やす' }))
+    await userEvent.click(screen.getByRole('button', { name: '人数を増やす' }))
+    expect(screen.getByText('4人分')).toBeInTheDocument()
+    expect(screen.getByText(/必要 400g \/ 在庫 300g/)).toBeInTheDocument()
+    expect(screen.getByText(/必要 4個 \/ 在庫 4個/)).toBeInTheDocument()
+    expect(screen.getByText('あと1品')).toBeInTheDocument()
+  })
+
+  it('確定のあとに数秒「取り消す」を出し、押すとその記録を取り消す', async () => {
+    supabase.rpc.mockImplementation((name) => Promise.resolve(name === 'cook_recipe_v2' ? { data: 'log-new', error: null } : { error: null }))
+    setup([
+      { id: 'chicken', name: '鶏もも肉', unit: 'g', quantity: 300 },
+      { id: 'egg', name: '卵', unit: '個', quantity: 4 },
+    ])
+    await userEvent.click(screen.getByRole('button', { name: /これを作る/ }))
+    await userEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: '確定' }))
+    const toast = await screen.findByRole('status')
+    await userEvent.click(within(toast).getByRole('button', { name: '取り消す' }))
+    await waitFor(() => expect(supabase.rpc).toHaveBeenCalledWith('undo_cook', { p_cook_log_id: 'log-new' }))
   })
 
   it('最近作った記録を取り消せる', async () => {

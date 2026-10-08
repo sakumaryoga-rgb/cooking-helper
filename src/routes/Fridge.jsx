@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { Plus, Minus, Search, CalendarPlus, ChevronDown } from 'lucide-react'
 import { useIngredients } from '@/hooks/useIngredients'
 import { useIngredientBatches } from '@/hooks/useIngredientBatches'
@@ -39,6 +40,9 @@ export function Fridge({ groupId }) {
   const { ingredients, loading, removeIngredient, dropLocal } = useIngredients(groupId)
   const [showEmpty, setShowEmpty] = useState(false)
   const [expandedId, setExpandedId] = useState(null)
+  // 絞り込み(設計書 4 章): 'all' / 'expiring'(期限が3日以内・期限切れ)/ カテゴリ名
+  const [searchParams] = useSearchParams()
+  const [filter, setFilter] = useState(() => (searchParams.get('filter') === 'expiring' ? 'expiring' : 'all'))
   const [stockTarget, setStockTarget] = useState(null)
   // 「追加」で選んだ食材は、在庫0でも通常の一覧に出す(このあと「＋」で増やすため)
   const [pinnedIds, setPinnedIds] = useState(() => new Set())
@@ -73,10 +77,17 @@ export function Fridge({ groupId }) {
   }, [ingredients, query, batchesByIngredient, catalogById])
 
   // 在庫0の食材(レシピの材料として残っているもの)は折りたたむ。検索中はすべて出す
-  const searching = query.trim() !== ''
+  const categoryOf = (ingredient) => catalogById.get(ingredient.catalog_id)?.category ?? 'その他'
+  const categories = [...new Set(rows.filter((r) => Number(r.ingredient.quantity) > 0).map((r) => categoryOf(r.ingredient)))].sort((x, y) =>
+    x.localeCompare(y, 'ja')
+  )
+  const filtered = rows.filter((r) =>
+    filter === 'all' ? true : filter === 'expiring' ? r.expiry && r.expiry.daysLeft <= 3 : categoryOf(r.ingredient) === filter
+  )
+  const searching = query.trim() !== '' || filter !== 'all'
   const visible = (r) => Number(r.ingredient.quantity) > 0 || r.ingredient.is_staple || pinnedIds.has(r.ingredient.id)
-  const inStock = searching ? rows : rows.filter(visible)
-  const emptyRows = searching ? [] : rows.filter((r) => !visible(r))
+  const inStock = searching ? filtered : filtered.filter(visible)
+  const emptyRows = searching ? [] : filtered.filter((r) => !visible(r))
 
   function handlePicked(ingredient) {
     setPinnedIds((prev) => new Set(prev).add(ingredient.id))
@@ -214,6 +225,25 @@ export function Fridge({ groupId }) {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
+      </div>
+
+      <div className="flex gap-1.5 overflow-x-auto pb-1" role="tablist" aria-label="冷蔵庫の絞り込み">
+        {[
+          { id: 'all', label: 'すべて' },
+          { id: 'expiring', label: '期限が近い' },
+          ...categories.map((c) => ({ id: c, label: c })),
+        ].map((f) => (
+          <button
+            key={f.id}
+            type="button"
+            role="tab"
+            aria-selected={filter === f.id}
+            className={`shrink-0 rounded-full border px-3 py-1 text-xs ${filter === f.id ? 'border-primary bg-primary text-primary-foreground font-medium' : 'bg-background text-muted-foreground'}`}
+            onClick={() => setFilter(f.id)}
+          >
+            {f.label}
+          </button>
+        ))}
       </div>
 
       <div className="flex items-center justify-between gap-2 rounded-lg border px-3 py-2">

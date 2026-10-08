@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { MemoryRouter } from 'react-router-dom'
 import { Fridge } from './Fridge'
 import { supabase } from '@/supabaseClient'
 import { useIngredients } from '@/hooks/useIngredients'
@@ -27,7 +28,7 @@ function setup(ingredients) {
   useIngredients.mockReturnValue({ ingredients, loading: false, removeIngredient, dropLocal })
   useIngredientBatches.mockReturnValue({ batches: [] })
   useIngredientCatalog.mockReturnValue({ catalog: [] })
-  return render(<Fridge groupId="g1" />)
+  return render(<MemoryRouter><Fridge groupId="g1" /></MemoryRouter>)
 }
 
 describe('Fridge の数量変更', () => {
@@ -127,7 +128,7 @@ describe('Fridge の数量変更', () => {
       dropLocal,
     })
     useIngredientCatalog.mockReturnValue({ catalog: [] })
-    render(<Fridge groupId="g1" />)
+    render(<MemoryRouter><Fridge groupId="g1" /></MemoryRouter>)
     const names = screen.getAllByRole('button', { expanded: false }).map((b) => b.textContent)
     expect(names[0]).toMatch(/^牛乳.*消費期限 10\/7・期限切れ/)
     expect(names[1]).toMatch(/^卵.*推定 10\/14・あと6日/)

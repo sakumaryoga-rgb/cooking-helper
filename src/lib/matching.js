@@ -16,7 +16,8 @@ function round(n) {
   return Math.round(n * 100) / 100
 }
 
-export function getRecipeStatus(recipe, ingredientsById, { substitutions = [], catalogById = new Map() } = {}) {
+// options.choices: Map<材料の ingredientId, ruleId | 'none'>(詳細画面で選んだ代替。'none' は代替しない)
+export function getRecipeStatus(recipe, ingredientsById, { substitutions = [], catalogById = new Map(), choices = new Map() } = {}) {
   const items = recipe.recipe_ingredients ?? []
   const remaining = new Map([...ingredientsById.values()].map((i) => [i.id, Number(i.quantity) || 0]))
   const fridge = [...ingredientsById.values()]
@@ -35,6 +36,7 @@ export function getRecipeStatus(recipe, ingredientsById, { substitutions = [], c
       staple: Boolean(current?.is_staple),
       fromOriginal: 0,
       substitutes: [],
+      candidates: [],
       missing: 0,
     }
     if (line.staple) {
@@ -56,6 +58,7 @@ export function getRecipeStatus(recipe, ingredientsById, { substitutions = [], c
     const original = ingredientsById.get(line.ingredientId)
     const fromCatalog = original?.catalog_id ? catalogById.get(original.catalog_id) : null
     if (!original?.catalog_id || (fromCatalog && fromCatalog.unit !== original.unit)) continue
+    // 候補を集める(在庫が足りるかどうかも付ける)
     for (const rule of substitutions) {
       if (rule.from_catalog_id !== original.catalog_id) continue
       const toCatalog = catalogById.get(rule.to_catalog_id)
@@ -65,19 +68,32 @@ export function getRecipeStatus(recipe, ingredientsById, { substitutions = [], c
       if (!candidate) continue
       const need = round(line.missing * Number(rule.ratio))
       const have = candidate.is_staple ? Infinity : remaining.get(candidate.id) ?? 0
-      if (have + EPSILON < need) continue
-      if (!candidate.is_staple) remaining.set(candidate.id, have - need)
-      line.substitutes.push({
+      line.candidates.push({
+        ruleId: rule.id,
         ingredientId: candidate.id,
         name: candidate.name,
         unit: candidate.unit,
         quantity: need,
-        ruleId: rule.id,
         note: rule.note ?? null,
+        enough: have + EPSILON >= need,
+        staple: Boolean(candidate.is_staple),
       })
-      line.missing = 0
-      break
     }
+    const choice = choices.get(line.ingredientId)
+    if (choice === 'none') continue
+    const pick =
+      (choice && line.candidates.find((c) => c.ruleId === choice && c.enough)) || line.candidates.find((c) => c.enough)
+    if (!pick) continue
+    if (!pick.staple) remaining.set(pick.ingredientId, (remaining.get(pick.ingredientId) ?? 0) - pick.quantity)
+    line.substitutes.push({
+      ingredientId: pick.ingredientId,
+      name: pick.name,
+      unit: pick.unit,
+      quantity: pick.quantity,
+      ruleId: pick.ruleId,
+      note: pick.note,
+    })
+    line.missing = 0
   }
 
   const shortfalls = lines
@@ -155,4 +171,16 @@ export function buildCookPlan(status) {
     }
   }
   return rows
+}
+
+// 人数に合わせて必要量を変えたレシピ(factor = 作る人数 / 元の人数)
+export function scaleRecipe(recipe, factor) {
+  if (!recipe || !(factor > 0) || factor === 1) return recipe
+  return {
+    ...recipe,
+    recipe_ingredients: (recipe.recipe_ingredients ?? []).map((ri) => ({
+      ...ri,
+      required_quantity: round(Number(ri.required_quantity) * factor),
+    })),
+  }
 }

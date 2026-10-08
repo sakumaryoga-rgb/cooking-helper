@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Copy, Check, Link2 } from 'lucide-react'
+import { Copy, Check, Link2, LogOut } from 'lucide-react'
 import { supabase } from '@/supabaseClient'
 import { buildInviteUrl } from '@/lib/invite'
 import { useSubstitutions } from '@/hooks/useSubstitutions'
@@ -14,7 +14,28 @@ function formatDate(value) {
   return new Date(value).toLocaleDateString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
-export function GroupSettings({ group }) {
+function useMembers(groupId) {
+  const [members, setMembers] = useState([])
+  useEffect(() => {
+    let cancelled = false
+    supabase
+      .from('group_members')
+      .select('user_id, joined_at')
+      .eq('group_id', groupId)
+      .order('joined_at')
+      .then(({ data }) => {
+        if (!cancelled) setMembers(data ?? [])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [groupId])
+  return members
+}
+
+// 設定(設計書 4 章): 家族グループ、招待、メンバー、アカウント、規約、バージョン。課金は枠だけ
+export function Settings({ group, email, userId }) {
+  const members = useMembers(group.id)
   const [status, setStatus] = useState(null) // { active, expiresAt } | null
   const [issued, setIssued] = useState(null) // 発行直後だけ表示する { url, expiresAt }
   const [busy, setBusy] = useState(false)
@@ -34,6 +55,11 @@ export function GroupSettings({ group }) {
   useEffect(() => {
     loadStatus()
   }, [loadStatus, group.id])
+
+  // この端末だけをログアウトする(他の端末のログインは残す、v1.1.1)
+  async function handleSignOut() {
+    await supabase.auth.signOut({ scope: 'local' })
+  }
 
   async function handleIssue() {
     setBusy(true)
@@ -75,7 +101,7 @@ export function GroupSettings({ group }) {
 
   return (
     <div className="flex flex-col gap-4">
-      <h1 className="text-lg font-medium">グループ</h1>
+      <h1 className="text-lg font-medium">設定</h1>
       <Card>
         <CardHeader>
           <CardTitle>{group.name}</CardTitle>
@@ -114,6 +140,36 @@ export function GroupSettings({ group }) {
           {error && <p className="text-destructive text-sm">{error}</p>}
         </CardContent>
       </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">メンバー({members.length}人)</CardTitle>
+          <CardDescription>このグループで冷蔵庫とレシピを共有しています</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <ul className="flex flex-col gap-1 text-sm">
+            {members.map((m, i) => (
+              <li key={m.user_id} className="flex items-center justify-between">
+                <span>{m.user_id === userId ? 'あなた' : `メンバー ${i + 1}`}</span>
+                <span className="text-xs text-muted-foreground">{new Date(m.joined_at).toLocaleDateString('ja-JP')} 参加</span>
+              </li>
+            ))}
+          </ul>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">アカウント</CardTitle>
+          <CardDescription>{email}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button variant="outline" className="w-full" onClick={handleSignOut}>
+            <LogOut className="size-4" />
+            この端末でサインアウト
+          </Button>
+        </CardContent>
+      </Card>
+
       {disabledRules.length > 0 && (
         <Card>
           <CardHeader>
@@ -136,6 +192,14 @@ export function GroupSettings({ group }) {
           </CardContent>
         </Card>
       )}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">プラン</CardTitle>
+          <CardDescription>準備中です</CardDescription>
+        </CardHeader>
+      </Card>
+
+      <p className="text-center text-xs text-muted-foreground">利用規約・プライバシーポリシー(準備中)</p>
       <p className="text-center text-xs text-muted-foreground">
         {APP_NAME} バージョン {APP_VERSION}
       </p>

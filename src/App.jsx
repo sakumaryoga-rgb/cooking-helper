@@ -10,7 +10,8 @@ import { Fridge } from '@/routes/Fridge'
 import { Recipes } from '@/routes/Recipes'
 import { RecipeNew } from '@/routes/RecipeNew'
 import { RecipeDetail } from '@/routes/RecipeDetail'
-import { GroupSettings } from '@/routes/GroupSettings'
+import { Settings } from '@/routes/Settings'
+import { Home } from '@/routes/Home'
 import { Layout } from '@/components/Layout'
 import { UpdatePrompt } from '@/components/UpdatePrompt'
 import { PreviewBanner } from '@/components/PreviewBanner'
@@ -73,13 +74,14 @@ export default function App() {
           </>
         ) : (
           <Route element={<Layout groupName={group.name} />}>
-            <Route index element={<Navigate to="/fridge" replace />} />
+            <Route index element={<Home groupId={group.id} />} />
             <Route path="/fridge" element={<Fridge groupId={group.id} />} />
             <Route path="/recipes" element={<Recipes groupId={group.id} />} />
             <Route path="/recipes/new" element={<RecipeNew groupId={group.id} userId={session.user.id} />} />
             <Route path="/recipes/:id" element={<RecipeDetail groupId={group.id} />} />
-            <Route path="/group" element={<GroupSettings group={group} />} />
-            <Route path="*" element={<Navigate to="/fridge" replace />} />
+            <Route path="/settings" element={<Settings group={group} email={session.user.email} userId={session.user.id} />} />
+            <Route path="/group" element={<Navigate to="/settings" replace />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         )}
       </Routes>
