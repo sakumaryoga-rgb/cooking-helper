@@ -2,19 +2,24 @@ import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { Plus } from 'lucide-react'
 import { useIngredients } from '@/hooks/useIngredients'
+import { useIngredientCatalog } from '@/hooks/useIngredientCatalog'
+import { useSubstitutions } from '@/hooks/useSubstitutions'
 import { useRecipes } from '@/hooks/useRecipes'
-import { describeShortfalls, sortRecipesByMakeability } from '@/lib/matching'
+import { describeShortfalls, describeSubstitutes, sortRecipesByMakeability } from '@/lib/matching'
 import { Button } from '@/components/ui/button'
 import { MakeableBadge } from '@/components/MakeableBadge'
 
 export function Recipes({ groupId }) {
   const { ingredients } = useIngredients(groupId)
   const { recipes, loading } = useRecipes(groupId)
+  const { catalog } = useIngredientCatalog()
+  const { rules: substitutions } = useSubstitutions(groupId)
+  const catalogById = useMemo(() => new Map(catalog.map((c) => [c.id, c])), [catalog])
 
   const ingredientsById = useMemo(() => new Map(ingredients.map((i) => [i.id, i])), [ingredients])
   const sorted = useMemo(
-    () => sortRecipesByMakeability(recipes, ingredientsById),
-    [recipes, ingredientsById]
+    () => sortRecipesByMakeability(recipes, ingredientsById, { substitutions, catalogById }),
+    [recipes, ingredientsById, substitutions, catalogById]
   )
 
   return (
@@ -45,6 +50,9 @@ export function Recipes({ groupId }) {
               >
                 <span className="flex min-w-0 flex-col">
                   <span className="text-sm font-medium truncate">{recipe.title}</span>
+                  {status.level === 'substitutable' && (
+                    <span className="text-xs text-muted-foreground truncate">{describeSubstitutes(status.lines)}</span>
+                  )}
                   {status.level === 'almost' && (
                     <span className="text-xs text-muted-foreground truncate">{describeShortfalls(status.shortfalls, 2)}</span>
                   )}

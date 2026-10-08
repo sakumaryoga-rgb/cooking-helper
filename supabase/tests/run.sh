@@ -36,5 +36,7 @@ for t in supabase/tests/*.test.sql; do
   if ! "${psql_run[@]}" -o /dev/null -f "$t"; then status=1; fi
 done
 
+if ! bash supabase/tests/concurrency.sh "$db"; then status=1; fi
+
 dropdb --if-exists "$db"
 exit $status

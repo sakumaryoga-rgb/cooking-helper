@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from 'react'
 import { Copy, Check, Link2 } from 'lucide-react'
 import { supabase } from '@/supabaseClient'
 import { buildInviteUrl } from '@/lib/invite'
+import { useSubstitutions } from '@/hooks/useSubstitutions'
+import { useIngredientCatalog } from '@/hooks/useIngredientCatalog'
 import { Button } from '@/components/ui/button'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
 import { APP_VERSION } from '@/lib/appVersion'
@@ -18,6 +20,9 @@ export function GroupSettings({ group }) {
   const [busy, setBusy] = useState(false)
   const [copied, setCopied] = useState(false)
   const [error, setError] = useState('')
+  const { disabledRules, enableRule } = useSubstitutions(group.id)
+  const { catalog } = useIngredientCatalog()
+  const catalogName = (id) => catalog.find((c) => c.id === id)?.name ?? '(不明)'
 
   const loadStatus = useCallback(async () => {
     const { data, error: rpcError } = await supabase.rpc('get_group_invite_status')
@@ -109,6 +114,28 @@ export function GroupSettings({ group }) {
           {error && <p className="text-destructive text-sm">{error}</p>}
         </CardContent>
       </Card>
+      {disabledRules.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">使わないことにした代替</CardTitle>
+            <CardDescription>レシピの判定で、これらの代替は使いません</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ul className="flex flex-col divide-y divide-border">
+              {disabledRules.map((rule) => (
+                <li key={rule.id} className="flex items-center justify-between gap-2 py-2 text-sm">
+                  <span>
+                    {catalogName(rule.from_catalog_id)} → {catalogName(rule.to_catalog_id)}
+                  </span>
+                  <Button size="sm" variant="ghost" onClick={() => enableRule(rule.id)}>
+                    戻す
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
       <p className="text-center text-xs text-muted-foreground">
         {APP_NAME} バージョン {APP_VERSION}
       </p>

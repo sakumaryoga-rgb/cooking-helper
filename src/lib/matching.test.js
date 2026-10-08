@@ -78,3 +78,62 @@ describe('sortRecipesByMakeability', () => {
     expect(sorted.map((s) => s.recipe.id)).toEqual(['makeable', 'one-short', 'two-short', 'empty'])
   })
 })
+
+describe('代替食材', () => {
+  const catalogById = new Map([
+    ['c-cab', { id: 'c-cab', unit: '玉' }],
+    ['c-nap', { id: 'c-nap', unit: '玉' }],
+    ['c-thigh', { id: 'c-thigh', unit: 'g' }],
+    ['c-breast', { id: 'c-breast', unit: 'g' }],
+  ])
+  const subs = [
+    { id: 'r1', from_catalog_id: 'c-cab', to_catalog_id: 'c-nap', ratio: 0.6, note: null },
+    { id: 'r2', from_catalog_id: 'c-thigh', to_catalog_id: 'c-breast', ratio: 1, note: null },
+  ]
+  const opts = { substitutions: subs, catalogById }
+
+  it('足りない分を換算比率で代替し、「代替で作れる」にする(白菜はキャベツの0.6倍)', () => {
+    const recipe = { id: 'r', recipe_ingredients: [line('cab', 1, 'キャベツ', '玉')] }
+    const status = getRecipeStatus(recipe, stock([{ id: 'cab', unit: '玉', quantity: 0, catalog_id: 'c-cab' }, { id: 'nap', name: '白菜', unit: '玉', quantity: 1, catalog_id: 'c-nap' }]), opts)
+    expect(status.level).toBe('substitutable')
+    expect(status.lines[0].substitutes).toEqual([{ ingredientId: 'nap', name: '白菜', unit: '玉', quantity: 0.6, ruleId: 'r1', note: null }])
+  })
+
+  it('方向がある: 逆向きのルールがなければ代替しない', () => {
+    const recipe = { id: 'r', recipe_ingredients: [line('nap', 1, '白菜', '玉')] }
+    const status = getRecipeStatus(recipe, stock([{ id: 'nap', unit: '玉', quantity: 0, catalog_id: 'c-nap' }, { id: 'cab', unit: '玉', quantity: 5, catalog_id: 'c-cab' }]), opts)
+    expect(status.level).toBe('almost')
+  })
+
+  it('同じ在庫を、そのもの用と代替用に重ねて割り当てない', () => {
+    // むね肉 300g は、レシピのむね肉 200g にまず使う。もも肉 200g の代替には残り 100g しかないので補えない
+    const recipe = { id: 'r', recipe_ingredients: [line('thigh', 200, 'もも', 'g'), line('breast', 200, 'むね', 'g')] }
+    const status = getRecipeStatus(recipe, stock([{ id: 'thigh', unit: 'g', quantity: 0, catalog_id: 'c-thigh' }, { id: 'breast', unit: 'g', quantity: 300, catalog_id: 'c-breast' }]), opts)
+    expect(status.level).toBe('almost')
+    expect(status.shortfalls).toEqual([expect.objectContaining({ ingredientId: 'thigh', missingQuantity: 200 })])
+  })
+
+  it('一部だけ足りない場合は、そのものの在庫と代替を組み合わせる', () => {
+    const recipe = { id: 'r', recipe_ingredients: [line('thigh', 200, 'もも', 'g')] }
+    const status = getRecipeStatus(recipe, stock([{ id: 'thigh', unit: 'g', quantity: 120, catalog_id: 'c-thigh' }, { id: 'breast', name: 'むね', unit: 'g', quantity: 100, catalog_id: 'c-breast' }]), opts)
+    expect(status.level).toBe('substitutable')
+    expect(status.lines[0]).toMatchObject({ fromOriginal: 120, substitutes: [expect.objectContaining({ quantity: 80 })] })
+  })
+
+  it('冷蔵庫の行の単位が食材マスタと違う場合は代替しない', () => {
+    const recipe = { id: 'r', recipe_ingredients: [line('thigh', 1, 'もも', '枚')] }
+    const status = getRecipeStatus(recipe, stock([{ id: 'thigh', unit: '枚', quantity: 0, catalog_id: 'c-thigh' }, { id: 'breast', unit: 'g', quantity: 500, catalog_id: 'c-breast' }]), opts)
+    expect(status.level).toBe('almost')
+  })
+
+  it('「作った」の初期値: そのものは使える分、代替は換算した量', async () => {
+    const { buildCookPlan } = await import('./matching')
+    const recipe = { id: 'r', recipe_ingredients: [line('thigh', 200, 'もも', 'g'), line('egg', 2, '卵', '個')] }
+    const status = getRecipeStatus(recipe, stock([{ id: 'thigh', name: 'もも', unit: 'g', quantity: 120, catalog_id: 'c-thigh' }, { id: 'breast', name: 'むね', unit: 'g', quantity: 100, catalog_id: 'c-breast' }, { id: 'egg', name: '卵', unit: '個', quantity: 0 }]), opts)
+    expect(buildCookPlan(status).map((r) => [r.ingredientId, r.quantity, r.substituteFor])).toEqual([
+      ['thigh', 120, null],
+      ['breast', 80, 'もも'],
+      ['egg', 2, null],
+    ])
+  })
+})

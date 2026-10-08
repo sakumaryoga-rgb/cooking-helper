@@ -6,6 +6,8 @@ import { TELEMETRY_NOTICE } from '@/lib/telemetry/notice'
 import { supabase } from '@/supabaseClient'
 
 vi.mock('@/supabaseClient', () => ({ supabase: { rpc: vi.fn() } }))
+vi.mock('@/hooks/useSubstitutions', () => ({ useSubstitutions: () => ({ disabledRules: [], enableRule: vi.fn() }) }))
+vi.mock('@/hooks/useIngredientCatalog', () => ({ useIngredientCatalog: () => ({ catalog: [] }) }))
 
 const TOKEN = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJ0123-_x'
 const group = { id: 'g1', name: 'テスト家' }
