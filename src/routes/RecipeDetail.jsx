@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { ExternalLink, Check, ChefHat } from 'lucide-react'
 import { useIngredients } from '@/hooks/useIngredients'
@@ -6,6 +6,7 @@ import { useRecipes } from '@/hooks/useRecipes'
 import { getRecipeStatus } from '@/lib/matching'
 import { formatQuantity } from '@/lib/format'
 import { supabase } from '@/supabaseClient'
+import { setBusy } from '@/lib/swUpdate'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -25,6 +26,12 @@ export function RecipeDetail({ groupId }) {
   const [cookOpen, setCookOpen] = useState(false)
   const [usedAmounts, setUsedAmounts] = useState({})
   const [saving, setSaving] = useState(false)
+
+  // 調理の確定ダイアログを開いている間は、アプリの更新でリロードされないようにする
+  useEffect(() => {
+    setBusy('cook-dialog', cookOpen)
+    return () => setBusy('cook-dialog', false)
+  }, [cookOpen])
 
   const ingredientsById = useMemo(() => new Map(ingredients.map((i) => [i.id, i])), [ingredients])
   const recipe = recipes.find((r) => r.id === id)

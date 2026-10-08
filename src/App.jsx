@@ -12,6 +12,8 @@ import { RecipeNew } from '@/routes/RecipeNew'
 import { RecipeDetail } from '@/routes/RecipeDetail'
 import { GroupSettings } from '@/routes/GroupSettings'
 import { Layout } from '@/components/Layout'
+import { UpdatePrompt } from '@/components/UpdatePrompt'
+import { PreviewBanner } from '@/components/PreviewBanner'
 
 function FullScreenLoader() {
   return (
@@ -34,33 +36,44 @@ export default function App() {
     }
   }, [location.search])
 
-  if (sessionLoading) return <FullScreenLoader />
+  if (sessionLoading) {
+    return (
+      <>
+        <UpdatePrompt />
+        <FullScreenLoader />
+      </>
+    )
+  }
 
   return (
-    <Routes>
-      <Route path="/auth/callback" element={<AuthCallback />} />
-      <Route path="/login" element={session ? <Navigate to="/" replace /> : <Login />} />
+    <>
+      <PreviewBanner />
+      <UpdatePrompt />
+      <Routes>
+        <Route path="/auth/callback" element={<AuthCallback />} />
+        <Route path="/login" element={session ? <Navigate to="/" replace /> : <Login />} />
 
-      {!session ? (
-        <Route path="*" element={<Navigate to="/login" replace />} />
-      ) : groupLoading ? (
-        <Route path="*" element={<FullScreenLoader />} />
-      ) : !group ? (
-        <>
-          <Route path="/onboarding" element={<Onboarding onGroupChanged={refreshGroup} />} />
-          <Route path="*" element={<Navigate to="/onboarding" replace />} />
-        </>
-      ) : (
-        <Route element={<Layout groupName={group.name} />}>
-          <Route index element={<Navigate to="/fridge" replace />} />
-          <Route path="/fridge" element={<Fridge groupId={group.id} />} />
-          <Route path="/recipes" element={<Recipes groupId={group.id} />} />
-          <Route path="/recipes/new" element={<RecipeNew groupId={group.id} userId={session.user.id} />} />
-          <Route path="/recipes/:id" element={<RecipeDetail groupId={group.id} />} />
-          <Route path="/group" element={<GroupSettings group={group} />} />
-          <Route path="*" element={<Navigate to="/fridge" replace />} />
-        </Route>
-      )}
-    </Routes>
+        {!session ? (
+          <Route path="*" element={<Navigate to="/login" replace />} />
+        ) : groupLoading ? (
+          <Route path="*" element={<FullScreenLoader />} />
+        ) : !group ? (
+          <>
+            <Route path="/onboarding" element={<Onboarding onGroupChanged={refreshGroup} />} />
+            <Route path="*" element={<Navigate to="/onboarding" replace />} />
+          </>
+        ) : (
+          <Route element={<Layout groupName={group.name} />}>
+            <Route index element={<Navigate to="/fridge" replace />} />
+            <Route path="/fridge" element={<Fridge groupId={group.id} />} />
+            <Route path="/recipes" element={<Recipes groupId={group.id} />} />
+            <Route path="/recipes/new" element={<RecipeNew groupId={group.id} userId={session.user.id} />} />
+            <Route path="/recipes/:id" element={<RecipeDetail groupId={group.id} />} />
+            <Route path="/group" element={<GroupSettings group={group} />} />
+            <Route path="*" element={<Navigate to="/fridge" replace />} />
+          </Route>
+        )}
+      </Routes>
+    </>
   )
 }
