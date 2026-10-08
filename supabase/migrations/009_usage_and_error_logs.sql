@@ -7,7 +7,7 @@
 -- - group_id は本人の所属グループ(my_group_id())か null だけを許す。
 -- - 料理の内容、レシピの URL、メールアドレス、トークン、入力内容は保存しない。
 --   画面側で伏せ字にしたうえで、DB 側でも形式と長さを制限する。
--- - 保存期間は 90 日。purge_usage_and_error_logs() で削除する(pg_cron があれば毎日自動)。
+-- - 保存期間は 90 日。purge_usage_and_error_logs() で削除する(pg_cron が有効なら毎日自動)。
 --
 -- 何度実行しても同じ結果になるように書いている。SQL Editor で全体をそのまま実行する。
 
@@ -114,19 +114,19 @@ $$;
 -- クライアントからは実行させない(SQL Editor と pg_cron からだけ)
 revoke all on function purge_usage_and_error_logs(interval) from public, anon, authenticated;
 
--- pg_cron が使える環境(Supabase)では、毎日 3:30(日本時間 12:30)に自動で削除する。
--- 使えない環境(ローカルの DB テスト)では何もしない。
+-- 自動削除の登録。拡張機能の有効化はこの migration では行わない(失敗して適用全体が止まるのを避けるため)。
+-- pg_cron がすでに有効なら毎日 3:30 UTC(日本時間 12:30)の実行を登録し、無効なら何もしない。
+-- 後から pg_cron を有効にした場合は supabase/manual/009_schedule_purge.sql を実行する。
 do $$
 begin
-  if exists (select 1 from pg_available_extensions where name = 'pg_cron') then
-    create extension if not exists pg_cron;
-    if exists (select 1 from cron.job where jobname = 'purge-usage-and-error-logs') then
-      perform cron.unschedule('purge-usage-and-error-logs');
-    end if;
-    perform cron.schedule(
-      'purge-usage-and-error-logs',
-      '30 3 * * *',
-      'select * from public.purge_usage_and_error_logs()'
-    );
+  if exists (select 1 from pg_extension where extname = 'pg_cron') then
+    execute $sql$
+      select cron.unschedule(jobid) from cron.job where jobname = 'purge-usage-and-error-logs'
+    $sql$;
+    execute $sql$
+      select cron.schedule('purge-usage-and-error-logs', '30 3 * * *', 'select * from public.purge_usage_and_error_logs()')
+    $sql$;
+  else
+    raise notice 'pg_cron が無効なため、90日削除の自動実行は登録していません';
   end if;
 end $$;

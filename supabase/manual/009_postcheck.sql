@@ -1,5 +1,5 @@
 -- migration 009 を適用した後に SQL Editor で実行する(読み取りのみ)。
--- すべての行の ok が true なら適用は完了。
+-- 「参考」以外の行がすべて true なら適用は完了。
 
 select 'page_views と client_errors がある' as check_name,
        to_regclass('public.page_views') is not null and to_regclass('public.client_errors') is not null as ok
@@ -41,6 +41,7 @@ select '参考: pg_cron が有効(false なら 90 日削除は手動で行う)',
        exists (select 1 from pg_extension where extname = 'pg_cron');
 
 -- pg_cron が有効な場合だけ、次の1行のコメントを外して実行し、1行返ることを確かめる
+-- (返らない場合は supabase/manual/009_schedule_purge.sql を実行する)
 -- select jobname, schedule, command from cron.job where jobname = 'purge-usage-and-error-logs';
 
 -- 既存テーブルの件数(適用前の控えと同じであること)

@@ -37,8 +37,10 @@
 
 - 保存期間は90日。
 - `purge_usage_and_error_logs()` が90日を超えた行を消す。クライアントからは実行できない。
-- pg_cron が使える場合、migration 009 が毎日 3:30 UTC(日本時間 12:30)の自動実行を登録する。
-  使えない場合は、`supabase/queries/usage_reports.sql` の 9 を月に1回以上、手動で実行する。
+- pg_cron が有効なら、migration 009 が毎日 3:30 UTC(日本時間 12:30)の自動実行を登録する。
+  migration は拡張機能を有効にしない。無効なら通知を出すだけで、適用は成功する。
+- 後から pg_cron を有効にした場合は `supabase/manual/009_schedule_purge.sql` を実行する。
+  pg_cron を使わない場合は、`supabase/queries/usage_reports.sql` の 9 を月に1回以上、手動で実行する。
 - グループが削除されると group_id は null になる。行は90日で消える。
 - 特定のユーザーの記録を消す依頼があった場合は、SQL Editor で次を実行する(一般公開時の削除依頼の対応)。
 
@@ -49,14 +51,7 @@ delete from client_errors where user_id = '<user id>';
 
 ## 本番への適用手順(承認後に行う)
 
-DB を変更するリリースなので、`docs/db-backup-restore.md` のバックアップと復元確認を先に行う。
-
-1. `supabase/manual/009_precheck.sql` を実行し、前提の行がすべて true であることと、既存テーブルの件数を控える。
-2. `supabase/migrations/009_usage_and_error_logs.sql` を全文そのまま実行する。
-3. `supabase/manual/009_postcheck.sql` を実行し、すべて true、既存テーブルの件数が 1 と同じであることを確かめる。
-4. pg_cron が有効なら、postcheck の末尾のコメントの1行を実行し、削除の自動実行が登録されていることを確かめる。
-5. その後に v1.1.0 を本番にデプロイする。アプリより先に DB を変える
-   (アプリが先だと、テーブルがないため送信が失敗し続ける。失敗しても画面には影響しない)。
+`docs/release-v1.1.0.md` にまとめた。
 
 ### 戻し方
 
