@@ -12,6 +12,11 @@ import { RecipeNew } from '@/routes/RecipeNew'
 import { RecipeDetail } from '@/routes/RecipeDetail'
 import { Settings } from '@/routes/Settings'
 import { Home } from '@/routes/Home'
+import { Terms, Privacy } from '@/routes/Legal'
+import { Contact } from '@/routes/Contact'
+import { Admin } from '@/routes/Admin'
+import { ConsentScreen } from '@/components/ConsentScreen'
+import { useConsent } from '@/hooks/useConsent'
 import { Layout } from '@/components/Layout'
 import { UpdatePrompt } from '@/components/UpdatePrompt'
 import { PreviewBanner } from '@/components/PreviewBanner'
@@ -33,6 +38,7 @@ export default function App() {
   const { session, loading: sessionLoading } = useSession()
   const { group, loading: groupLoading, refresh: refreshGroup } = useGroup(session)
   const location = useLocation()
+  const consent = useConsent(session?.user?.id ?? null)
 
   // 利用状況とエラーの記録(本番DBに接続するビルドで、ログイン中だけ)
   useTelemetry({
@@ -61,10 +67,17 @@ export default function App() {
       <UpdatePrompt />
       <Routes>
         <Route path="/auth/callback" element={<AuthCallback />} />
+        {/* 規約とポリシーは、ログイン前・同意前でも読めるようにする */}
+        <Route path="/terms" element={<Terms />} />
+        <Route path="/privacy" element={<Privacy />} />
         <Route path="/login" element={session ? <Navigate to="/" replace /> : <Login />} />
 
         {!session ? (
           <Route path="*" element={<Navigate to="/login" replace />} />
+        ) : consent.loading ? (
+          <Route path="*" element={<FullScreenLoader />} />
+        ) : consent.needsConsent ? (
+          <Route path="*" element={<ConsentScreen revised={consent.revised} loadError={consent.loadError} onAgree={consent.agree} onRetry={consent.retry} />} />
         ) : groupLoading ? (
           <Route path="*" element={<FullScreenLoader />} />
         ) : !group ? (
@@ -81,6 +94,8 @@ export default function App() {
             <Route path="/recipes/:id" element={<RecipeDetail groupId={group.id} />} />
             <Route path="/settings" element={<Settings group={group} email={session.user.email} userId={session.user.id} />} />
             <Route path="/group" element={<Navigate to="/settings" replace />} />
+            <Route path="/contact" element={<Contact />} />
+            <Route path="/admin" element={<Admin />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         )}

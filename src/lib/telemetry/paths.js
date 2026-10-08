@@ -14,6 +14,10 @@ const ROUTE_PATTERNS = [
   '/recipes/:id',
   '/group',
   '/settings',
+  '/terms',
+  '/privacy',
+  '/contact',
+  '/admin',
 ]
 
 export function normalizePath(pathname) {

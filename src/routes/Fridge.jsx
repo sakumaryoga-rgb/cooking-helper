@@ -193,10 +193,12 @@ export function Fridge({ groupId }) {
     // 在庫の増減・ロットの記録・在庫0時の自動削除を1トランザクションで行う
     // (以前はクライアント側で複数回に分けて処理しており、連打や複数端末からの
     // 同時操作で更新が失われることがあった)
-    const { data, error } = await supabase.rpc('adjust_ingredient_quantity', {
+    const { data, error } = await supabase.rpc('adjust_stock', {
       p_ingredient_id: ingredient.id,
       p_delta: delta,
       p_dated_today: dateAsPurchaseDate,
+      p_best_before: null,
+      p_use_by: null,
     })
     if (error) {
       console.error('数量の更新に失敗しました', error)
