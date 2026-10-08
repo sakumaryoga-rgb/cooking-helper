@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { supabase } from '@/supabaseClient'
 import { DB_ENABLED } from '@/lib/runtimeEnv'
+import { BrandMark } from '@/components/BrandMark'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -31,7 +32,9 @@ export function Login() {
     <div className="min-h-svh flex items-center justify-center px-4">
       <Card className="w-full max-w-sm">
         <CardHeader>
-          <CardTitle>お料理ヘルパー</CardTitle>
+          <CardTitle>
+            <BrandMark />
+          </CardTitle>
           <CardDescription>メールアドレスにログイン用のリンクを送ります</CardDescription>
         </CardHeader>
         <CardContent>

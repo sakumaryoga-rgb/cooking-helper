@@ -3,6 +3,7 @@ import { Copy, Check } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
 import { APP_VERSION } from '@/lib/appVersion'
+import { APP_NAME } from '@/lib/brand'
 
 export function GroupSettings({ group }) {
   const [copied, setCopied] = useState(false)
@@ -30,7 +31,17 @@ export function GroupSettings({ group }) {
           </Button>
         </CardContent>
       </Card>
-      <p className="text-center text-xs text-muted-foreground">バージョン {APP_VERSION}</p>
+      <p className="text-center text-xs text-muted-foreground">
+        {APP_NAME} バージョン {APP_VERSION}
+      </p>
+      <details className="text-xs text-muted-foreground">
+        <summary className="cursor-pointer text-center">ホーム画面のアイコンが古いままの場合</summary>
+        <div className="mt-2 flex flex-col gap-1.5 rounded-lg bg-muted px-3 py-2.5">
+          <p>iPhone のホーム画面のアイコンと名前は、追加したときのまま残ることがあります。アプリの中身は最新になっているので、そのまま使い続けて問題ありません。</p>
+          <p>新しいアイコンにしたい場合だけ、Safari で cookdoor.app を開き、共有ボタンから「ホーム画面に追加」で追加し直してください。</p>
+          <p>追加し直すとログインし直しが必要になることがあります。古いアイコンは、新しいアイコンでログインできたのを確かめてから削除してください。</p>
+        </div>
+      </details>
     </div>
   )
 }

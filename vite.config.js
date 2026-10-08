@@ -34,18 +34,25 @@ export default defineConfig({
         clientsClaim: true,
         cleanupOutdatedCaches: true,
       },
-      includeAssets: ['apple-touch-icon.png'],
+      // manifest のアイコンは自動でプリキャッシュされる。ファイル名を変えたので、古いアイコンは
+      // cleanupOutdatedCaches で新しい SW の有効化時に削除される
+      includeAssets: ['apple-touch-icon.png', 'favicon.ico', 'favicon-32.png'],
       manifest: {
-        name: 'お料理ヘルパー',
-        short_name: 'お料理ヘルパー',
-        description: '冷蔵庫の食材からつくれる料理を提案するアプリ',
+        name: 'COOKDOOR',
+        short_name: 'COOKDOOR',
+        description: '冷蔵庫の食材からつくれる料理がわかるアプリ',
+        lang: 'ja',
+        // start_url と scope(未指定 = start_url と同じ '/')は変えない。変えると別アプリ扱いになる
         start_url: '/',
         display: 'standalone',
-        background_color: '#FBFBFA',
+        // 起動時のスプラッシュ(Android)を公式アイコンの黄色にする
+        background_color: '#FED712',
         theme_color: '#FBFBFA',
         icons: [
-          { src: 'icons/icon-192.png', sizes: '192x192', type: 'image/png' },
-          { src: 'icons/icon-512.png', sizes: '512x512', type: 'image/png' },
+          { src: 'icons/cookdoor-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+          { src: 'icons/cookdoor-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+          { src: 'icons/cookdoor-maskable-192.png', sizes: '192x192', type: 'image/png', purpose: 'maskable' },
+          { src: 'icons/cookdoor-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
         ],
       },
     }),

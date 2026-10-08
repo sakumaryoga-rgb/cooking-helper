@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '@/supabaseClient'
+import { BrandMark } from '@/components/BrandMark'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -60,8 +61,9 @@ export function Onboarding({ onGroupChanged }) {
     <div className="min-h-svh flex items-center justify-center px-4">
       <Card className="w-full max-w-sm">
         <CardHeader>
+          <BrandMark size="sm" className="mb-2 text-sm" />
           <CardTitle>グループを作成 / 参加</CardTitle>
-          <CardDescription>冷蔵庫とレシピを共有する世帯・グループを設定します</CardDescription>
+          <CardDescription>COOKDOOR で冷蔵庫とレシピを共有する世帯・グループを設定します</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
           <div className="flex gap-2">
