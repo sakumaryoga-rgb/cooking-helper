@@ -16,6 +16,9 @@ function json(res, status, body) {
 }
 
 async function verifyUser(authorization) {
+  // Vercel の production 以外(Preview など)では本番の Supabase に問い合わせない(CLAUDE.md、src/lib/runtimeEnv.js と同じ方針)
+  const vercelEnv = process.env.VERCEL_ENV
+  if (vercelEnv && vercelEnv !== 'production') return { configured: false }
   const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
   const anonKey = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY
   if (!supabaseUrl || !anonKey) return { configured: false }

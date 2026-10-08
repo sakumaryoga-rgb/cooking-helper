@@ -50,8 +50,16 @@ describe('/api/recipe-import', () => {
     expect(fetch).not.toHaveBeenCalledWith('https://evil.example/', expect.anything())
   })
 
-  it('接続情報がない環境(Preview)では使えない', async () => {
+  it('接続情報がない環境では使えない', async () => {
     vi.stubEnv('VITE_SUPABASE_URL', '')
     expect((await call({ url: 'https://delishkitchen.tv/recipes/194135459369058708' })).status).toBe(503)
+  })
+
+  it('Vercel の Preview では本番の Supabase に問い合わせない', async () => {
+    vi.stubEnv('VERCEL_ENV', 'preview')
+    expect((await call({ url: 'https://delishkitchen.tv/recipes/194135459369058708' })).status).toBe(503)
+    expect(fetch).not.toHaveBeenCalled()
+    vi.stubEnv('VERCEL_ENV', 'production')
+    expect((await call({ url: 'https://delishkitchen.tv/recipes/194135459369058708' })).status).toBe(200)
   })
 })
