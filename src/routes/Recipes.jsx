@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { Plus } from 'lucide-react'
 import { useIngredients } from '@/hooks/useIngredients'
 import { useRecipes } from '@/hooks/useRecipes'
-import { sortRecipesByMakeability } from '@/lib/matching'
+import { describeShortfalls, sortRecipesByMakeability } from '@/lib/matching'
 import { Button } from '@/components/ui/button'
 import { MakeableBadge } from '@/components/MakeableBadge'
 
@@ -43,7 +43,12 @@ export function Recipes({ groupId }) {
                 to={`/recipes/${recipe.id}`}
                 className="flex items-center justify-between gap-3 px-3 py-3 hover:bg-accent/50 transition-colors"
               >
-                <span className="text-sm font-medium truncate">{recipe.title}</span>
+                <span className="flex min-w-0 flex-col">
+                  <span className="text-sm font-medium truncate">{recipe.title}</span>
+                  {status.level === 'almost' && (
+                    <span className="text-xs text-muted-foreground truncate">{describeShortfalls(status.shortfalls, 2)}</span>
+                  )}
+                </span>
                 <MakeableBadge status={status} />
               </Link>
             </li>

@@ -57,10 +57,29 @@ function round(n) {
   return Math.round(n * 100) / 100
 }
 
-export function resolveIngredient(parsed, ingredients, catalog) {
+// 別名辞書(人参 → にんじん)で食材マスタの品目を探す
+function findByAlias(aliases, catalog, key) {
+  const hit = aliases.find((a) => normalizeName(a.alias) === key)
+  return hit ? catalog.find((c) => c.id === hit.catalog_id) ?? null : null
+}
+
+export function resolveIngredient(parsed, ingredients, catalog, aliases = []) {
   const key = normalizeName(parsed.name)
-  const fromFridge = key ? findByName(ingredients, key) : null
-  const fromCatalog = !fromFridge && key ? findByName(catalog, key) : null
+  const aliasItem = key ? findByAlias(aliases, catalog, key) : null
+  // 冷蔵庫: 名前が同じもの → 別名が指す品目と同じもの(マスタの ID か名前)→ 名前の末尾が一致するもの
+  const exactFridge = key ? ingredients.find((i) => normalizeName(i.name) === key) : null
+  const aliasFridge =
+    !exactFridge && aliasItem
+      ? ingredients.find((i) => i.catalog_id === aliasItem.id || normalizeName(i.name) === normalizeName(aliasItem.name))
+      : null
+  const fromFridge = exactFridge
+    ? { item: exactFridge, fuzzy: false }
+    : aliasFridge
+      ? { item: aliasFridge, fuzzy: false }
+      : !aliasItem && key
+        ? findByName(ingredients, key)
+        : null
+  const fromCatalog = fromFridge ? null : aliasItem ? { item: aliasItem, fuzzy: false } : key ? findByName(catalog, key) : null
 
   let target
   if (fromFridge) {

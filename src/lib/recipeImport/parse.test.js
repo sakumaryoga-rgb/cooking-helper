@@ -115,3 +115,30 @@ describe('食材との突き合わせ', () => {
     expect(normalizeName('長ねぎ[白い部分]')).toBe('長ねぎ')
   })
 })
+
+describe('別名辞書での突き合わせ', () => {
+  const catalog = [
+    { id: 'c-carrot', name: 'にんじん', unit: '本', group_id: null },
+    { id: 'c-onion', name: '玉ねぎ', unit: '個', group_id: null },
+    { id: 'c-own', name: 'うちのだれ', unit: 'ml', group_id: 'g1' },
+  ]
+  const aliases = [
+    { alias: '人参', catalog_id: 'c-carrot', group_id: null },
+    { alias: '玉葱', catalog_id: 'c-onion', group_id: null },
+    { alias: '特製だれ', catalog_id: 'c-own', group_id: 'g1' },
+  ]
+  const fridge = [{ id: 'i-carrot', name: 'にんじん', unit: '本', catalog_id: 'c-carrot' }]
+  const resolve = (line) => resolveIngredient(parseIngredientLine(line), fridge, catalog, aliases)
+
+  it('「人参」は冷蔵庫のにんじんにまとめる', () => {
+    expect(resolve('人参 1本')).toMatchObject({ kind: 'existing', ingredient: fridge[0], requiredQuantity: 1, needsCheck: false })
+  })
+
+  it('「玉葱」は食材マスタの玉ねぎにまとめる', () => {
+    expect(resolve('玉葱 1/2個')).toMatchObject({ kind: 'catalog', name: '玉ねぎ', requiredQuantity: 0.5, needsCheck: false })
+  })
+
+  it('家庭で登録した別名と品目も使う', () => {
+    expect(resolve('特製だれ 大さじ1')).toMatchObject({ kind: 'catalog', name: 'うちのだれ', unit: 'ml', requiredQuantity: 15 })
+  })
+})

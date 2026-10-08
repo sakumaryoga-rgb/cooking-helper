@@ -2,6 +2,7 @@ import { useMemo, useRef, useState } from 'react'
 import { ChevronDown, Plus } from 'lucide-react'
 import { supabase } from '@/supabaseClient'
 import { useIngredientCatalog } from '@/hooks/useIngredientCatalog'
+import { useIngredientAliases } from '@/hooks/useIngredientAliases'
 import { formatQuantity } from '@/lib/format'
 import {
   Dialog,
@@ -73,7 +74,7 @@ function groupByCategory(items) {
 
 // マスタ食材の一覧行。長押しするとカタログからの完全削除を確認する
 // (通常のタップ選択とは別ジェスチャーなので、長押し発火後の後続クリックは握りつぶす)
-function CatalogItemRow({ item, category, isSearching, disabled, onSelect, onRequestDelete }) {
+function CatalogItemRow({ item, category, isSearching, disabled, onSelect, onRequestDelete, keywords }) {
   const timerRef = useRef(null)
   const longPressFiredRef = useRef(false)
   const startPosRef = useRef({ x: 0, y: 0 })
@@ -89,6 +90,8 @@ function CatalogItemRow({ item, category, isSearching, disabled, onSelect, onReq
     startPosRef.current = { x: e.clientX, y: e.clientY }
     longPressFiredRef.current = false
     clearTimer()
+    // 共通の品目は削除できない(長押しで何もしない)。家庭で登録した品目だけ削除できる
+    if (!onRequestDelete) return
     timerRef.current = setTimeout(() => {
       longPressFiredRef.current = true
       onRequestDelete(item)
@@ -116,6 +119,7 @@ function CatalogItemRow({ item, category, isSearching, disabled, onSelect, onReq
   return (
     <CommandItem
       value={item.name}
+      keywords={keywords}
       disabled={disabled}
       onSelect={() => onSelect(item)}
       onPointerDown={handlePointerDown}
@@ -141,7 +145,22 @@ function CatalogItemRow({ item, category, isSearching, disabled, onSelect, onReq
 // 選択(または新規作成)された食材オブジェクトを onSelect(ingredient) で返すだけで、
 // 「その用途での数量」はここでは扱わず呼び出し側に任せる。
 export function IngredientPicker({ open, onOpenChange, groupId, ingredients, onSelect, excludeIds = [] }) {
-  const { catalog, loading: catalogLoading } = useIngredientCatalog()
+  const { catalog: rawCatalog, loading: catalogLoading } = useIngredientCatalog()
+  const { aliases } = useIngredientAliases()
+  // 同じ名前の品目が共通と家庭専用の両方にあれば、家庭専用を使う
+  const catalog = useMemo(() => {
+    const ownNames = new Set(rawCatalog.filter((c) => c.group_id).map((c) => c.name))
+    return rawCatalog.filter((c) => c.group_id || !ownNames.has(c.name))
+  }, [rawCatalog])
+  // 検索で別名(人参、玉葱など)からも見つかるようにする
+  const aliasesByCatalog = useMemo(() => {
+    const map = new Map()
+    for (const a of aliases) {
+      if (!map.has(a.catalog_id)) map.set(a.catalog_id, [])
+      map.get(a.catalog_id).push(a.alias)
+    }
+    return map
+  }, [aliases])
   const [search, setSearch] = useState('')
   const [creating, setCreating] = useState(false)
   const [newUnit, setNewUnit] = useState(UNIT_PRESETS[0])
@@ -262,18 +281,13 @@ export function IngredientPicker({ open, onOpenChange, groupId, ingredients, onS
     setSaving(true)
     setError(null)
 
-    // 同名のマスタ食材が既にあればそちらの単位・カテゴリを優先して使う
-    const { data: existingCatalog } = await supabase
-      .from('ingredient_catalog')
-      .select('*')
-      .eq('name', trimmedSearch)
-      .maybeSingle()
+    // 同名のマスタ食材(共通、または自分の家庭の品目)が既にあればそちらの単位・カテゴリを優先して使う
+    const pickSameName = (rows) => rows?.find((c) => c.group_id) ?? rows?.find((c) => !c.group_id) ?? null
+    const { data: sameName } = await supabase.from('ingredient_catalog').select('*').eq('name', trimmedSearch)
+    let catalogItem = pickSameName(sameName)
 
-    let catalogItem = existingCatalog
-
-    // 既存のマスタ食材が別カテゴリに入っている場合、選んだカテゴリへ移す
-    // (以前は既存行をそのまま使い回してしまい、選択したカテゴリが無視されるバグがあった)
-    if (catalogItem && catalogItem.category !== newCategory) {
+    // 自分の家庭の品目が別カテゴリに入っている場合、選んだカテゴリへ移す(共通の品目は変更できないのでそのまま使う)
+    if (catalogItem && catalogItem.group_id && catalogItem.category !== newCategory) {
       const { data: lastInTargetCategory } = await supabase
         .from('ingredient_catalog')
         .select('sort_order')
@@ -305,19 +319,15 @@ export function IngredientPicker({ open, onOpenChange, groupId, ingredients, onS
 
       const { data: inserted, error: catalogError } = await supabase
         .from('ingredient_catalog')
-        .insert({ name: trimmedSearch, unit: newUnit, category: newCategory, sort_order: nextSortOrder })
+        .insert({ name: trimmedSearch, unit: newUnit, category: newCategory, sort_order: nextSortOrder, group_id: groupId })
         .select()
         .single()
 
       if (catalogError) {
         if (catalogError.code === '23505') {
           // 他のメンバーがほぼ同時に同じ名前を登録した等の競合。既存行を再利用する。
-          const { data: raced } = await supabase
-            .from('ingredient_catalog')
-            .select('*')
-            .eq('name', trimmedSearch)
-            .maybeSingle()
-          catalogItem = raced
+          const { data: raced } = await supabase.from('ingredient_catalog').select('*').eq('name', trimmedSearch)
+          catalogItem = pickSameName(raced)
         }
         if (!catalogItem) {
           setSaving(false)
@@ -428,7 +438,8 @@ export function IngredientPicker({ open, onOpenChange, groupId, ingredients, onS
                                 isSearching={isSearching}
                                 disabled={catalogSavingId === item.id}
                                 onSelect={handleSelectCatalog}
-                                onRequestDelete={setDeleteTarget}
+                                onRequestDelete={item.group_id ? setDeleteTarget : null}
+                                keywords={aliasesByCatalog.get(item.id)}
                               />
                             ))}
                           </CommandGroup>

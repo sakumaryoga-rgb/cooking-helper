@@ -67,7 +67,7 @@ export function Fridge({ groupId }) {
 
   // 在庫0の食材(レシピの材料として残っているもの)は折りたたむ。検索中はすべて出す
   const searching = query.trim() !== ''
-  const visible = (r) => Number(r.ingredient.quantity) > 0 || pinnedIds.has(r.ingredient.id)
+  const visible = (r) => Number(r.ingredient.quantity) > 0 || r.ingredient.is_staple || pinnedIds.has(r.ingredient.id)
   const inStock = searching ? rows : rows.filter(visible)
   const emptyRows = searching ? [] : rows.filter((r) => !visible(r))
 
@@ -82,7 +82,10 @@ export function Fridge({ groupId }) {
         <SwipeToDelete onDelete={() => removeIngredient(ingredient.id)}>
           <div className="flex items-center gap-3 px-3 py-2.5">
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium truncate">{ingredient.name}</p>
+              <p className="text-sm font-medium truncate">
+                {ingredient.name}
+                {ingredient.is_staple && <span className="ml-1.5 text-xs font-normal text-muted-foreground">常備品</span>}
+              </p>
               <p className="text-xs text-muted-foreground flex items-center gap-1.5">
                 <span>
                   {formatQuantity(ingredient.quantity)} {ingredient.unit}

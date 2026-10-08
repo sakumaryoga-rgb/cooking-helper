@@ -9,6 +9,7 @@ import { findDuplicate, saveRecipe } from '@/lib/recipeImport/save'
 vi.mock('@/supabaseClient', () => ({ supabase: {} }))
 vi.mock('@/hooks/useIngredients', () => ({ useIngredients: () => ({ ingredients: [{ id: 'i1', name: 'きゅうり', unit: '本', quantity: 2 }] }) }))
 vi.mock('@/hooks/useIngredientCatalog', () => ({ useIngredientCatalog: () => ({ catalog: [{ id: 'c1', name: '鶏むね肉', unit: 'g' }] }) }))
+vi.mock('@/hooks/useIngredientAliases', () => ({ useIngredientAliases: () => ({ aliases: [{ alias: '鶏胸肉', catalog_id: 'c1', group_id: null }] }) }))
 vi.mock('@/components/IngredientPicker', () => ({ IngredientPicker: () => null }))
 vi.mock('@/lib/recipeImport/client', () => ({ fetchRecipeFromUrl: vi.fn() }))
 vi.mock('@/lib/recipeImport/save', () => ({ findDuplicate: vi.fn(), saveRecipe: vi.fn() }))
