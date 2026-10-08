@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { supabase } from '@/supabaseClient'
+import { DB_ENABLED } from '@/lib/runtimeEnv'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -34,7 +35,11 @@ export function Login() {
           <CardDescription>メールアドレスにログイン用のリンクを送ります</CardDescription>
         </CardHeader>
         <CardContent>
-          {status === 'sent' ? (
+          {!DB_ENABLED ? (
+            <p className="text-sm text-muted-foreground">
+              プレビュー環境では本番のデータベースに接続しないため、ログインできません。
+            </p>
+          ) : status === 'sent' ? (
             <p className="text-sm text-muted-foreground">
               {email} 宛にログインリンクを送信しました。メールを確認してください。
             </p>

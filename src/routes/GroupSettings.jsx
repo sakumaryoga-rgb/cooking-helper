@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Copy, Check } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
+import { APP_VERSION } from '@/lib/appVersion'
 
 export function GroupSettings({ group }) {
   const [copied, setCopied] = useState(false)
@@ -29,6 +30,7 @@ export function GroupSettings({ group }) {
           </Button>
         </CardContent>
       </Card>
+      <p className="text-center text-xs text-muted-foreground">バージョン {APP_VERSION}</p>
     </div>
   )
 }
