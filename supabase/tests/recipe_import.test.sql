@@ -99,6 +99,12 @@ begin
   assert not exists (select 1 from ingredient_batches where ingredient_id = used), 'ロットは消える';
   assert exists (select 1 from recipe_ingredients where ingredient_id = used), 'レシピの材料は残る';
 
+  -- 在庫0で残した食材に、＋で在庫を戻せる
+  perform adjust_ingredient_quantity(used, 100, true);
+  assert (select quantity from ingredients where id = used) = 100, '在庫0から再追加できる';
+  assert (select quantity from ingredient_batches where ingredient_id = used and added_on = current_date) = 100, '再追加分のロットができる';
+  assert exists (select 1 from recipe_ingredients where ingredient_id = used), '再追加後もレシピの材料は同じ食材を指す';
+
   deleted := remove_ingredient(unused);
   assert deleted, 'レシピで使わない食材は削除する';
   assert not exists (select 1 from ingredients where id = unused), '行が消える';

@@ -28,6 +28,8 @@ function expiryColorClass(daysLeft) {
 export function Fridge({ groupId }) {
   const { ingredients, loading, removeIngredient, dropLocal } = useIngredients(groupId)
   const [showEmpty, setShowEmpty] = useState(false)
+  // 「追加」で選んだ食材は、在庫0でも通常の一覧に出す(このあと「＋」で増やすため)
+  const [pinnedIds, setPinnedIds] = useState(() => new Set())
   const { batches } = useIngredientBatches(groupId)
   const { catalog } = useIngredientCatalog()
   const [pickerOpen, setPickerOpen] = useState(false)
@@ -65,8 +67,14 @@ export function Fridge({ groupId }) {
 
   // 在庫0の食材(レシピの材料として残っているもの)は折りたたむ。検索中はすべて出す
   const searching = query.trim() !== ''
-  const inStock = searching ? rows : rows.filter((r) => Number(r.ingredient.quantity) > 0)
-  const emptyRows = searching ? [] : rows.filter((r) => !(Number(r.ingredient.quantity) > 0))
+  const visible = (r) => Number(r.ingredient.quantity) > 0 || pinnedIds.has(r.ingredient.id)
+  const inStock = searching ? rows : rows.filter(visible)
+  const emptyRows = searching ? [] : rows.filter((r) => !visible(r))
+
+  function handlePicked(ingredient) {
+    setPinnedIds((prev) => new Set(prev).add(ingredient.id))
+    setPickerOpen(false)
+  }
 
   function renderRow({ ingredient, expiry }) {
     return (
@@ -191,7 +199,7 @@ export function Fridge({ groupId }) {
         onOpenChange={setPickerOpen}
         groupId={groupId}
         ingredients={ingredients}
-        onSelect={() => setPickerOpen(false)}
+        onSelect={handlePicked}
       />
     </div>
   )

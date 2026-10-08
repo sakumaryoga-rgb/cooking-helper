@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Fridge } from './Fridge'
 import { supabase } from '@/supabaseClient'
@@ -12,7 +12,13 @@ vi.mock('@/hooks/useIngredients', () => ({ useIngredients: vi.fn() }))
 vi.mock('@/hooks/useIngredientBatches', () => ({ useIngredientBatches: vi.fn() }))
 vi.mock('@/hooks/useIngredientCatalog', () => ({ useIngredientCatalog: vi.fn() }))
 // 食材選択ダイアログはこのテストの対象外(閉じたまま)
-vi.mock('@/components/IngredientPicker', () => ({ IngredientPicker: () => null }))
+let pickerProps = null
+vi.mock('@/components/IngredientPicker', () => ({
+  IngredientPicker: (props) => {
+    pickerProps = props
+    return null
+  },
+}))
 
 const removeIngredient = vi.fn()
 const dropLocal = vi.fn()
@@ -86,6 +92,16 @@ describe('Fridge の数量変更', () => {
     expect(screen.queryByText('しょうゆ')).not.toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '在庫なしの食材(1)を表示' }))
     expect(screen.getByText('しょうゆ')).toBeInTheDocument()
+  })
+
+  it('在庫0の食材を「追加」で選び直すと通常の一覧に出て、「＋」で再追加できる', async () => {
+    setup([{ id: 'b', name: 'しょうゆ', unit: 'ml', quantity: 0 }])
+    expect(screen.queryByText('しょうゆ')).not.toBeInTheDocument()
+    await act(async () => pickerProps.onSelect({ id: 'b', name: 'しょうゆ', unit: 'ml', quantity: 0 }))
+    expect(screen.getByText('しょうゆ')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /在庫なしの食材/ })).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '増やす' }))
+    expect(supabase.rpc).toHaveBeenCalledWith('adjust_ingredient_quantity', expect.objectContaining({ p_ingredient_id: 'b' }))
   })
 
   it('検索語で一覧を絞り込む', async () => {
