@@ -13,8 +13,11 @@ const NAV_ITEMS = [
 ]
 
 export function Layout({ groupName }) {
+  // この端末だけをログアウトする。既定の global だと、同じアカウントの他の端末
+  // (家族の iPhone、Safari とホーム画面のアプリ)も次のトークン更新でログアウトされる
+  // (docs/auth-session-investigation.md)
   async function handleSignOut() {
-    await supabase.auth.signOut()
+    await supabase.auth.signOut({ scope: 'local' })
   }
 
   return (
