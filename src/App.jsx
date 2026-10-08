@@ -14,11 +14,14 @@ import { GroupSettings } from '@/routes/GroupSettings'
 import { Layout } from '@/components/Layout'
 import { UpdatePrompt } from '@/components/UpdatePrompt'
 import { PreviewBanner } from '@/components/PreviewBanner'
+import { BrandMark } from '@/components/BrandMark'
 
 function FullScreenLoader() {
   return (
-    <div className="min-h-svh flex items-center justify-center">
-      <Loader2 className="size-6 animate-spin text-muted-foreground" />
+    <div role="status" className="min-h-svh flex flex-col items-center justify-center gap-4">
+      <BrandMark size="lg" className="flex-col text-lg" />
+      <Loader2 className="size-5 animate-spin text-brand-tomato" />
+      <span className="sr-only">読み込み中</span>
     </div>
   )
 }

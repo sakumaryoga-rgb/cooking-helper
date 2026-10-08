@@ -3,6 +3,8 @@ import { Refrigerator, ChefHat, Users, LogOut } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { supabase } from '@/supabaseClient'
 import { AdSlot } from '@/components/AdSlot'
+import { BrandMark } from '@/components/BrandMark'
+import { APP_NAME } from '@/lib/brand'
 
 const NAV_ITEMS = [
   { to: '/fridge', label: '冷蔵庫', icon: Refrigerator },
@@ -19,7 +21,10 @@ export function Layout({ groupName }) {
     <div className="min-h-svh flex flex-col bg-background">
       <header className="border-b sticky top-0 bg-background/80 backdrop-blur z-10">
         <div className="max-w-lg mx-auto px-4 h-14 flex items-center justify-between">
-          <span className="font-medium text-sm truncate">{groupName ?? 'お料理ヘルパー'}</span>
+          <span className="flex min-w-0 items-center gap-2">
+            <BrandMark size="sm" showName={false} />
+            <span className="font-medium text-sm truncate">{groupName ?? APP_NAME}</span>
+          </span>
           <Button variant="ghost" size="icon" onClick={handleSignOut} aria-label="サインアウト">
             <LogOut className="size-4" />
           </Button>

@@ -4,6 +4,7 @@ import { RefreshCw, TriangleAlert } from 'lucide-react'
 import { applyUpdate, getState, subscribe } from '@/lib/swUpdate'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { APP_NAME } from '@/lib/brand'
 
 // レシピの入力中(/recipes/new)と、調理の確定ダイアログを開いている間(setBusy)は、
 // 通常の新バージョン検知では全画面ブロックにせず、入力の妨げにならないバナーに留める。
@@ -26,7 +27,7 @@ export function UpdatePrompt() {
       <div role="status" className="fixed inset-x-0 bottom-20 z-[100] flex justify-center px-4">
         <div className="flex items-center gap-2 rounded-full bg-popover px-4 py-2 text-sm text-popover-foreground shadow-lg ring-1 ring-foreground/10">
           <RefreshCw className="size-4 shrink-0 text-primary" />
-          新しいバージョンがあります。入力が終わったら更新できます
+          {APP_NAME} の新しいバージョンがあります。入力が終わったら更新できます
         </div>
       </div>
     )
@@ -50,7 +51,7 @@ export function UpdatePrompt() {
         </div>
         <div className="flex flex-col gap-1">
           <p id="update-prompt-title" className="font-medium">
-            {forceUpdateRequired ? '重要な更新が必要です' : '新しいバージョンがあります'}
+            {forceUpdateRequired ? `${APP_NAME} の重要な更新が必要です` : `${APP_NAME} の新しいバージョンがあります`}
           </p>
           <p className="text-sm text-muted-foreground">
             {forceUpdateRequired

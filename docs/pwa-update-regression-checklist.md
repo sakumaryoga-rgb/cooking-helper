@@ -63,6 +63,17 @@ v1.0.1 以降は、通常どおり更新通知から切り替わる。
 
 ## 検証の記録
 
+### 2026-10-08 v1.0.0 から v1.0.1 への更新(ローカル、Chrome、`VERCEL_ENV=preview` のビルド)
+
+v1.0.0 のビルドを配信して SW を有効にした後、同じ URL の配信内容を v1.0.1 のビルドに差し替えた。
+
+| 確認 | 結果 |
+| --- | --- |
+| `reg.update()` で `reg.waiting` が installed になり、v1.0.0 の画面に「新しいバージョンがあります」 | 合格 |
+| 「更新する」でリロードされ、JS のハッシュが変わり、`reg.waiting` とダイアログが消える | 合格 |
+| 更新後のタイトルとログイン画面が COOKDOOR、manifest の name も COOKDOOR | 合格 |
+| プリキャッシュに新アイコン(`icons/cookdoor-*`、favicon、apple-touch-icon)があり、旧 `icons/icon-*.png` と `favicon.svg` が消えている | 合格 |
+
 ### 2026-10-08 v1.0.0(ローカル、Chrome、`VERCEL_ENV=preview` のビルド)
 
 | 項目 | 結果 | 確認方法 |
