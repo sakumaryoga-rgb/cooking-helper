@@ -16,7 +16,7 @@ export function useGroup(session) {
     setLoading(true)
     const { data, error } = await supabase
       .from('group_members')
-      .select('group_id, groups(id, name, invite_code)')
+      .select('group_id, groups(id, name)')
       .eq('user_id', session.user.id)
       .maybeSingle()
 

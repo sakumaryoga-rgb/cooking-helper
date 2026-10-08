@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { parseInviteToken, takePendingInvite } from '@/lib/invite'
 import { supabase } from '@/supabaseClient'
 import { BrandMark } from '@/components/BrandMark'
 import { Button } from '@/components/ui/button'
@@ -8,26 +9,17 @@ import { Label } from '@/components/ui/label'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
 
 export function Onboarding({ onGroupChanged }) {
-  const [searchParams] = useSearchParams()
   const navigate = useNavigate()
 
-  const codeFromUrl = searchParams.get('code')
-  const codeFromStorage = typeof window !== 'undefined' ? localStorage.getItem('pendingInviteCode') : null
-  const initialCode = (codeFromUrl || codeFromStorage || '').toUpperCase()
-
-  const [mode, setMode] = useState(initialCode ? 'join' : 'create')
+  // 招待リンクから来た場合は、そのトークンで参加する画面を最初に出す
+  const [pending] = useState(() => takePendingInvite())
+  const [mode, setMode] = useState(pending.token ? 'join' : 'create')
   const [groupName, setGroupName] = useState('')
-  const [joinCode, setJoinCode] = useState(initialCode)
+  const [inviteInput, setInviteInput] = useState(pending.token ?? '')
   const [saving, setSaving] = useState(false)
-  const [error, setError] = useState('')
-
-  useEffect(() => {
-    if (initialCode) {
-      localStorage.removeItem('pendingInviteCode')
-    }
-    // 初回マウント時のみ実行
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  const [error, setError] = useState(
+    pending.legacy ? 'この招待リンクは古い形式のため使えません。グループのメンバーに新しい招待リンクを発行してもらってください' : ''
+  )
 
   async function handleCreate(e) {
     e.preventDefault()
@@ -45,12 +37,21 @@ export function Onboarding({ onGroupChanged }) {
 
   async function handleJoin(e) {
     e.preventDefault()
-    setSaving(true)
     setError('')
-    const { error: rpcError } = await supabase.rpc('join_group', { join_code: joinCode })
+    const token = parseInviteToken(inviteInput)
+    if (!token) {
+      setError('招待リンクをそのまま貼り付けてください')
+      return
+    }
+    setSaving(true)
+    const { data, error: rpcError } = await supabase.rpc('join_group_with_invite', { p_token: token })
     setSaving(false)
     if (rpcError) {
       setError(rpcError.message)
+      return
+    }
+    if (!data?.id) {
+      setError('招待リンクが無効か、期限が切れています。グループのメンバーに新しい招待リンクを発行してもらってください')
       return
     }
     await onGroupChanged()
@@ -81,7 +82,7 @@ export function Onboarding({ onGroupChanged }) {
               className="flex-1"
               onClick={() => setMode('join')}
             >
-              招待コードで参加
+              招待リンクで参加
             </Button>
           </div>
 
@@ -105,13 +106,14 @@ export function Onboarding({ onGroupChanged }) {
           ) : (
             <form onSubmit={handleJoin} className="flex flex-col gap-4">
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="join-code">招待コード</Label>
+                <Label htmlFor="invite-link">招待リンク</Label>
                 <Input
-                  id="join-code"
+                  id="invite-link"
                   required
-                  value={joinCode}
-                  onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
-                  placeholder="例: ABCD1234"
+                  value={inviteInput}
+                  onChange={(e) => setInviteInput(e.target.value)}
+                  placeholder="https://cookdoor.app/onboarding#invite=..."
+                  autoComplete="off"
                 />
               </div>
               {error && <p className="text-destructive text-sm">{error}</p>}

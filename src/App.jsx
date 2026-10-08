@@ -16,6 +16,7 @@ import { UpdatePrompt } from '@/components/UpdatePrompt'
 import { PreviewBanner } from '@/components/PreviewBanner'
 import { BrandMark } from '@/components/BrandMark'
 import { useTelemetry } from '@/hooks/useTelemetry'
+import { capturePendingInvite } from '@/lib/invite'
 
 function FullScreenLoader() {
   return (
@@ -39,13 +40,10 @@ export default function App() {
     ready: !sessionLoading && !groupLoading,
   })
 
-  // 招待リンク (?code=XXXX) を踏んだ場合、未ログインでも後で使えるようコードを覚えておく
+  // 招待リンク(#invite=トークン)を開いた場合、未ログインでも後で使えるよう覚え、URL からは消す
   useEffect(() => {
-    const code = new URLSearchParams(location.search).get('code')
-    if (code) {
-      localStorage.setItem('pendingInviteCode', code)
-    }
-  }, [location.search])
+    capturePendingInvite(location, (path) => window.history.replaceState(window.history.state, '', path))
+  }, [location])
 
   if (sessionLoading) {
     return (
