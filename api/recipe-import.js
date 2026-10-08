@@ -15,6 +15,28 @@ function json(res, status, body) {
   res.end(JSON.stringify(body))
 }
 
+function supabaseConfig() {
+  return {
+    url: process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL,
+    anonKey: process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY,
+  }
+}
+
+// 取り込みの結果を、利用者の権限(RLS: 本人の行の追加だけ)で記録する。失敗しても取り込み自体は続ける
+async function recordRun(authorization, site, outcome) {
+  const { url, anonKey } = supabaseConfig()
+  try {
+    await fetch(`${url}/rest/v1/recipe_import_runs`, {
+      method: 'POST',
+      headers: { apikey: anonKey, Authorization: authorization, 'Content-Type': 'application/json', Prefer: 'return=minimal' },
+      body: JSON.stringify({ site, outcome }),
+      signal: AbortSignal.timeout(2000),
+    })
+  } catch {
+    // 記録できなくても取り込みの結果は返す
+  }
+}
+
 async function verifyUser(authorization) {
   // Vercel の production 以外(Preview など)では本番の Supabase に問い合わせない(CLAUDE.md、src/lib/runtimeEnv.js と同じ方針)
   const vercelEnv = process.env.VERCEL_ENV
@@ -73,12 +95,19 @@ export default async function handler(req, res) {
   try {
     page = await fetchPage(parsed.url)
   } catch {
-    return json(res, 502, { error: 'fetch_failed' })
+    page = { error: 'exception' }
   }
-  if (page.error) return json(res, 502, { error: 'fetch_failed', reason: page.error })
+  if (page.error) {
+    await recordRun(req.headers.authorization, parsed.site.id, 'fetch_failed')
+    return json(res, 502, { error: 'fetch_failed', reason: page.error })
+  }
 
   const recipe = extractRecipe(page.html)
-  if (!recipe || recipe.ingredients.length === 0) return json(res, 422, { error: 'no_recipe_data' })
+  if (!recipe || recipe.ingredients.length === 0) {
+    await recordRun(req.headers.authorization, parsed.site.id, 'no_recipe_data')
+    return json(res, 422, { error: 'no_recipe_data' })
+  }
+  await recordRun(req.headers.authorization, parsed.site.id, 'success')
 
   return json(res, 200, { ...recipe, url: parsed.url, sourceKey: parsed.sourceKey, site: parsed.site.name })
 }

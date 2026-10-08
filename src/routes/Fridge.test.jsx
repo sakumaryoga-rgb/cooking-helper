@@ -42,20 +42,24 @@ describe('Fridge の数量変更', () => {
   it('g の食材は＋で10増やし、追加日を今日として記録する', async () => {
     setup([{ id: 'i1', name: '鶏もも肉', unit: 'g', quantity: 200 }])
     await userEvent.click(screen.getByRole('button', { name: '増やす' }))
-    expect(supabase.rpc).toHaveBeenCalledWith('adjust_ingredient_quantity', {
+    expect(supabase.rpc).toHaveBeenCalledWith('adjust_stock', {
       p_ingredient_id: 'i1',
       p_delta: 10,
       p_dated_today: true,
+      p_best_before: null,
+      p_use_by: null,
     })
   })
 
   it('個の食材は－で1減らす', async () => {
     setup([{ id: 'i2', name: '卵', unit: '個', quantity: 4 }])
     await userEvent.click(screen.getByRole('button', { name: '減らす' }))
-    expect(supabase.rpc).toHaveBeenCalledWith('adjust_ingredient_quantity', {
+    expect(supabase.rpc).toHaveBeenCalledWith('adjust_stock', {
       p_ingredient_id: 'i2',
       p_delta: -1,
       p_dated_today: true,
+      p_best_before: null,
+      p_use_by: null,
     })
   })
 
@@ -63,7 +67,7 @@ describe('Fridge の数量変更', () => {
     setup([{ id: 'i2', name: '卵', unit: '個', quantity: 4 }])
     await userEvent.click(screen.getByRole('switch'))
     await userEvent.click(screen.getByRole('button', { name: '増やす' }))
-    expect(supabase.rpc).toHaveBeenLastCalledWith('adjust_ingredient_quantity', expect.objectContaining({ p_dated_today: false }))
+    expect(supabase.rpc).toHaveBeenLastCalledWith('adjust_stock', expect.objectContaining({ p_dated_today: false }))
   })
 
   it('RPCが在庫0で削除したと返したら、一覧からも消す', async () => {
@@ -105,7 +109,7 @@ describe('Fridge の数量変更', () => {
     expect(screen.getByText('しょうゆ')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /在庫なしの食材/ })).not.toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '増やす' }))
-    expect(supabase.rpc).toHaveBeenCalledWith('adjust_ingredient_quantity', expect.objectContaining({ p_ingredient_id: 'b' }))
+    expect(supabase.rpc).toHaveBeenCalledWith('adjust_stock', expect.objectContaining({ p_ingredient_id: 'b' }))
   })
 
   it('期限切れ・推定・未設定を区別して表示し、期限の近い順に並べ、ロットを開ける', async () => {

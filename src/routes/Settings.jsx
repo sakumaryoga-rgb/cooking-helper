@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Copy, Check, Link2, LogOut } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import { supabase } from '@/supabaseClient'
 import { buildInviteUrl } from '@/lib/invite'
 import { useSubstitutions } from '@/hooks/useSubstitutions'
@@ -12,6 +13,21 @@ import { TELEMETRY_NOTICE } from '@/lib/telemetry/notice'
 
 function formatDate(value) {
   return new Date(value).toLocaleDateString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+}
+
+// 管理画面へのリンクを出すかどうかだけに使う(管理画面の権限はサーバー側で判断する)
+function useIsAdmin() {
+  const [isAdmin, setIsAdmin] = useState(false)
+  useEffect(() => {
+    let cancelled = false
+    supabase.rpc('is_app_admin').then(({ data }) => {
+      if (!cancelled) setIsAdmin(data === true)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+  return isAdmin
 }
 
 function useMembers(groupId) {
@@ -36,6 +52,7 @@ function useMembers(groupId) {
 // 設定(設計書 4 章): 家族グループ、招待、メンバー、アカウント、規約、バージョン。課金は枠だけ
 export function Settings({ group, email, userId }) {
   const members = useMembers(group.id)
+  const isAdmin = useIsAdmin()
   const [status, setStatus] = useState(null) // { active, expiresAt } | null
   const [issued, setIssued] = useState(null) // 発行直後だけ表示する { url, expiresAt }
   const [busy, setBusy] = useState(false)
@@ -199,7 +216,24 @@ export function Settings({ group, email, userId }) {
         </CardHeader>
       </Card>
 
-      <p className="text-center text-xs text-muted-foreground">利用規約・プライバシーポリシー(準備中)</p>
+      <Card>
+        <CardContent className="flex flex-col gap-2 text-sm">
+          <Link to="/contact" className="underline-offset-2 hover:underline">
+            お問い合わせ
+          </Link>
+          <Link to="/terms" className="underline-offset-2 hover:underline">
+            利用規約
+          </Link>
+          <Link to="/privacy" className="underline-offset-2 hover:underline">
+            プライバシーポリシー
+          </Link>
+          {isAdmin && (
+            <Link to="/admin" className="underline-offset-2 hover:underline">
+              管理画面(運営者)
+            </Link>
+          )}
+        </CardContent>
+      </Card>
       <p className="text-center text-xs text-muted-foreground">
         {APP_NAME} バージョン {APP_VERSION}
       </p>
