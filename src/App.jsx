@@ -15,6 +15,7 @@ import { Layout } from '@/components/Layout'
 import { UpdatePrompt } from '@/components/UpdatePrompt'
 import { PreviewBanner } from '@/components/PreviewBanner'
 import { BrandMark } from '@/components/BrandMark'
+import { useTelemetry } from '@/hooks/useTelemetry'
 
 function FullScreenLoader() {
   return (
@@ -30,6 +31,13 @@ export default function App() {
   const { session, loading: sessionLoading } = useSession()
   const { group, loading: groupLoading, refresh: refreshGroup } = useGroup(session)
   const location = useLocation()
+
+  // 利用状況とエラーの記録(本番DBに接続するビルドで、ログイン中だけ)
+  useTelemetry({
+    userId: session?.user?.id ?? null,
+    groupId: group?.id ?? null,
+    ready: !sessionLoading && !groupLoading,
+  })
 
   // 招待リンク (?code=XXXX) を踏んだ場合、未ログインでも後で使えるようコードを覚えておく
   useEffect(() => {
