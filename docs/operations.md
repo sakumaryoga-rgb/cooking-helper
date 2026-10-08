@@ -28,6 +28,8 @@ select a.user_id, u.email, a.created_at, a.disabled_at from app_admins a join au
 サーバーが未通知のものを取り出して通知する。同じお問い合わせは同時に2回送らない(取り出すときに印を付ける)。
 失敗すると理由が管理画面に出て、10分後の次の通知で再び送る。5回失敗したら止まり、管理画面の「再通知」で戻す。
 通知には種類と本文の先頭300文字だけを送り、返信先のメールアドレスは送らない。
+通知の起動はログイン中の利用者だけができ、未認証・偽のトークンでは何もしない。応答の送信件数は運営者にだけ返す。
+通知済み・対応状況を変えられるのは、service_role(このサーバー関数)と運営者の RPC だけ。
 
 | 方式 | 費用 | 必要な設定(Vercel の Production 環境変数) |
 | --- | --- | --- |
@@ -45,8 +47,9 @@ select a.user_id, u.email, a.created_at, a.disabled_at from app_admins a join au
 | 画面の利用記録、エラーの記録 | `purge_usage_and_error_logs()`(migration 009) | 毎日 3:30 UTC に自動 | 手動 |
 | お問い合わせの返信先 | `purge_contact_emails()`(migration 016) | 毎日 3:45 UTC に自動 | 手動 |
 
-- 自動削除は、migration の適用時に pg_cron がすでに有効な場合だけ登録される。後から有効にした場合は
-  `supabase/manual/009_schedule_purge.sql` を実行し、返信先については 016 の最後の `do $$ … $$` ブロックを再実行する。
+- 自動削除の予約は、migration 009・016 の適用時に pg_cron がすでに有効だった場合だけ登録されている。
+  後から有効にした場合は、`supabase/manual/schedule_purges.sql` を1回実行すれば両方がまとめて登録される
+  (予約の登録だけで、その場では削除しない)。
 - 管理画面の「保存期間(90日)」に、90日を過ぎて残っている件数と自動削除の有無が出る。件数が出たら、
   表示された SQL(`select * from purge_usage_and_error_logs();` / `select purge_contact_emails();`)を SQL Editor で実行する。
   手動の場合は月に1回以上。
