@@ -18,10 +18,10 @@
 
 | 順 | 操作 | 確認 |
 | --- | --- | --- |
-| 1 | SQL Editor で `supabase/migrations/010_invite_tokens.sql` を全文実行 | エラーなく完了。下の確認SQLがすべて true |
+| 1 | `supabase/manual/010_precheck.sql` → `supabase/migrations/010_invite_tokens.sql`(全文)→ `supabase/manual/010_postcheck.sql` | postcheck がすべて true、件数が precheck と同じ |
 | 2 | v1.2.0 をマージして本番デプロイ、`v1.2.0` タグ | 新しいグループ画面で招待リンクを発行できる |
 | 3 | 家族の端末がすべて v1.2.0 になったことを確認(`usage_reports.sql` の 4、または目視) | 1.1.x 以下が残っていない |
-| 4 | SQL Editor で `supabase/migrations/011_drop_legacy_invite_codes.sql` を全文実行 | 旧コードの値が null になる |
+| 4 | `supabase/manual/011_precheck.sql` → `supabase/migrations/011_drop_legacy_invite_codes.sql`(全文)| precheck の 1 が0行。適用後、下の 011 の確認 |
 
 1 の時点で、旧方式の招待コードでの参加は止まる(利用停止)。旧コードの値の削除は 4 で別に行う。
 1 と 2 の間も、旧版のアプリはグループの表示や冷蔵庫・レシピの操作を続けられる。
@@ -40,6 +40,12 @@ select count(*) filter (where invite_code is not null) as legacy_codes_left,  --
        has_column_privilege('authenticated', 'public.groups', 'invite_code', 'SELECT') as legacy_readable  -- false
 from groups;
 ```
+
+## データの変更
+
+- 010: データは変更しない(テーブルと関数の追加、join_group の停止だけ)。
+- 011: **groups.invite_code の値をすべて null にする**。元に戻すにはバックアップが必要。
+  旧コードは 010 の時点で使えなくなっているため、値が消えても動作には影響しない。
 
 ## 切り戻し
 
