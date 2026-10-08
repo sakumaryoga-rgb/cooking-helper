@@ -23,7 +23,10 @@ beforeEach(() => {
     'fetch',
     vi.fn(async (url, init) => {
       const u = String(url)
-      if (u.endsWith('/auth/v1/user')) return new Response('{}', { status: init.headers.Authorization === 'Bearer user.token.x' ? 200 : 401 })
+      if (u.endsWith('/auth/v1/user'))
+        return new Response('{}', { status: ['Bearer user.token.x', 'Bearer admin.token.x'].includes(init.headers.Authorization) ? 200 : 401 })
+      if (u.endsWith('/rpc/is_app_admin')) return new Response(JSON.stringify(init.headers.Authorization === 'Bearer admin.token.x'))
+      if (u.endsWith('/auth/v1/user') && init.headers.Authorization === 'Bearer admin.token.x') return new Response('{}')
       if (u.endsWith('/rpc/claim_contact_notifications')) return new Response(JSON.stringify(contacts))
       if (u.endsWith('/rpc/mark_contact_notification')) return new Response(null, { status: 204 })
       if (u === 'https://hooks.example/abc') return new Response('', { status: webhookStatus })
@@ -39,8 +42,8 @@ afterEach(() => {
 const marks = () => fetch.mock.calls.filter(([u]) => String(u).endsWith('/rpc/mark_contact_notification')).map(([, i]) => JSON.parse(i.body))
 
 describe('/api/contact-notify', () => {
-  it('未通知を送って成功を記録する。service_role の鍵は Supabase にだけ送る', async () => {
-    expect(await call()).toEqual({ status: 200, json: { sent: 2, failed: 0 } })
+  it('未通知を送って成功を記録する。件数は運営者にだけ返し、service_role の鍵は Supabase にだけ送る', async () => {
+    expect(await call()).toEqual({ status: 200, json: { ok: true } })
     expect(marks()).toEqual([
       { p_id: 'c1', p_ok: true, p_error: null },
       { p_id: 'c2', p_ok: true, p_error: null },
@@ -49,14 +52,25 @@ describe('/api/contact-notify', () => {
     expect(JSON.stringify(webhookCalls)).not.toContain('service-secret')
   })
 
+  it('運営者には送信件数を返す', async () => {
+    expect((await call({ authorization: 'Bearer admin.token.x' })).json).toEqual({ sent: 2, failed: 0 })
+  })
+
   it('送信に失敗したら理由を記録する(お問い合わせは保存済み)', async () => {
     webhookStatus = 500
-    expect((await call()).json).toEqual({ sent: 0, failed: 2 })
+    expect((await call({ authorization: 'Bearer admin.token.x' })).json).toEqual({ sent: 0, failed: 2 })
     expect(marks()[0]).toEqual({ p_id: 'c1', p_ok: false, p_error: 'webhook 500' })
   })
 
-  it('ログインしていなければ、設定がなければ、Preview なら何もしない', async () => {
+  it('設定済みでも、未認証・偽のトークンでは通知を起動せず、お問い合わせを取り出しも記録もしない', async () => {
     expect((await call({})).status).toBe(401)
+    expect((await call({ authorization: 'Bearer forged.token.x' })).status).toBe(401)
+    expect((await call({ authorization: 'not a bearer' })).status).toBe(401)
+    expect(fetch.mock.calls.some(([u]) => String(u).includes('/rpc/'))).toBe(false)
+    expect(fetch.mock.calls.some(([u]) => u === 'https://hooks.example/abc')).toBe(false)
+  })
+
+  it('設定がなければ、Preview なら何もしない', async () => {
     vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', '')
     expect((await call()).status).toBe(503)
     vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'service-secret')

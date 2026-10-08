@@ -41,6 +41,21 @@ async function verifyUser(cfg, authorization) {
   }
 }
 
+// 呼び出した利用者が運営者か(利用者自身の権限で is_app_admin を呼ぶ)。件数を返す相手を運営者に限るために使う
+async function isAdmin(cfg, authorization) {
+  try {
+    const r = await fetch(`${cfg.url}/rest/v1/rpc/is_app_admin`, {
+      method: 'POST',
+      headers: { apikey: cfg.anonKey, Authorization: authorization, 'Content-Type': 'application/json' },
+      body: '{}',
+      signal: AbortSignal.timeout(5000),
+    })
+    return r.ok && (await r.json()) === true
+  } catch {
+    return false
+  }
+}
+
 async function rpc(cfg, name, body) {
   const r = await fetch(`${cfg.url}/rest/v1/rpc/${name}`, {
     method: 'POST',
@@ -115,5 +130,7 @@ export default async function handler(req, res) {
       }
     }
   }
-  return json(res, 200, { sent, failed })
+  // 送信件数は運営者にだけ返す(一般の利用者には、お問い合わせの件数も分からないようにする)
+  if (await isAdmin(cfg, req.headers.authorization)) return json(res, 200, { sent, failed })
+  return json(res, 200, { ok: true })
 }
