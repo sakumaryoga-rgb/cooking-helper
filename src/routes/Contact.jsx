@@ -65,7 +65,7 @@ export function Contact() {
       return
     }
     setSent(true)
-    // 運営者への通知(失敗してもお問い合わせは保存済み。未通知は管理画面に出る)
+    // Notion への登録(失敗してもお問い合わせは保存済み。未登録は管理画面に出て再送できる)
     requestContactNotification()
   }
 

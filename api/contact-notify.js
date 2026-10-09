@@ -1,17 +1,21 @@
-// POST /api/contact-notify — お問い合わせを運営者に通知する(サーバー側だけで動く)。
-// 起動できるのは次の2つだけ(どちらも Supabase Auth でサーバーが本人を確かめる):
-//   - 運営者(管理画面の「今すぐ通知」・再通知): 未通知の全件
-//   - 一般の利用者(お問い合わせの送信後にアプリが呼ぶ): 本人が10分以内に送った未通知のものだけ
-// 通知には受付番号・種類・受付日時だけを送る(本文と返信先は送らない)。
+// POST /api/contact-notify — お問い合わせを Notion のデータベースに登録する(サーバー側だけで動く)。
+// BASKETBALL STATS(api/contact.js)と同じ Notion API の使い方。お問い合わせは先に Supabase に保存済み。
 //
-// 必要な環境変数(Vercel の Production だけに設定する。VITE_ を付けないので、アプリの配信物には含まれない)
-//   SUPABASE_SERVICE_ROLE_KEY            未通知の取り出しと結果の記録に使う(service_role 専用の関数だけを呼ぶ)
-//   通知先はどちらか一方:
-//   CONTACT_NOTIFY_WEBHOOK_URL           Slack / Discord の Incoming Webhook の URL
-//   RESEND_API_KEY, CONTACT_NOTIFY_EMAIL_TO, CONTACT_NOTIFY_EMAIL_FROM   Resend でメールを送る場合
-// 設定がない場合は何もしない(お問い合わせは DB に保存済みで、管理画面に「未通知」と出る)。
+// 起動できるのは次の2つだけ(どちらも Supabase Auth でサーバーが本人を確かめる):
+//   - 運営者(管理画面の「Notion に登録」・再送): 未登録の全件
+//   - 一般の利用者(お問い合わせの送信後にアプリが呼ぶ): 本人が10分以内に送った未登録のものだけ
+// 二重登録を防ぐため、取り出し時の印(DB)に加えて、作る前に同じ受付番号のページが Notion にないかを確かめる。
+// 返信先のメールアドレスは Notion に送らない(Supabase だけで管理する)。
+//
+// 必要な環境変数(Vercel の Production だけに設定する。VITE_ を付けない)
+//   SUPABASE_SERVICE_ROLE_KEY   未登録の取り出しと結果の記録に使う
+//   NOTION_API_KEY              Notion の Internal Integration のシークレット
+//   NOTION_DATABASE_ID          お問い合わせを登録するデータベースの ID
+//   NOTION_ASSIGNEE_USER_ID     (任意)「担当者」に入れる Notion のユーザー ID。入れると Notion アプリに通知が届く
 
+const NOTION_VERSION = '2022-06-28'
 const CATEGORY_LABELS = { question: '使い方の質問', bug: '不具合の報告', request: '機能の要望', account: 'アカウント・データ', other: 'その他' }
+const STATUS_LABELS = { open: '未対応', in_progress: '対応中', closed: '完了' }
 
 function json(res, status, body) {
   res.statusCode = status
@@ -27,10 +31,9 @@ function config() {
     url: env.SUPABASE_URL || env.VITE_SUPABASE_URL,
     anonKey: env.SUPABASE_ANON_KEY || env.VITE_SUPABASE_ANON_KEY,
     serviceKey: env.SUPABASE_SERVICE_ROLE_KEY,
-    webhook: env.CONTACT_NOTIFY_WEBHOOK_URL,
-    resendKey: env.RESEND_API_KEY,
-    emailTo: env.CONTACT_NOTIFY_EMAIL_TO,
-    emailFrom: env.CONTACT_NOTIFY_EMAIL_FROM,
+    notionKey: env.NOTION_API_KEY,
+    notionDatabaseId: env.NOTION_DATABASE_ID,
+    notionAssignee: env.NOTION_ASSIGNEE_USER_ID,
   }
 }
 
@@ -47,7 +50,7 @@ async function verifyUser(cfg, authorization) {
   }
 }
 
-// 呼び出した利用者が運営者か(利用者自身の権限で is_app_admin を呼ぶ)。件数を返す相手を運営者に限るために使う
+// 呼び出した利用者が運営者か(利用者自身の権限で is_app_admin を呼ぶ)
 async function isAdmin(cfg, authorization) {
   try {
     const r = await fetch(`${cfg.url}/rest/v1/rpc/is_app_admin`, {
@@ -62,48 +65,56 @@ async function isAdmin(cfg, authorization) {
   }
 }
 
-async function rpc(cfg, name, body) {
-  const r = await fetch(`${cfg.url}/rest/v1/rpc/${name}`, {
-    method: 'POST',
+async function supabase(cfg, path, init = {}) {
+  const r = await fetch(`${cfg.url}/rest/v1/${path}`, {
+    ...init,
     headers: { apikey: cfg.serviceKey, Authorization: `Bearer ${cfg.serviceKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
     signal: AbortSignal.timeout(5000),
   })
-  if (!r.ok) throw new Error(`rpc ${name} ${r.status}`)
+  if (!r.ok) throw new Error(`supabase ${path.split('?')[0]} ${r.status}`)
   const text = await r.text()
   return text ? JSON.parse(text) : null
 }
 
-// 通知の文面: 受付番号・種類・受付日時だけ(自由入力の本文と返信先は含めない)
-export function buildMessage(contact) {
-  const label = CATEGORY_LABELS[contact.contact_category] ?? 'その他'
-  const id = String(contact.contact_id ?? '').slice(0, 8)
-  const at = new Date(contact.contact_created_at).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })
-  return {
-    subject: `COOKDOOR お問い合わせ(${label})`,
-    text: `COOKDOOR にお問い合わせがありました\n受付番号: ${id}\n種類: ${label}\n受付日時: ${at}\n内容は管理画面で確認してください: https://cookdoor.app/admin`,
-  }
+const rpc = (cfg, name, body) => supabase(cfg, `rpc/${name}`, { method: 'POST', body: JSON.stringify(body) })
+
+async function notion(cfg, path, body) {
+  const r = await fetch(`https://api.notion.com/v1/${path}`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${cfg.notionKey}`, 'Notion-Version': NOTION_VERSION, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(8000),
+  })
+  if (!r.ok) throw new Error(`Notion API error: ${r.status}`)
+  return r.json()
 }
 
-async function send(cfg, message) {
-  if (cfg.webhook) {
-    const r = await fetch(cfg.webhook, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      // Slack は text、Discord は content を読む
-      body: JSON.stringify({ text: message.text, content: message.text }),
-      signal: AbortSignal.timeout(5000),
-    })
-    if (!r.ok) throw new Error(`webhook ${r.status}`)
-    return
+// Notion のページの内容: 受付番号・種類・受付日時・本文・対応状況(返信先は含めない)
+export function buildNotionProperties(contact, assigneeId) {
+  const properties = {
+    名前: { title: [{ text: { content: `お問い合わせ ${contact.id.slice(0, 8)}` } }] },
+    受付番号: { rich_text: [{ text: { content: contact.id } }] },
+    種別: { select: { name: CATEGORY_LABELS[contact.category] ?? 'その他' } },
+    受信日時: { date: { start: new Date(contact.created_at).toISOString() } },
+    内容: { rich_text: [{ text: { content: String(contact.body ?? '').slice(0, 2000) } }] },
+    ステータス: { select: { name: STATUS_LABELS[contact.status] ?? '未対応' } },
   }
-  const r = await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${cfg.resendKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ from: cfg.emailFrom, to: cfg.emailTo, subject: message.subject, text: message.text }),
-    signal: AbortSignal.timeout(5000),
+  if (assigneeId) properties.担当者 = { people: [{ id: assigneeId }] }
+  return properties
+}
+
+// 同じ受付番号のページがあればその ID、なければ作って ID を返す(再送でページを二重に作らない)
+async function upsertNotionPage(cfg, contact) {
+  const found = await notion(cfg, `databases/${cfg.notionDatabaseId}/query`, {
+    filter: { property: '受付番号', rich_text: { equals: contact.id } },
+    page_size: 1,
   })
-  if (!r.ok) throw new Error(`resend ${r.status}`)
+  if (found.results?.[0]?.id) return found.results[0].id
+  const page = await notion(cfg, 'pages', {
+    parent: { database_id: cfg.notionDatabaseId },
+    properties: buildNotionProperties(contact, cfg.notionAssignee),
+  })
+  return page.id
 }
 
 export default async function handler(req, res) {
@@ -111,8 +122,7 @@ export default async function handler(req, res) {
   const cfg = config()
   // Preview などでは本番の Supabase に問い合わせない(CLAUDE.md の方針)
   if (cfg.vercelEnv && cfg.vercelEnv !== 'production') return json(res, 503, { error: 'not_configured' })
-  const provider = cfg.webhook || (cfg.resendKey && cfg.emailTo && cfg.emailFrom)
-  if (!cfg.url || !cfg.anonKey || !cfg.serviceKey || !provider) return json(res, 503, { error: 'not_configured' })
+  if (!cfg.url || !cfg.anonKey || !cfg.serviceKey || !cfg.notionKey || !cfg.notionDatabaseId) return json(res, 503, { error: 'not_configured' })
   const userId = await verifyUser(cfg, req.headers.authorization)
   if (!userId) return json(res, 401, { error: 'unauthorized' })
   const admin = await isAdmin(cfg, req.headers.authorization)
@@ -129,21 +139,24 @@ export default async function handler(req, res) {
 
   let sent = 0
   let failed = 0
-  for (const contact of claimed) {
+  for (const { contact_id: id } of claimed) {
     try {
-      await send(cfg, buildMessage(contact))
-      await rpc(cfg, 'mark_contact_notification', { p_id: contact.contact_id, p_ok: true, p_error: null })
+      // 本文は取り出し関数が返さないので、service_role で1件だけ読む(返信先は読まない)
+      const [contact] = await supabase(cfg, `contact_messages?id=eq.${id}&select=id,created_at,category,body,status`)
+      if (!contact) throw new Error('contact not found')
+      const pageId = await upsertNotionPage(cfg, contact)
+      await rpc(cfg, 'mark_contact_notion_sync', { p_id: id, p_page_id: pageId, p_error: null })
       sent += 1
     } catch (e) {
       failed += 1
       try {
-        await rpc(cfg, 'mark_contact_notification', { p_id: contact.contact_id, p_ok: false, p_error: String(e.message) })
+        await rpc(cfg, 'mark_contact_notion_sync', { p_id: id, p_page_id: null, p_error: String(e.message) })
       } catch {
-        // 記録できなくても、10分後に再び取り出される
+        // 記録できなくても、10分後に再び取り出される(Notion 側は受付番号で重複を防ぐ)
       }
     }
   }
-  // 送信件数は運営者にだけ返す(一般の利用者には、お問い合わせの件数も分からないようにする)
+  // 件数は運営者にだけ返す
   if (admin) return json(res, 200, { sent, failed })
   return json(res, 200, { ok: true })
 }

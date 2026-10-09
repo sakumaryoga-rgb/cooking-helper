@@ -89,18 +89,29 @@ function ContactRow({ contact, onSave, onRetryNotify }) {
       <p className="whitespace-pre-wrap break-words text-sm">{contact.body}</p>
       <div className="flex flex-wrap items-center gap-2 text-xs">
         {contact.notified_at ? (
-          <span className="text-muted-foreground">通知済み</span>
+          contact.notion_page_id ? (
+            <a
+              className="text-muted-foreground underline"
+              href={`https://www.notion.so/${contact.notion_page_id.replaceAll('-', '')}`}
+              target="_blank"
+              rel="noreferrer"
+            >
+              Notion 登録済み
+            </a>
+          ) : (
+            <span className="text-muted-foreground">登録済み</span>
+          )
         ) : contact.notify_error ? (
           <>
             <span className="text-destructive">
-              通知に失敗({contact.notify_attempts}回): {contact.notify_error}
+              Notion への登録に失敗({contact.notify_attempts}回): {contact.notify_error}
             </span>
             <Button size="sm" variant="ghost" onClick={() => onRetryNotify(contact.id)}>
-              再通知
+              再送
             </Button>
           </>
         ) : (
-          <span className="text-muted-foreground">未通知</span>
+          <span className="text-muted-foreground">Notion 未登録</span>
         )}
       </div>
       <div className="flex flex-wrap items-center gap-2">
@@ -175,14 +186,14 @@ export function Admin() {
   }
 
   async function notifyNow() {
-    setNotifyMessage('通知しています...')
+    setNotifyMessage('Notion に登録しています...')
     const result = await requestContactNotification()
     setNotifyMessage(
       result.error === 'not_configured'
-        ? '通知先が設定されていません(docs/operations.md の「お問い合わせの通知」)'
+        ? 'Notion の接続が設定されていません(docs/operations.md の「お問い合わせの Notion 登録」)'
         : result.error
-          ? '通知できませんでした。時間をおいて試してください'
-          : `通知しました(成功 ${result.sent} 件、失敗 ${result.failed} 件)`
+          ? 'Notion に登録できませんでした。時間をおいて試してください'
+          : `Notion に登録しました(成功 ${result.sent} 件、失敗 ${result.failed} 件)`
     )
     load()
   }
@@ -297,11 +308,11 @@ export function Admin() {
         </div>
         <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
           <span>
-            未通知 {counts.unnotified ?? 0} 件(うち失敗 {counts.notify_failed ?? 0} 件)
+            Notion 未登録 {counts.unnotified ?? 0} 件(うち失敗 {counts.notify_failed ?? 0} 件)
           </span>
           {(counts.unnotified ?? 0) > 0 && (
             <Button size="sm" variant="outline" onClick={notifyNow}>
-              今すぐ通知
+              Notion に登録
             </Button>
           )}
           {notifyMessage && <span>{notifyMessage}</span>}
