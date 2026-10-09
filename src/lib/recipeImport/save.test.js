@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { saveRecipe } from './save'
+import { saveRecipe, updateRecipe } from './save'
 import { parseIngredientLine } from './ingredientLine'
 import { resolveIngredient } from './match'
 
@@ -67,5 +67,39 @@ describe('取り込んだレシピの保存', () => {
     const result = await saveRecipe({ supabase, groupId: 'g1', userId: 'u1', title: 'x', fridge, items: [item('塩 少々')] })
     expect(result.error).toMatch(/材料を1つ以上/)
     expect(supabase.from).not.toHaveBeenCalled()
+  })
+})
+
+describe('レシピのカスタマイズの保存', () => {
+  it('新しい食材は在庫0で作り、材料をまとめて update_recipe に渡す', async () => {
+    const supabase = mockSupabase()
+    supabase.rpc = vi.fn().mockResolvedValue({ data: 'r1', error: null })
+    const result = await updateRecipe({
+      supabase, groupId: 'g1', recipeId: 'r1', title: 'わが家のバンバンジー', fridge,
+      items: [
+        { key: 'a', kind: 'existing', ingredient: fridge[0], name: 'きゅうり', unit: '本', requiredQuantity: '1', include: true },
+        { key: 'b', kind: 'existing', ingredient: fridge[0], name: 'きゅうり', unit: '本', requiredQuantity: 0.5, include: true },
+        item('鶏むね肉 1枚(250g)'),
+        { key: 'c', kind: 'existing', ingredient: { id: 'x' }, name: '外す', unit: '個', requiredQuantity: 1, include: false },
+      ],
+      extras: { icon: '🥗', servings: 2, instructions: '和える', memo: null },
+    })
+    expect(result).toEqual({ recipeId: 'r1' })
+    expect(supabase.calls.filter((c) => c.table === 'ingredients')).toHaveLength(1)
+    expect(supabase.rpc).toHaveBeenCalledWith('update_recipe', {
+      p_recipe_id: 'r1', p_title: 'わが家のバンバンジー', p_servings: 2, p_instructions: '和える', p_memo: null, p_icon: '🥗',
+      p_items: [
+        { ingredient_id: 'i1', required_quantity: 1.5, raw_text: null },
+        { ingredient_id: 'new-1', required_quantity: 250, raw_text: '鶏むね肉 1枚(250g)' },
+      ],
+    })
+  })
+
+  it('材料がなければ DB を呼ばない', async () => {
+    const supabase = mockSupabase()
+    supabase.rpc = vi.fn()
+    const result = await updateRecipe({ supabase, groupId: 'g1', recipeId: 'r1', title: 'x', fridge, items: [], extras: {} })
+    expect(result.error).toMatch(/材料を1つ以上/)
+    expect(supabase.rpc).not.toHaveBeenCalled()
   })
 })

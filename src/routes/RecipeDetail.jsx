@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useParams } from 'react-router-dom'
-import { ExternalLink, Check, ChefHat, Minus, Plus } from 'lucide-react'
+import { Link, useParams } from 'react-router-dom'
+import { ExternalLink, Check, ChefHat, Minus, Pencil, Plus } from 'lucide-react'
 import { useIngredients } from '@/hooks/useIngredients'
 import { useRecipes } from '@/hooks/useRecipes'
 import { useIngredientCatalog } from '@/hooks/useIngredientCatalog'
@@ -14,6 +14,7 @@ import { Button, buttonVariants } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { MakeableBadge } from '@/components/MakeableBadge'
+import { dishLook } from '@/lib/foodLook'
 
 // 確定のあとに「取り消す」を出しておく時間
 const UNDO_TOAST_MS = 8000
@@ -114,12 +115,29 @@ export function RecipeDetail({ groupId }) {
 
   return (
     <div className="flex flex-col gap-4 pb-16">
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex min-w-0 flex-col">
-          <h1 className="text-lg font-medium">{recipe.title}</h1>
+      <div className="flex items-start gap-3">
+        <span className={`flex size-16 shrink-0 items-center justify-center rounded-2xl text-4xl ${dishLook(recipe).bg}`} aria-hidden="true">
+          {dishLook(recipe).emoji}
+        </span>
+        <div className="flex min-w-0 flex-1 flex-col gap-1">
+          <h1 className="text-xl font-bold leading-snug">{recipe.title}</h1>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <MakeableBadge status={status} />
+            {!recipe.url && (
+              <span className="rounded-full bg-violet-100 px-2.5 py-1 text-[11px] font-semibold text-violet-800 dark:bg-violet-950 dark:text-violet-300">
+                わが家のオリジナル
+              </span>
+            )}
+          </div>
           {recipe.source_site && <span className="text-xs text-muted-foreground">出典: {recipe.source_site}</span>}
         </div>
-        <MakeableBadge status={status} />
+        <Link
+          to={`/recipes/${recipe.id}/edit`}
+          className="flex shrink-0 items-center gap-1 rounded-full border bg-card px-3 py-1.5 text-xs font-medium shadow-sm hover:bg-accent/50"
+        >
+          <Pencil className="size-3.5" />
+          編集
+        </Link>
       </div>
 
       {baseServings && (
@@ -214,6 +232,31 @@ export function RecipeDetail({ groupId }) {
           )
         })}
       </ul>
+
+      {recipe.instructions && (
+        <section className="flex flex-col gap-2">
+          <h2 className="text-base font-semibold">作り方</h2>
+          <ol className="flex flex-col gap-2">
+            {recipe.instructions
+              .split('\n')
+              .map((step) => step.trim())
+              .filter(Boolean)
+              .map((step, i) => (
+                <li key={i} className="flex gap-2.5 rounded-2xl border bg-card px-3 py-2.5 text-sm">
+                  <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground">{i + 1}</span>
+                  <span className="whitespace-pre-wrap">{step.replace(/^\d+[.)、.]\s*/, '')}</span>
+                </li>
+              ))}
+          </ol>
+        </section>
+      )}
+
+      {recipe.memo && (
+        <section className="rounded-2xl bg-amber-50 px-3 py-2.5 text-sm dark:bg-amber-950/40">
+          <h2 className="mb-1 text-xs font-semibold text-amber-800 dark:text-amber-300">わが家のメモ</h2>
+          <p className="whitespace-pre-wrap">{recipe.memo}</p>
+        </section>
+      )}
 
       {logs.length > 0 && (
         <div className="flex flex-col gap-2">

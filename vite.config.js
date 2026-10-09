@@ -57,6 +57,20 @@ export default defineConfig({
       },
     }),
   ],
+  build: {
+    rollupOptions: {
+      output: {
+        // ライブラリを別ファイルにする。アプリの更新だけなら、ライブラリはキャッシュのまま使える
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return undefined
+          if (/[\\/]node_modules[\\/](react|react-dom|react-router|react-router-dom|scheduler)[\\/]/.test(id)) return 'react'
+          if (id.includes('@supabase')) return 'supabase'
+          if (id.includes('@radix-ui') || id.includes('radix-ui')) return 'radix'
+          return 'vendor'
+        },
+      },
+    },
+  },
   resolve: {
     alias: {
       '@': path.resolve(fileURLToPath(new URL('.', import.meta.url)), './src'),

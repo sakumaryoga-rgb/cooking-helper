@@ -20,15 +20,8 @@ function SectionTitle({ emoji, title, count }) {
   )
 }
 
-function Empty({ emoji, text }) {
-  return (
-    <div className="flex items-center gap-3 rounded-2xl border-2 border-dashed px-4 py-4 text-sm text-muted-foreground">
-      <span className="text-2xl opacity-70" aria-hidden="true">
-        {emoji}
-      </span>
-      {text}
-    </div>
-  )
+function Empty({ text }) {
+  return <p className="rounded-2xl border-2 border-dashed px-4 py-4 text-sm text-muted-foreground">{text}</p>
 }
 
 // レシピのお皿カード(横にスクロール)
@@ -112,13 +105,13 @@ export function Home({ groupId }) {
 
       <section className="flex flex-col gap-2">
         <SectionTitle emoji="✨" title="今すぐ作れる" count={makeable.length} />
-        {makeable.length === 0 ? <Empty emoji="🥄" text="今の在庫だけで作れるレシピはありません" /> : <DishCards items={makeable} />}
+        {makeable.length === 0 ? <Empty text="今の在庫だけで作れるレシピはありません" /> : <DishCards items={makeable} />}
       </section>
 
       <section className="flex flex-col gap-2">
-        <SectionTitle emoji="🔄" title="代替で作れる" count={substitutable.length} />
+        <SectionTitle emoji="🪄" title="代替で作れる" count={substitutable.length} />
         {substitutable.length === 0 ? (
-          <Empty emoji="🧩" text="代わりの食材で作れるレシピはありません" />
+          <Empty text="代わりの食材で作れるレシピはありません" />
         ) : (
           <DishCards items={substitutable} detail={(status) => describeSubstitutes(status.lines)} />
         )}
@@ -127,7 +120,7 @@ export function Home({ groupId }) {
       <section className="flex flex-col gap-2">
         <SectionTitle emoji="⏰" title={`期限が${EXPIRING_DAYS}日以内の食材`} count={expiring.length} />
         {expiring.length === 0 ? (
-          <Empty emoji="😌" text="期限が近い食材はありません" />
+          <Empty text="期限が近い食材はありません" />
         ) : (
           <ul className="flex flex-col gap-2">
             {expiring.map(({ ingredient, expiry }) => {

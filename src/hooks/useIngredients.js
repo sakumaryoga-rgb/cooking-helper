@@ -1,10 +1,18 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '@/supabaseClient'
+import { debounce, useSharedKitchen } from '@/hooks/kitchenData'
 
 // グループの冷蔵庫の中身を取得し、他メンバーの変更をリアルタイムに反映する
 export function useIngredients(groupId) {
+  const shared = useSharedKitchen('ingredients', groupId)
+  const own = useIngredientsSource(shared ? null : groupId)
+  return shared ?? own
+}
+
+export function useIngredientsSource(groupId) {
   const [ingredients, setIngredients] = useState([])
   const [loading, setLoading] = useState(true)
+  const loaded = useRef(false)
 
   const refresh = useCallback(async () => {
     if (!groupId) {
@@ -13,7 +21,8 @@ export function useIngredients(groupId) {
       return
     }
 
-    setLoading(true)
+    // 「読み込み中」は最初の1回だけ(リアルタイムの読み直しで一覧を消さない)
+    if (!loaded.current) setLoading(true)
     const { data, error } = await supabase
       .from('ingredients')
       .select('*')
@@ -21,6 +30,7 @@ export function useIngredients(groupId) {
       .order('name')
 
     if (error) console.error('食材一覧の取得に失敗しました', error)
+    if (!error) loaded.current = true
     setIngredients(data ?? [])
     setLoading(false)
   }, [groupId])
@@ -54,19 +64,21 @@ export function useIngredients(groupId) {
   useEffect(() => {
     if (!groupId) return
 
+    const reload = debounce(refresh)
     const channel = supabase
       .channel(`ingredients-${groupId}`)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'ingredients', filter: `group_id=eq.${groupId}` },
-        () => refresh()
+        () => reload()
       )
       .subscribe()
 
     return () => {
+      reload.cancel()
       supabase.removeChannel(channel)
     }
   }, [groupId, refresh])
 
-  return { ingredients, loading, refresh, removeIngredient, dropLocal }
+  return useMemo(() => ({ ingredients, loading, refresh, removeIngredient, dropLocal }), [ingredients, loading, refresh, removeIngredient, dropLocal])
 }
