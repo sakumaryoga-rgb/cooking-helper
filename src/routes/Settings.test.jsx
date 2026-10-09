@@ -11,7 +11,10 @@ vi.mock('@/supabaseClient', () => {
   return { supabase: { rpc: vi.fn(), from: () => chain, auth: { signOut: vi.fn().mockResolvedValue({ error: null }) } } }
 })
 vi.mock('@/hooks/useSubstitutions', () => ({ useSubstitutions: () => ({ disabledRules: [], enableRule: vi.fn() }) }))
-vi.mock('@/hooks/useIngredientCatalog', () => ({ useIngredientCatalog: () => ({ catalog: [] }) }))
+vi.mock('@/hooks/useIngredientCatalog', () => ({ useIngredientCatalog: () => ({ catalog: [{ id: 'c-potato', name: 'じゃがいも' }] }) }))
+const refreshAliases = vi.fn()
+let aliasRows = []
+vi.mock('@/hooks/useIngredientAliases', () => ({ useIngredientAliases: () => ({ aliases: aliasRows, refresh: refreshAliases }) }))
 
 const TOKEN = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJ0123-_x'
 const group = { id: 'g1', name: 'テスト家' }
@@ -92,5 +95,27 @@ describe('設定画面', () => {
     await userEvent.click(await screen.findByRole('button', { name: '招待リンクを無効にする' }))
     await waitFor(() => expect(screen.getByText('有効な招待リンクはありません')).toBeInTheDocument())
     expect(supabase.rpc).toHaveBeenCalledWith('revoke_group_invite')
+  })
+
+  it('この家で覚えた食材の別名を一覧にし、忘れられる(共通やほかの家の別名は出さない)', async () => {
+    mockRpc({ get_group_invite_status: () => ({ data: [], error: null }) })
+    aliasRows = [
+      { alias: 'メークイン', catalog_id: 'c-potato', group_id: 'g1' },
+      { alias: 'じゃが芋', catalog_id: 'c-potato', group_id: null },
+      { alias: '男爵', catalog_id: 'c-potato', group_id: 'g-other' },
+    ]
+    const del = { eq: vi.fn() }
+    del.eq.mockReturnValueOnce(del).mockResolvedValueOnce({ error: null })
+    const from = vi.spyOn(supabase, 'from')
+    from.mockImplementation((table) => (table === 'ingredient_aliases' ? { delete: () => del } : { select: () => ({ eq: () => ({ order: async () => ({ data: [] }) }) }) }))
+    render(<MemoryRouter><Settings group={group} email="me@example.com" userId="u1" /></MemoryRouter>)
+    expect(screen.getByText('「メークイン」→ じゃがいも')).toBeInTheDocument()
+    expect(screen.queryByText(/じゃが芋/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/男爵/)).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '「メークイン」を忘れる' }))
+    expect(del.eq).toHaveBeenCalledWith('group_id', 'g1')
+    expect(del.eq).toHaveBeenCalledWith('alias', 'メークイン')
+    await waitFor(() => expect(refreshAliases).toHaveBeenCalled())
+    aliasRows = []
   })
 })

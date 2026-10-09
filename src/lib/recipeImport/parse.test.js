@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { parseRecipeUrl } from './sites'
 import { extractRecipe, parseServings } from './jsonld'
 import { isHeadingLine, parseIngredientLine } from './ingredientLine'
-import { isNotStocked, mergeResolved, normalizeName, resolveIngredient } from './match'
+import { applyChoice, isNotStocked, mergeResolved, normalizeName, resolveIngredient } from './match'
 
 const ld = (obj) => `<html><head><script type="application/ld+json">${JSON.stringify(obj)}</script></head></html>`
 
@@ -49,7 +49,8 @@ describe('材料の1行', () => {
     ['鶏むね肉 1枚(250g)', '鶏むね肉', 1, '枚', 250, null],
     ['長ねぎ[白い部分] 1/4本分', '長ねぎ[白い部分]', 0.25, '本', null, null],
     ['S&B 本鶏だし 1パック', 'S&B 本鶏だし', 1, 'パック', null, null],
-    ['平打ちパスタ（乾麺） 40〜50g', '平打ちパスタ（乾麺）', 40, 'g', 40, null],
+    // 幅は1つの値に決めない(画面で分量を確かめてもらう)
+    ['平打ちパスタ（乾麺） 40〜50g', '平打ちパスタ（乾麺）', 40, 'g', null, null],
     ['しょうゆ 大さじ2', 'しょうゆ', 2, '大さじ', null, 30],
     ['塩 小さじ1と1/2', '塩', 1.5, '小さじ', null, 7.5],
     ['★砂糖 大さじ1', '砂糖', 1, '大さじ', null, 15],
@@ -91,9 +92,12 @@ describe('食材との突き合わせ', () => {
     expect(resolve('酒 大さじ2')).toMatchObject({ kind: 'catalog', requiredQuantity: 30, unit: 'ml' })
   })
 
-  it('単位を直せないもの、名前の一部だけが一致したものは確認を求める', () => {
-    expect(resolve('砂糖 大さじ1')).toMatchObject({ kind: 'catalog', requiredQuantity: 1, needsCheck: true })
-    expect(resolve('薄切りハーフベーコン 5枚')).toMatchObject({ kind: 'catalog', name: 'ベーコン', needsCheck: true })
+  it('単位を直せないものは分量の確認を求め、名前の一部だけが一致したものは、どの食材かを選んでもらう', () => {
+    // 食材マスタの単位(g)と、材料の行の単位(大さじ = ml)が食い違う: 換算せず、分量を空にして入れてもらう
+    expect(resolve('砂糖 大さじ1')).toMatchObject({ kind: 'catalog', requiredQuantity: '', needsCheck: true, needsChoice: false })
+    const bacon = resolve('薄切りハーフベーコン 5枚')
+    expect(bacon).toMatchObject({ needsChoice: true, kind: 'new' })
+    expect(bacon.candidates[0]).toMatchObject({ kind: 'catalog', name: 'ベーコン' })
   })
 
   it('知らない食材は新しい食材にし、かっこ書きを外す', () => {

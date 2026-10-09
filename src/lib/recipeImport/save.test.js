@@ -13,10 +13,19 @@ function mockSupabase({ recipeError = null, riError = null } = {}) {
       const result =
         table === 'ingredients'
           ? { data: { id: `new-${++n}` }, error: null }
+          : table === 'ingredient_catalog'
+            ? { data: { id: `cat-${++n}`, ...row }, error: null }
+          : table === 'ingredient_aliases'
+            ? { error: null }
           : table === 'recipes'
             ? { data: recipeError ? null : { id: 'r1' }, error: recipeError }
             : { error: riError }
       const chain = { select: () => chain, single: async () => result, then: (f) => Promise.resolve(result).then(f) }
+      return chain
+    },
+    select() {
+      const p = Promise.resolve({ data: [], error: null })
+      const chain = new Proxy({}, { get: (_, k) => (k === 'then' ? p.then.bind(p) : k === 'maybeSingle' ? async () => ({ data: null }) : () => chain) })
       return chain
     },
     delete() {
@@ -101,5 +110,51 @@ describe('レシピのカスタマイズの保存', () => {
     const result = await updateRecipe({ supabase, groupId: 'g1', recipeId: 'r1', title: 'x', fridge, items: [], extras: {} })
     expect(result.error).toMatch(/材料を1つ以上/)
     expect(supabase.rpc).not.toHaveBeenCalled()
+  })
+})
+
+describe('冷蔵庫とレシピの食材の整合性', () => {
+  it('食材マスタにない材料は、カテゴリを推定して家庭の品目に登録し、冷蔵庫の行と結び付ける', async () => {
+    const supabase = mockSupabase()
+    const result = await saveRecipe({
+      supabase, groupId: 'g1', userId: 'u1', title: '自家製', url: null, fridge: [],
+      items: [{ key: 'a', kind: 'new', name: 'ほたて貝柱', unit: '個', requiredQuantity: 4, include: true }],
+    })
+    expect(result.recipeId).toBe('r1')
+    const catalogInsert = supabase.calls.find((c) => c.table === 'ingredient_catalog')
+    expect(catalogInsert.row).toMatchObject({ name: 'ほたて貝柱', unit: '個', category: '魚介類', group_id: 'g1' })
+    const fridgeInsert = supabase.calls.find((c) => c.table === 'ingredients')
+    expect(fridgeInsert.row).toMatchObject({ name: 'ほたて貝柱', catalog_id: catalogInsert.row ? expect.any(String) : undefined, quantity: 0 })
+  })
+
+  it('どの食材か選んでいない材料があれば保存しない', async () => {
+    const supabase = mockSupabase()
+    const result = await saveRecipe({
+      supabase, groupId: 'g1', userId: 'u1', title: 'ポテト', url: null, fridge,
+      items: [{ key: 'a', kind: 'new', name: 'じゃが芋', unit: '個', requiredQuantity: 2, include: true, needsChoice: true }],
+    })
+    expect(result.error).toMatch(/どの食材か選んでいない/)
+    expect(supabase.calls).toHaveLength(0)
+  })
+
+  it('「新しい食材」を選んだら、表記の似た冷蔵庫の食材に勝手にまとめない', async () => {
+    const supabase = mockSupabase()
+    await saveRecipe({
+      supabase, groupId: 'g1', userId: 'u1', title: 'ポテト', url: null,
+      fridge: [{ id: 'p1', name: 'じゃがいも', unit: '個' }],
+      items: [{ key: 'a', kind: 'new', name: 'じゃが芋', unit: '個', requiredQuantity: 2, include: true, needsChoice: false }],
+    })
+    expect(supabase.calls.find((c) => c.table === 'ingredients').row).toMatchObject({ name: 'じゃが芋' })
+  })
+
+  it('付け替えた材料は、取り込んだときの表記をこの家の別名として覚える', async () => {
+    const supabase = mockSupabase()
+    await saveRecipe({
+      supabase, groupId: 'g1', userId: 'u1', title: 'ポテサラ', url: null, fridge,
+      items: [
+        { key: 'a', kind: 'existing', ingredient: { id: 'p1', catalog_id: 'c-potato' }, name: 'じゃがいも', unit: '個', requiredQuantity: 2, include: true, learnAlias: { alias: 'メークイン', catalogId: 'c-potato' } },
+      ],
+    })
+    expect(supabase.calls.find((c) => c.table === 'ingredient_aliases').row).toEqual({ group_id: 'g1', catalog_id: 'c-potato', alias: 'メークイン' })
   })
 })
