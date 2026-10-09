@@ -36,6 +36,16 @@ describe('ログイン後の招待リンクでの参加', () => {
     await waitFor(() => expect(b.result.current.notice).toEqual({ kind: 'error', text: INVITE_MESSAGES.legacy }))
   })
 
+  it('アプリを開いたまま招待リンクを開き直しても(画面の移動のたびに)確かめて参加する', async () => {
+    supabase.rpc.mockResolvedValue({ data: { id: 'g2', name: 'B家' }, error: null })
+    const onJoined = vi.fn().mockResolvedValue()
+    const { rerender } = renderHook(({ k }) => usePendingInvite({ ready: true, onJoined, checkKey: k }), { initialProps: { k: 'a' } })
+    expect(supabase.rpc).not.toHaveBeenCalled()
+    localStorage.setItem('pendingInviteToken', TOKEN)
+    rerender({ k: 'b' })
+    await waitFor(() => expect(onJoined).toHaveBeenCalledWith('g2'))
+  })
+
   it('招待がなければ何もしない', () => {
     renderHook(() => usePendingInvite({ ready: true, onJoined: vi.fn() }))
     expect(supabase.rpc).not.toHaveBeenCalled()

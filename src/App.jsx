@@ -58,6 +58,7 @@ export default function App() {
   const invite = usePendingInvite({
     ready: Boolean(session) && !groupLoading && !consent.loading && !consent.needsConsent,
     onJoined: joinAndSelect,
+    checkKey: location.key,
   })
 
   if (sessionLoading) {

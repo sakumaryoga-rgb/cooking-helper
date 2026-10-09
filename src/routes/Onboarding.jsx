@@ -65,6 +65,10 @@ export function Onboarding({ onGroupChanged, notice }) {
           <CardDescription>COOKDOOR で冷蔵庫とレシピを共有する世帯・グループを設定します</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
+          <p className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
+            家族から招待リンクをもらっている場合は、家を作らずに、その招待リンクをもう一度開くか「招待リンクで参加」に貼り付けてください。
+            ログインのメールを別のアプリやブラウザで開くと、招待が引き継がれないことがあります。
+          </p>
           <div className="flex gap-2">
             <Button
               type="button"

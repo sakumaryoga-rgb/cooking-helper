@@ -10,7 +10,8 @@ export const INVITE_MESSAGES = {
 
 // ログイン後に、開いていた招待リンク(端末に保持したトークン)で招待先の家に参加し、その家を選ぶ。
 // 既存の家やデータには触れない(招待先のメンバーとして追加するだけ)。
-export function usePendingInvite({ ready, onJoined }) {
+// checkKey が変わるたび(画面の移動・招待リンクを開き直したとき)にも確かめる
+export function usePendingInvite({ ready, onJoined, checkKey }) {
   const [notice, setNotice] = useState(null) // { kind: 'joined' | 'error', text }
   const running = useRef(false)
 
@@ -36,7 +37,7 @@ export function usePendingInvite({ ready, onJoined }) {
       await onJoined(data.id)
       setNotice({ kind: 'joined', text: `「${data.name}」に参加しました。この家に切り替えています` })
     })()
-  }, [ready, onJoined])
+  }, [ready, onJoined, checkKey])
 
   return { notice, dismiss: () => setNotice(null) }
 }
