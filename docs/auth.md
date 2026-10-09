@@ -17,17 +17,9 @@
 ## メールに数字のコードを出す(Supabase の設定、承認後に運営者が行う)
 
 1. Supabase ダッシュボード → Authentication → Emails → Templates →「Magic link or OTP」を開く。
-2. Subject を `COOKDOOR ログイン` に、Body を次に置き換えて「Save changes」。リンクとコードの両方が届く(既存のリンクでのログインはそのまま)。
-
-```html
-<h2>COOKDOOR にログイン</h2>
-<p>下のボタンを押すとログインできます。</p>
-<p><a href="{{ .ConfirmationURL }}">ログインする</a></p>
-<p>リンクが別のアプリやブラウザで開いてしまう場合は、COOKDOOR のログイン画面で次のコードを入力してください。</p>
-<p style="font-size: 24px; letter-spacing: 4px;"><strong>{{ .Token }}</strong></p>
-<p>このメールに心当たりがない場合は、何もしなくて構いません。</p>
-```
-
+2. Subject を `COOKDOOR にログイン` にし、Body を `supabase/templates/magic_link.html` の全文に置き換えて「Save changes」。
+   リンクのボタンとコードの両方が入ったデザイン済みのメールになる(既存のリンクでのログインはそのまま)。
+   「Confirm sign up」も同様に、Subject を `COOKDOOR へようこそ`、Body を `supabase/templates/confirm_signup.html` にする。
 3. Authentication → Sign In / Providers → Email の「Email OTP Length」(コードの桁数、6〜10)と「Email OTP Expiration」(有効期限)を確認する。
    アプリは6〜10桁を受け付ける。有効期限は既定の3600秒(1時間)で十分。
 4. 確かめる: ログイン画面でメールアドレスを送り、届いたメールにリンクとコードがあること、コードを入力してログインできること。

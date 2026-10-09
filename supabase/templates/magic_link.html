@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>COOKDOOR にログイン</title>
+</head>
+<body style="margin:0; padding:0; background-color:#f2eae3;">
+<div style="display:none; max-height:0; overflow:hidden;">ボタンを押すか、コードを入力してログインできます</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f2eae3;">
+  <tr>
+    <td align="center" style="padding:32px 16px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:480px;">
+        <!-- ロゴ -->
+        <tr>
+          <td align="center" style="padding-bottom:20px;">
+            <img src="https://cookdoor.app/icons/cookdoor-192.png" width="64" height="64" alt="COOKDOOR" style="display:block; border:0; border-radius:16px;">
+            <div style="margin-top:10px; font-family:-apple-system, BlinkMacSystemFont, 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', 'Noto Sans JP', Meiryo, sans-serif; font-size:13px; font-weight:700; letter-spacing:3px; color:#3b2a1c;">COOKDOOR</div>
+          </td>
+        </tr>
+        <!-- カード -->
+        <tr>
+          <td style="background-color:#ffffff; border-radius:20px; overflow:hidden;">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+              <tr><td style="height:8px; background-color:#fed712; font-size:0; line-height:0;">&nbsp;</td></tr>
+              <tr>
+                <td style="padding:32px 28px 8px; font-family:-apple-system, BlinkMacSystemFont, 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', 'Noto Sans JP', Meiryo, sans-serif; color:#3b2a1c;">
+                  <div style="font-size:30px; line-height:1;">&#x1F3E0;</div>
+                  <h1 style="margin:12px 0 8px; font-size:22px; line-height:1.4; font-weight:700;">おかえりなさい！</h1>
+                  <p style="margin:0; font-size:15px; line-height:1.8; color:#5c4a3b;">下のボタンを押すと、COOKDOOR の冷蔵庫にそのまま入れます。</p>
+                </td>
+              </tr>
+              <!-- ボタン -->
+              <tr>
+                <td align="center" style="padding:24px 28px 8px;">
+                  <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                    <tr>
+                      <td align="center" bgcolor="#fed712" style="border-radius:999px; background-color:#fed712;">
+                        <a href="{{ .ConfirmationURL }}" target="_blank" style="display:inline-block; padding:15px 40px; font-family:-apple-system, BlinkMacSystemFont, 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', 'Noto Sans JP', Meiryo, sans-serif; font-size:16px; font-weight:700; color:#3b2a1c; text-decoration:none; border-radius:999px;">ログインする</a>
+                      </td>
+                    </tr>
+                  </table>
+                </td>
+              </tr>
+              <!-- 区切り -->
+              <tr>
+                <td style="padding:20px 28px 0;">
+                  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                    <tr>
+                      <td style="border-top:1px dashed #e4d8cc; font-size:0; line-height:0;">&nbsp;</td>
+                    </tr>
+                  </table>
+                </td>
+              </tr>
+              <!-- コード -->
+              <tr>
+                <td align="center" style="padding:16px 28px 32px; font-family:-apple-system, BlinkMacSystemFont, 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', 'Noto Sans JP', Meiryo, sans-serif; color:#5c4a3b;">
+                  <p style="margin:0 0 12px; font-size:13px; line-height:1.7;">リンクが別のアプリやブラウザで開いてしまうときは、<br>COOKDOOR のログイン画面でこのコードを入力してください</p>
+                  <div style="display:inline-block; padding:14px 24px; background-color:#fff8d6; border:2px solid #fed712; border-radius:14px; font-family:'SF Mono', Menlo, Consolas, monospace; font-size:30px; font-weight:700; letter-spacing:8px; color:#3b2a1c;">{{ .Token }}</div>
+                  <p style="margin:12px 0 0; font-size:12px; color:#8a7767;">コードとリンクは1回だけ使えます。1時間で無効になります。</p>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+        <!-- フッター -->
+        <tr>
+          <td align="center" style="padding:20px 12px 0; font-family:-apple-system, BlinkMacSystemFont, 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', 'Noto Sans JP', Meiryo, sans-serif; font-size:12px; line-height:1.8; color:#8a7767;">
+            このメールに心当たりがない場合は、何もしなくて大丈夫です。<br>
+            家族の冷蔵庫とレシピをひとつに。<span style="color:#e53d26;">&#9829;</span> COOKDOOR
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+</table>
+</body>
+</html>
