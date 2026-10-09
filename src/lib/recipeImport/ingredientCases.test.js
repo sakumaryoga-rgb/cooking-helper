@@ -30,71 +30,80 @@ const num = (s) => {
   return Number(t)
 }
 
-// result: { lines: [{ heading?, notStocked?, item }] } を作るのは呼び出し側(pipeline)
+// 1,000件を4つに分ける(ケースの中で一番手間のかかる材料で決める):
+// 1 full: 食材と分量まで自動で確定 / 2 textAmount: 食材は自動で確定、分量は元の表記のまま保存(数で比べない)
+// 3 deferred: 確認待ちの材料を含むが、そのまま保存できる(あとで選ぶ) / 4 blocking: 保存の前に確認が必須
+// wrong: 安全性の誤り(別の食材への自動の紐付け・誤統合・数量の欠落・見出しの取り込み・分割漏れ)
 function score(cases, run, { catalog, index }) {
   const catalogKeys = new Set(catalog.map((c) => nameKey(c.name)))
-  const buckets = { auto: [], review: [], wrong: [] }
+  const buckets = { full: [], textAmount: [], deferred: [], blocking: [], wrong: [] }
+  const resolveMaster = (m) => {
+    const r = matchIngredientName(m, index)
+    return r.status === 'auto' ? r.option.name : m
+  }
+  const inCatalog = (m) => catalogKeys.has(nameKey(m)) || matchIngredientName(m, index).status === 'auto'
   for (const c of cases) {
     const exp = c['期待判定']
     const out = run(c['元の材料表記'])
     const items = out.filter((o) => o.item).map((o) => o.item)
     const stocked = items.filter((i) => i.include)
-    const first = items[0]
     const masters = c['想定マスタ候補'] ? c['想定マスタ候補'].split('／') : []
-    const expQty = num(c['数量'].split('-')[0])
-    const isRange = String(c['数量']).includes('-')
-    const record = (bucket, why) => buckets[bucket].push({ c, out: items.map((i) => `${i.name}[${i.needsChoice ? 'choose' : i.kind}]${i.requiredQuantity}${i.unit}${i.include ? '' : '(除外)'}`).join(' + ') || out.map((o) => (o.heading ? '見出し' : '?')).join(','), why })
-    const autoName = (i) => !i.needsChoice && i.kind !== 'new' ? i.name : null
-    // 期待の食材名が、こちらの食材マスタでは別の書き方の場合(しょうゆ / 醤油)は、照合した結果で比べる
-    const resolveMaster = (m) => { const r = matchIngredientName(m, index); return r.status === 'auto' ? r.option.name : m }
-    const sameMaster = (i, m) => autoName(i) && (nameKey(autoName(i)) === nameKey(m) || nameKey(autoName(i)) === nameKey(resolveMaster(m)))
-    const inCatalog = (m) => catalogKeys.has(nameKey(m)) || matchIngredientName(m, index).status === 'auto'
+    const expQty = num(String(c['数量']).split('-')[0])
+    const record = (bucket, why) => buckets[bucket].push({ c, why, items })
+    const resolved = (i) => !i.needsChoice
+    const autoName = (i) => (resolved(i) && i.kind !== 'new' ? i.name : null)
+    const same = (i, m) => autoName(i) && (nameKey(autoName(i)) === nameKey(m) || nameKey(autoName(i)) === nameKey(resolveMaster(m)))
+    const bucketOf = (list) =>
+      list.some((i) => i.include && !resolved(i)) ? 'deferred' : list.some((i) => i.include && !(Number(i.requiredQuantity) > 0)) ? 'textAmount' : 'full'
 
-    if (exp === 'HEADING') {
-      if (stocked.length === 0) record('auto', '見出し・在庫対象外')
-      else record('wrong', '見出しを食材にした')
+    if (exp === 'HEADING' || exp === 'NO_STOCK') {
+      if (stocked.length === 0) record('full', '在庫に数えない')
+      else record('wrong', exp === 'HEADING' ? '見出しを食材にした' : '在庫に数える')
       continue
     }
-    if (exp === 'NO_STOCK') {
-      if (stocked.length === 0) record('auto', '在庫に数えない')
-      else record('wrong', '在庫に数える')
+    if (stocked.length === 0 && items.length === 0) {
+      record('wrong', '食材として読めない')
       continue
     }
     if (exp === 'SPLIT') {
-      if (items.length !== masters.length) { record('wrong', `分割していない(${items.length}/${masters.length})`); continue }
-      const vague = !c['数量']
-      const qtyOk = items.every((i) => vague ? !i.include || i.requiredQuantity === '' : i.parsed?.quantity === expQty || Number(i.requiredQuantity) === expQty || (i.parsed?.ml != null))
-      if (!qtyOk) { record('wrong', '分割後の分量が違う'); continue }
-      const allAuto = items.every((i, k) => sameMaster(i, masters[k]))
-      const anyWrong = items.some((i, k) => autoName(i) && !sameMaster(i, masters[k]) && inCatalog(masters[k]))
-      if (anyWrong) record('wrong', '分割後に別の食材')
-      else record(allAuto ? 'auto' : 'review', allAuto ? '分割して自動' : '分割して確認')
+      if (items.length !== masters.length) {
+        record('wrong', `分割していない(${items.length}/${masters.length})`)
+        continue
+      }
+      const wrongItem = items.some((i, k) => autoName(i) && inCatalog(masters[k]) && !same(i, masters[k]))
+      if (wrongItem) record('wrong', '分割後に別の食材')
+      else record(bucketOf(items), '分割')
       continue
     }
-    if (!first) { record('wrong', '食材として読めない'); continue }
-    // 数量: 期待の数量を失っていない(範囲は要確認なら可)
+    const first = items[0]
+    // 数量: 元の数量を数か、元の分量の表記で失っていない
     const p = first.parsed ?? {}
-    const qtyKept = expQty == null || p.quantity === expQty || p.grams === expQty || p.ml === expQty || (isRange && first.needsCheck)
-    if (!qtyKept) { record('wrong', `数量を失った(${p.quantity}${p.unit} 期待${c['数量']}${c['単位']})`); continue }
+    const qtyKept = expQty == null || p.quantity === expQty || p.grams === expQty || p.ml === expQty || Boolean(p.range) || (first.amountText ?? '').length > 0
+    if (!qtyKept) {
+      record('wrong', `数量を失った(${p.quantity}${p.unit} 期待${c['数量']}${c['単位']})`)
+      continue
+    }
     if (exp === 'KEEP_DISTINCT') {
       const forbidden = (c['補助数量_状態'].match(/混同禁止: (.+)$/) ?? [])[1]
-      const names = [first.name, ...(first.needsChoice ? [] : [])]
-      if (forbidden && autoName(first) && nameKey(autoName(first)) === nameKey(forbidden)) record('wrong', `混同: ${forbidden}`)
-      else if (sameMaster(first, masters[0])) record('auto', '区別して自動')
-      else if (autoName(first)) record(inCatalog(masters[0]) ? 'wrong' : 'auto', '別の食材に自動')
-      else record('review', '確認')
-      void names
-      continue
+      if (forbidden && autoName(first) && (nameKey(autoName(first)) === nameKey(forbidden) || nameKey(autoName(first)) === nameKey(resolveMaster(forbidden))) && !same(first, masters[0])) {
+        record('wrong', `混同: ${forbidden}`)
+        continue
+      }
+    } else if (exp === 'AUTO' || exp === 'AUTO_CANDIDATE') {
+      if (autoName(first) && inCatalog(masters[0]) && !same(first, masters[0])) {
+        record('wrong', `別の食材に自動: ${autoName(first)}`)
+        continue
+      }
+    } else {
+      // REVIEW*: 自動で決めた食材が、期待の食材でも、属性を外した同じ食材でもなければ誤り
+      const m = matchIngredientName(first.sourceName ?? '', index, { notes: p.notes ?? [] })
+      const baseKey = m.analysis?.base
+      if (autoName(first) && masters[0] && !same(first, masters[0]) && nameKey(autoName(first)) !== baseKey && nameKey(resolveMaster(m.analysis?.display ?? '')) !== nameKey(autoName(first))) {
+        record('wrong', `別の食材に自動: ${autoName(first)}`)
+        continue
+      }
     }
-    if (exp === 'AUTO' || exp === 'AUTO_CANDIDATE') {
-      if (sameMaster(first, masters[0])) record(first.needsCheck && !isRange && expQty != null ? 'review' : 'auto', first.needsCheck ? '自動(分量の確認)' : '自動')
-      else if (autoName(first)) record('wrong', `別の食材に自動: ${autoName(first)}`)
-      else record('review', inCatalog(masters[0]) ? '確認(マスタにある)' : '確認(マスタにない)')
-      continue
-    }
-    // REVIEW / REVIEW_STATE / REVIEW_OR_CREATE: 自動で決めない
-    if (autoName(first) && !(exp === 'REVIEW_OR_CREATE' && nameKey(first.name) === nameKey(c['元の材料表記'].split(/\s/)[0]))) record('wrong', `自動で決めた: ${autoName(first)}`)
-    else record('review', '確認・新規')
+    record(bucketOf([first]), exp)
   }
   return buckets
 }
@@ -109,12 +118,15 @@ const cases = fixture.cases.map(([id, exp, text, master, qty, unit, note]) => ({
 
 describe('食材名寄せの検証ケース1,000件', () => {
   const b = score(cases, (line) => importIngredientLines([line], { catalog, aliases, index }), { catalog, index })
+  globalThis.__ingredientCaseBuckets = b
   it('誤判定(別の食材への自動の紐付け・誤統合・数量の欠落・見出しの取り込み・分割漏れ)がない', () => {
     expect(b.wrong.map((r) => `${r.c.id} ${r.c['元の材料表記']}: ${r.why}`)).toEqual([])
   })
-  it('自動で正しく判定できる件数が下がっていない', () => {
+  it('8割以上を保存前の確認なしで登録できる(確認が必須なものはない)', () => {
     expect(cases).toHaveLength(1000)
-    expect(b.auto.length).toBeGreaterThanOrEqual(439)
-    expect(b.auto.length + b.review.length).toBe(1000)
+    const total = b.full.length + b.textAmount.length + b.deferred.length + b.blocking.length
+    expect(total).toBe(1000)
+    expect(b.blocking).toHaveLength(0)
+    expect(b.full.length + b.textAmount.length).toBeGreaterThanOrEqual(800)
   })
 })

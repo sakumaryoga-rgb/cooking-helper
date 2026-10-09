@@ -10,6 +10,8 @@ const deleteChain = { eq: vi.fn(() => deleteChain), select: vi.fn() }
 vi.mock('@/supabaseClient', () => ({ supabase: { from: vi.fn(() => ({ delete: () => deleteChain })) } }))
 vi.mock('@/components/IngredientPicker', () => ({ IngredientPicker: () => null }))
 vi.mock('@/lib/recipeImport/save', () => ({ updateRecipe: vi.fn() }))
+vi.mock('@/hooks/useIngredientCatalog', () => ({ useIngredientCatalog: () => ({ catalog: [] }) }))
+vi.mock('@/hooks/useIngredientAliases', () => ({ useIngredientAliases: () => ({ aliases: [] }) }))
 const fridge = [{ id: 'egg', name: '卵', unit: '個', quantity: 6 }]
 vi.mock('@/hooks/useIngredients', () => ({ useIngredients: () => ({ ingredients: fridge }) }))
 vi.mock('@/hooks/useRecipes', () => ({

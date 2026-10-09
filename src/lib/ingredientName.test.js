@@ -121,31 +121,43 @@ describe('別の食材を誤ってまとめない', () => {
   })
 })
 
-describe('B: 候補から選んでもらう', () => {
-  it('状態の修飾(冷凍・乾燥 など)が付いたものは、元の食材を候補に出す', () => {
-    const r = resolveLine('冷凍えび 10尾')
-    expect(r).toMatchObject({ needsChoice: true, choiceReason: 'state', sourceName: '冷凍えび' })
-    expect(r.candidates[0]).toMatchObject({ kind: 'catalog', name: 'エビ' })
-    expect(resolveLine('干ししいたけ 4枚').candidates[0]).toMatchObject({ name: 'しいたけ' })
+describe('状態・加工は属性として扱う(同じ食材なら自動、別の食材はまとめない)', () => {
+  it('属性(冷凍・皮なし・すりおろし・ホール)は、同じ食材に自動で結び付け、状態を注記に残す', () => {
+    expect(resolveLine('冷凍えび 10尾')).toMatchObject({ kind: 'catalog', name: 'エビ', requiredQuantity: 10, note: '冷凍', needsChoice: false })
+    expect(resolveLine('[皮なし]鶏むね肉 150g')).toMatchObject({ kind: 'catalog', name: '鶏むね肉', requiredQuantity: 150, note: '皮なし' })
+    expect(resolveLine('すりおろしにんにく 小さじ1')).toMatchObject({ kind: 'catalog', name: 'にんにく', note: 'すりおろし' })
+    expect(resolveLine('トマト缶 1缶 (ホール)')).toMatchObject({ kind: 'catalog', name: 'トマト缶', requiredQuantity: 1, note: 'ホール' })
   })
 
+  it('別の食材(干し・無塩・チューブ)は、元の食材にまとめず、その名前の食材として登録する', () => {
+    expect(resolveLine('干ししいたけ 4枚')).toMatchObject({ kind: 'new', name: '干ししいたけ', needsChoice: false })
+    expect(resolveLine('バター（無塩） 10g')).toMatchObject({ kind: 'new', name: '無塩バター', requiredQuantity: 10 })
+    expect(resolveLine('しょうが（チューブ） 2cm')).toMatchObject({ kind: 'new', name: 'しょうがチューブ' })
+    // 有塩バターは共通の別名辞書で「バター」(名前そのものが辞書にある)
+    expect(resolveLine('バター（有塩） 10g')).toMatchObject({ kind: 'catalog', name: 'バター' })
+  })
+})
+
+describe('部分一致は候補から選ぶ(保存は妨げない)', () => {
   it('部分一致は候補に出すだけで、自動で決めない', () => {
     const r = resolveLine('薄切りハーフベーコン 5枚')
-    expect(r).toMatchObject({ needsChoice: true, choiceReason: 'similar', kind: 'new' })
+    expect(r).toMatchObject({ needsChoice: true, choiceReason: 'similar', include: true })
     expect(r.candidates.map((c) => c.name)).toContain('ベーコン')
   })
 
   it('候補を選ぶと、その食材の単位で数量を計算し、取り込んだ表記を別名として覚える', () => {
-    const r = resolveLine('冷凍えび 10尾')
-    const chosen = applyChoice(r, r.candidates[0])
-    expect(chosen).toMatchObject({ kind: 'catalog', name: 'エビ', requiredQuantity: 10, needsChoice: false })
-    expect(chosen.learnAlias).toEqual({ alias: '冷凍えび', catalogId: byName('エビ').id })
+    const r = resolveLine('ハーフベーコン 50g')
+    const bacon = r.candidates.find((c) => c.name === 'ベーコン')
+    const chosen = applyChoice(r, bacon)
+    // 食材マスタのベーコンの単位で表せるときだけ数にする(単位が違えば換算しない)
+    expect(chosen).toMatchObject({ kind: 'catalog', name: 'ベーコン', requiredQuantity: byName('ベーコン').unit === 'g' ? 50 : '', needsChoice: false })
+    expect(chosen.learnAlias).toEqual({ alias: 'ハーフベーコン', catalogId: byName('ベーコン').id })
   })
 
   it('新しい食材として登録することも選べる(元の表記で登録し、別名は覚えない)', () => {
-    const r = resolveLine('冷凍えび 10尾')
+    const r = resolveLine('ハーフベーコン 50g')
     const asNew = applyChoice(r, { kind: 'new' })
-    expect(asNew).toMatchObject({ kind: 'new', name: '冷凍えび', requiredQuantity: 10, needsChoice: false })
+    expect(asNew).toMatchObject({ kind: 'new', name: 'ハーフベーコン', requiredQuantity: 50, needsChoice: false })
     expect(asNew.learnAlias).toBeUndefined()
   })
 })

@@ -51,10 +51,12 @@ describe('取り込んだレシピの保存', () => {
     expect(result).toEqual({ recipeId: 'r1' })
     const inserts = supabase.calls.filter((c) => c.op === 'insert')
     expect(inserts[0]).toMatchObject({ table: 'ingredients', row: { group_id: 'g1', name: '鶏むね肉', unit: 'g', quantity: 0, catalog_id: 'c1' } })
-    expect(inserts[1]).toMatchObject({ table: 'recipes', row: { source_key: 'delishkitchen:1', servings: 2, url: 'https://delishkitchen.tv/recipes/1' } })
-    expect(inserts[2].row).toEqual([
-      { ingredient_id: 'new-1', required_quantity: 250, recipe_id: 'r1', raw_text: '鶏むね肉 1枚(250g)' },
-      { ingredient_id: 'i1', required_quantity: 1, recipe_id: 'r1', raw_text: 'きゅうり 1本' },
+    expect(inserts.find((c) => c.table === 'recipes')).toMatchObject({ row: { source_key: 'delishkitchen:1', servings: 2, url: 'https://delishkitchen.tv/recipes/1' } })
+    // 「塩 少々」も元の表記のまま保存する(数は空。在庫の数は推測しない)。水は保存しない
+    expect(inserts.find((c) => c.table === 'recipe_ingredients').row).toEqual([
+      { ingredient_id: 'new-1', required_quantity: 250, recipe_id: 'r1', raw_text: '鶏むね肉 1枚(250g)', amount_text: '1枚(250g)', note: null, source_name: null },
+      { ingredient_id: 'i1', required_quantity: 1, recipe_id: 'r1', raw_text: 'きゅうり 1本', amount_text: '1本', note: null, source_name: null },
+      { ingredient_id: expect.stringMatching(/^new-/), required_quantity: null, recipe_id: 'r1', raw_text: '塩 少々', amount_text: '少々', note: null, source_name: null },
     ])
   })
 
@@ -73,7 +75,7 @@ describe('取り込んだレシピの保存', () => {
 
   it('保存する材料がなければ保存しない', async () => {
     const supabase = mockSupabase()
-    const result = await saveRecipe({ supabase, groupId: 'g1', userId: 'u1', title: 'x', fridge, items: [item('塩 少々')] })
+    const result = await saveRecipe({ supabase, groupId: 'g1', userId: 'u1', title: 'x', fridge, items: [item('水 100ml')] })
     expect(result.error).toMatch(/材料を1つ以上/)
     expect(supabase.from).not.toHaveBeenCalled()
   })
@@ -98,8 +100,8 @@ describe('レシピのカスタマイズの保存', () => {
     expect(supabase.rpc).toHaveBeenCalledWith('update_recipe', {
       p_recipe_id: 'r1', p_title: 'わが家のバンバンジー', p_servings: 2, p_instructions: '和える', p_memo: null, p_icon: '🥗',
       p_items: [
-        { ingredient_id: 'i1', required_quantity: 1.5, raw_text: null },
-        { ingredient_id: 'new-1', required_quantity: 250, raw_text: '鶏むね肉 1枚(250g)' },
+        { ingredient_id: 'i1', required_quantity: 1.5, raw_text: null, amount_text: null, note: null, source_name: null },
+        { ingredient_id: 'new-1', required_quantity: 250, raw_text: '鶏むね肉 1枚(250g)', amount_text: '1枚(250g)', note: null, source_name: null },
       ],
     })
   })
@@ -127,14 +129,17 @@ describe('冷蔵庫とレシピの食材の整合性', () => {
     expect(fridgeInsert.row).toMatchObject({ name: 'ほたて貝柱', catalog_id: catalogInsert.row ? expect.any(String) : undefined, quantity: 0 })
   })
 
-  it('どの食材か選んでいない材料があれば保存しない', async () => {
+  it('確認待ちの材料(どの食材か未確定)も保存できる(食材は空、元の名前と分量の表記を残す)', async () => {
     const supabase = mockSupabase()
     const result = await saveRecipe({
-      supabase, groupId: 'g1', userId: 'u1', title: 'ポテト', url: null, fridge,
-      items: [{ key: 'a', kind: 'new', name: 'じゃが芋', unit: '個', requiredQuantity: 2, include: true, needsChoice: true }],
+      supabase, groupId: 'g1', userId: 'u1', title: '麻婆豆腐', url: null, fridge,
+      items: [{ key: 'a', kind: 'new', name: '豆腐', sourceName: '豆腐', unit: '丁', requiredQuantity: '', amountText: '1/2丁', include: true, needsChoice: true, rawText: '豆腐1/2丁' }],
     })
-    expect(result.error).toMatch(/どの食材か選んでいない/)
-    expect(supabase.calls).toHaveLength(0)
+    expect(result.recipeId).toBe('r1')
+    expect(supabase.calls.filter((c) => c.table === 'ingredients' || c.table === 'ingredient_catalog')).toHaveLength(0)
+    expect(supabase.calls.find((c) => c.table === 'recipe_ingredients').row).toEqual([
+      { ingredient_id: null, source_name: '豆腐', required_quantity: null, amount_text: '1/2丁', raw_text: '豆腐1/2丁', note: null, recipe_id: 'r1' },
+    ])
   })
 
   it('「新しい食材」を選んだら、表記の似た冷蔵庫の食材に勝手にまとめない', async () => {

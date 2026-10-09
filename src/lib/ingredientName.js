@@ -45,14 +45,25 @@ const PREP_WORDS = [
   'くし切り', 'ざく切り', '小口切り', 'そぎ切り', '斜め切り', '一口大', 'ひと口大', '刻み', 'ブロック', 'しゃぶしゃぶ用', 'すき焼き用',
   '焼肉用', 'カレー用', 'シチュー用', '炒め物用', '煮物用', '皮むき', '皮をむいたもの', '加熱用', '生',
 ]
-// 状態・品質を表す修飾(保存方法・用途・味が変わる。照合には使うが、決めるのはユーザー)
-const STATE_WORDS = [
-  '冷凍', '乾燥', '干し', '加熱済み', '加熱済', 'ゆで', '茹で', '蒸し', '解凍', '缶詰', '水煮',
-  '皮なし', '無塩', '有塩', '減塩', '甘塩', '加糖', '無糖', 'チューブ', '粉末', '顆粒',
-  'カット', 'ダイスカット', 'ホール', '刺身用', '生食用', 'すりおろし', 'おろし', '水溶き', '塩漬け', '味付け',
+// 状態・加工の言葉は2種類に分ける。
+// 属性(ATTRIBUTE_STATES): 食材は同じ。食材マスタへは自動で結び付け、状態はレシピの材料の注記に残す(冷凍えび → エビ・冷凍)
+// 別の食材(IDENTITY_STATES): 代用の可否・必要量・味が変わる(干ししいたけ / しいたけ、無塩バター / バター)。
+//   元の食材にはまとめず、その名前の食材(なければ家庭の食材マスタに登録)として扱う
+export const ATTRIBUTE_STATES = [
+  '冷凍', '解凍', '皮なし', 'ダイスカット', 'カット', 'ホール', 'ゆで', '茹で', '蒸し', '加熱済み', '加熱済',
+  'すりおろし', 'おろし', '水溶き', '刺身用', '生食用',
 ]
-// 名前の先頭で外して照合するもの(状態・品質)。「有塩バター」のように名前そのものが辞書にあれば、外さずにそのまま確定する
-const STATE_PREFIXES = ['冷凍', '乾燥', '干し', '加熱済み', 'ゆで', '茹で', '蒸し', '解凍', '水煮', '皮なし', '無塩', '有塩', '減塩', '甘塩', 'すりおろし', 'おろし', '水溶き']
+export const IDENTITY_STATES = ['干し', '乾燥', 'ドライ', '無塩', '有塩', '減塩', '甘塩', '塩漬け', '味付け', '加糖', '無糖', 'チューブ', '缶詰', '水煮', '粉末', '顆粒']
+const STATE_WORDS = [...ATTRIBUTE_STATES, ...IDENTITY_STATES]
+// 名前の先頭で外して照合するもの。「有塩バター」のように名前そのものが辞書にあれば、外さずにそのまま確定する
+const STATE_PREFIXES = [
+  '冷凍', '解凍', '乾燥', '干し', 'ドライ', '加熱済み', 'ゆで', '茹で', '蒸し', '水煮', '皮なし', '無塩', '有塩', '減塩', '甘塩',
+  'すりおろし', 'おろし', '水溶き', 'ダイスカット', 'カット', 'ホール',
+]
+// 名前の末尾で外して照合するもの(「にんにくチューブ」)
+const STATE_SUFFIXES = ['チューブ', '水煮', '粉末', '顆粒']
+// 別の食材として登録するときに、状態の言葉を名前の後ろに付けるもの(「しょうが(チューブ)」→ しょうがチューブ)。それ以外は前に付ける
+const SUFFIX_STYLE = new Set(['チューブ', '缶詰', '水煮', '粉末', '顆粒'])
 const SIZE_WORDS = ['大きめ', '小さめ', '大', '中', '小', 's', 'm', 'l', 'lサイズ', 'mサイズ', 'sサイズ']
 
 // notes: 材料の行のかっこの中・分量の後ろの言葉(「じゃがいも 1個 冷凍」の「冷凍」)
@@ -89,6 +100,14 @@ export function analyzeName(raw, notes = []) {
       }
     }
   }
+  // 末尾の状態の言葉(「にんにくチューブ」)
+  for (const w of STATE_SUFFIXES) {
+    const k = nameKey(w)
+    if (base.endsWith(k) && base.length - k.length >= 2) {
+      base = base.slice(0, -k.length)
+      state.push(w)
+    }
+  }
   // 前後の下ごしらえの言葉(「にんじん細切り」「鶏もも肉一口大」)
   for (const w of PREP_WORDS) {
     const k = nameKey(w)
@@ -110,7 +129,23 @@ export function analyzeName(raw, notes = []) {
   }
   // 先頭の大きさ(「中じゃがいも」「大玉ねぎ」)は、外した残りが登録済みの食材と一致するときだけ使う(照合側で確かめる)
   const sizePrefix = /^(大|中|小)/.test(base) && base.length >= 3 ? base.slice(1) : null
-  return { original, display: displayName(original), key, base, sizePrefix, size, neutral, state: [...new Set(state)], annotState: [...new Set(annotState)] }
+  // 「すりおろし」と「おろし」のように重なる言葉は、長いほうだけ残す
+  const found = [...new Set([...state, ...annotState])]
+  const allStates = found.filter((w) => !found.some((o) => o !== w && o.includes(w)))
+  return {
+    original,
+    display: displayName(original),
+    key,
+    base,
+    sizePrefix,
+    size,
+    neutral,
+    state: [...new Set(state)],
+    annotState: [...new Set(annotState)],
+    attributes: allStates.filter((w) => ATTRIBUTE_STATES.includes(w)),
+    identity: allStates.filter((w) => IDENTITY_STATES.includes(w)),
+    prep: neutral.filter((w) => PREP_WORDS.includes(w)),
+  }
 }
 
 // ---- 3. 共通の別名辞書(コード側)----
@@ -301,27 +336,41 @@ export function findCandidates(rawName, index, limit = 4, notes = []) {
     .map((x) => x.option)
 }
 
-// 食材名を照合する。status: 'auto'(A: 自動で確定)/ 'choose'(B: 候補から選ぶ)/ 'new'(C: 新しい食材)
+// 別の食材として登録するときの名前(「バター(無塩)」→ 無塩バター、「しょうが(チューブ)」→ しょうがチューブ)
+function identityName(a) {
+  const body = a.display.split(/\s+/)[0]
+  const missing = a.identity.filter((w) => !nameKey(body).includes(nameKey(w)))
+  const prefix = missing.filter((w) => !SUFFIX_STYLE.has(w)).join('')
+  const suffix = missing.filter((w) => SUFFIX_STYLE.has(w)).join('')
+  return `${prefix}${body}${suffix}`
+}
+
+// 食材名を照合する。
+// status: 'auto'(食材マスタ・冷蔵庫の食材に自動で確定)/ 'new'(家庭の食材マスタに新しく登録する)/ 'choose'(候補から選ぶ。保存は妨げない)
+// note: 材料の注記に残す状態・下ごしらえ(冷凍・皮なし・一口大 など)。newName: 'new' のときに登録する名前
 export function matchIngredientName(rawName, index, { notes = [] } = {}) {
   const a = analyzeName(rawName, notes)
-  if (!a.key) return { status: 'new', option: null, candidates: [], analysis: a }
-  const annotated = a.annotState.length > 0
-  // A-1: そのままの名前(家庭の別名・冷蔵庫・食材マスタ・共通の別名)。かっこ・注記に状態の言葉があれば B
+  const note = [...a.attributes, ...a.prep].join('・') || null
+  if (!a.key) return { status: 'new', option: null, candidates: [], analysis: a, note, newName: a.display }
+  const hasIdentity = a.identity.length > 0
+  // 別の食材(干ししいたけ・無塩バター・にんにくチューブ): その名前で確定(なければ家庭の食材として登録)。元の食材にはまとめない
+  if (hasIdentity) {
+    const name = identityName(a)
+    const hit = exactLookup(index, nameKey(name)) ?? (a.annotState.length === 0 ? exactLookup(index, a.key) : null)
+    if (hit) return { status: 'auto', option: hit.option, via: hit.via, candidates: [], analysis: a, note }
+    return { status: 'new', option: null, candidates: [], analysis: a, note, newName: name }
+  }
+  // そのままの名前(家庭の別名・冷蔵庫・食材マスタ・共通の別名)。属性の状態は注記に残す
   const exact = exactLookup(index, a.key)
-  if (exact && !annotated) return { status: 'auto', option: exact.option, via: exact.via, candidates: [], analysis: a }
-  // A-2: 大きさ・表記上の修飾・下ごしらえの言葉だけを外して一意に一致(状態の修飾があれば B)
+  if (exact) return { status: 'auto', option: exact.option, via: exact.via, candidates: [], analysis: a, note }
+  // 大きさ・表記上の修飾・下ごしらえ・属性の状態を外して一意に一致
   const base = (a.base !== a.key ? exactLookup(index, a.base) : null) ?? (a.sizePrefix ? exactLookup(index, a.sizePrefix) : null)
-  if (base && a.state.length === 0 && !annotated) return { status: 'auto', option: base.option, via: 'base', candidates: [], analysis: a }
-  // B: 候補を出して選んでもらう
+  if (base) return { status: 'auto', option: base.option, via: 'base', candidates: [], analysis: a, note }
+  // 部分一致・候補が複数: 決めずに候補を出す(レシピは保存でき、あとで選べる)
   const candidates = findCandidates(rawName, index, 4, notes)
-  for (const hit of [base, exact]) {
-    if (hit && !candidates.some((c) => optionId(c) === optionId(hit.option))) candidates.unshift(hit.option)
-  }
-  if (candidates.length > 0) {
-    return { status: 'choose', option: null, candidates: candidates.slice(0, 4), reason: a.state.length || annotated ? 'state' : 'similar', analysis: a }
-  }
-  // C: 似た食材がない
-  return { status: 'new', option: null, candidates: [], analysis: a }
+  if (candidates.length > 0) return { status: 'choose', option: null, candidates, reason: 'similar', analysis: a, note }
+  // 似た食材がない: 家庭の食材として登録する
+  return { status: 'new', option: null, candidates: [], analysis: a, note, newName: a.display.split(/\s+/)[0] }
 }
 
 // 食材の検索(cmdk)で、別名や表記の違いからも見つかるようにするキーワード

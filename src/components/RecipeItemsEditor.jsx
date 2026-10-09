@@ -80,6 +80,8 @@ export function RecipeItemsEditor({ groupId, ingredients, items, setItems, empty
                   min="0"
                   step="any"
                   className="w-20 h-8"
+                  // 数で分からない分量は空のまま保存できる(元の表記を表示)
+                  placeholder={item.amountText || ''}
                   value={item.requiredQuantity}
                   onChange={(e) => updateItem(item.key, { requiredQuantity: e.target.value, needsCheck: false })}
                   aria-label={`${item.name}の分量`}
@@ -100,15 +102,20 @@ export function RecipeItemsEditor({ groupId, ingredients, items, setItems, empty
                   <X className="size-3.5" />
                 </Button>
               </div>
-              {(item.rawText || item.needsCheck) && (
+              {(item.rawText || item.needsCheck || item.note) && (
                 <p className="pl-6 text-xs text-muted-foreground">
                   {item.rawText}
-                  {item.needsCheck && item.include && <span className="ml-1 text-destructive">分量を確かめてください</span>}
+                  {item.note && <span className="ml-1">・状態: {item.note}</span>}
+                  {item.needsCheck && item.include && !(Number(item.requiredQuantity) > 0) && (
+                    <span className="ml-1 text-violet-700 dark:text-violet-400">
+                      ・分量は「{item.amountText || '不明'}」のまま保存します(作るときに在庫から引く量を入れられます)
+                    </span>
+                  )}
                 </p>
               )}
               {item.needsChoice && item.include && (
                 <div className="ml-6 flex flex-col gap-1.5 rounded-xl border border-amber-300 bg-amber-50 p-2 dark:border-amber-800 dark:bg-amber-950/40">
-                  <p className="text-xs font-medium">「{item.sourceName}」はどの食材ですか?</p>
+                  <p className="text-xs font-medium">「{item.sourceName}」はどの食材ですか?(選ばなくても、確認待ちのまま保存できます)</p>
                   <div className="flex flex-wrap gap-1.5">
                     {item.candidates.map((option) => (
                       <Button
@@ -142,9 +149,14 @@ export function RecipeItemsEditor({ groupId, ingredients, items, setItems, empty
         </ul>
       )}
 
-      {items.some((i) => i.include && i.needsChoice) && (
-        <p role="status" className="text-xs font-medium text-amber-700 dark:text-amber-400">
-          どの食材か選んでいない材料が {items.filter((i) => i.include && i.needsChoice).length} 件あります。選ぶと保存できます
+      {items.some((i) => i.rawText) && (
+        <p role="status" className="rounded-xl bg-muted/60 px-3 py-2 text-xs">
+          自動で決まった材料 {items.filter((i) => i.include && !i.needsChoice).length} 件
+          {items.some((i) => i.include && i.needsChoice) && (
+            <span className="font-medium text-amber-700 dark:text-amber-400">
+              ・確認待ち {items.filter((i) => i.include && i.needsChoice).length} 件(このまま保存して、あとでレシピの画面で選べます)
+            </span>
+          )}
         </p>
       )}
       {items.some((i) => i.rawText) && (

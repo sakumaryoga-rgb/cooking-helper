@@ -104,18 +104,21 @@ describe('食材との突き合わせ', () => {
     expect(resolve('サラダチキン（プレーン） 50g')).toMatchObject({ kind: 'new', name: 'サラダチキン', unit: 'g', requiredQuantity: 50 })
   })
 
-  it('水・お湯・ゆで汁と、適量・少々は最初は保存しない', () => {
+  it('水・お湯・ゆで汁は保存しない。適量・少々は元の表記のまま保存する(数は空)', () => {
     expect(resolve('水 450ml').include).toBe(false)
     expect(resolve('鶏のゆで汁 大さじ2').include).toBe(false)
-    expect(resolve('塩 少々')).toMatchObject({ include: false, requiredQuantity: '' })
+    expect(resolve('塩 少々')).toMatchObject({ include: true, requiredQuantity: '', amountText: '少々', needsCheck: false })
     expect(isNotStocked('お湯')).toBe(true)
     expect(isNotStocked('水菜')).toBe(false)
   })
 
   it('同じ食材の行は必要量を足してまとめる', () => {
-    const rows = mergeResolved([resolve('長ねぎ[青い部分] 1本分'), resolve('長ねぎ[白い部分] 1/4本分'), resolve('塩 少々')])
-    expect(rows).toHaveLength(1)
+    const rows = mergeResolved([resolve('長ねぎ[青い部分] 1本分'), resolve('長ねぎ[白い部分] 1/4本分'), resolve('塩 少々'), resolve('水 100ml')])
+    expect(rows).toHaveLength(2)
     expect(rows[0]).toMatchObject({ name: '長ねぎ', requiredQuantity: 1.25 })
+    // 1つでも数が分からなければ、合計も分からない(元の表記をつなぐ)
+    const mixed = mergeResolved([resolve('長ねぎ 1本'), resolve('長ねぎ 少々')])
+    expect(mixed).toEqual([expect.objectContaining({ name: '長ねぎ', requiredQuantity: '', amountText: '1本 + 少々' })])
     expect(normalizeName('長ねぎ[白い部分]')).toBe('長ねぎ')
   })
 })

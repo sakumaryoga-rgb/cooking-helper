@@ -8,11 +8,23 @@ import { useIngredients } from '@/hooks/useIngredients'
 import { useRecipes } from '@/hooks/useRecipes'
 import { __resetForTests, getState } from '@/lib/swUpdate'
 
-vi.mock('@/supabaseClient', () => ({ supabase: { rpc: vi.fn() } }))
+const updateEq = vi.fn().mockResolvedValue({ error: null })
+const update = vi.fn(() => ({ eq: updateEq }))
+const aliasInsert = vi.fn().mockResolvedValue({ error: null })
+vi.mock('@/supabaseClient', () => ({
+  supabase: {
+    rpc: vi.fn(),
+    from: vi.fn((table) => (table === 'ingredient_aliases' ? { insert: aliasInsert } : { update, delete: () => ({ eq: vi.fn().mockResolvedValue({ error: null }) }) })),
+  },
+}))
 vi.mock('@/hooks/useIngredients', () => ({ useIngredients: vi.fn() }))
 vi.mock('@/hooks/useRecipes', () => ({ useRecipes: vi.fn() }))
+vi.mock('@/hooks/useIngredientAliases', () => ({ useIngredientAliases: () => ({ aliases: [] }) }))
+const remember = vi.fn().mockResolvedValue(true)
+let conversionMap = new Map()
+vi.mock('@/hooks/useUnitConversions', () => ({ useUnitConversions: () => ({ conversions: conversionMap, remember }) }))
 vi.mock('@/hooks/useIngredientCatalog', () => ({
-  useIngredientCatalog: () => ({ catalog: [{ id: 'c-thigh', name: '鶏もも肉', unit: 'g' }, { id: 'c-breast', name: '鶏むね肉', unit: 'g' }] }),
+  useIngredientCatalog: () => ({ catalog: [{ id: 'c-thigh', name: '鶏もも肉', unit: 'g' }, { id: 'c-breast', name: '鶏むね肉', unit: 'g' }, { id: 'c-momen', name: '木綿豆腐', unit: '丁' }, { id: 'c-kinu', name: '絹豆腐', unit: '丁' }] }),
 }))
 const disableRule = vi.fn()
 vi.mock('@/hooks/useSubstitutions', () => ({
@@ -206,5 +218,72 @@ describe('RecipeDetail', () => {
     expect(steps.map((li) => li.textContent)).toEqual(['1切る', '2煮る'])
     expect(screen.getByText('隠し味はりんご')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /編集/ })).toHaveAttribute('href', '/recipes/r1/edit')
+  })
+
+  describe('分量が数で分からない材料・確認待ちの材料', () => {
+    function setupWith(lines, stock) {
+      useIngredients.mockReturnValue({ ingredients: stock, refresh: refreshIngredients })
+      useRecipes.mockReturnValue({ recipes: [{ id: 'r2', title: '豚丼', url: null, recipe_ingredients: lines }], loading: false, refresh: vi.fn() })
+      return render(
+        <MemoryRouter initialEntries={['/recipes/r2']}>
+          <Routes>
+            <Route path="/recipes/:id" element={<RecipeDetail groupId="g1" />} />
+          </Routes>
+        </MemoryRouter>
+      )
+    }
+    const pork = { id: 'pork', name: '豚こま切れ肉', unit: 'g', quantity: 300, catalog_id: null }
+
+    it('元の分量の表記のまま表示し、「作れる」と断定しない', () => {
+      setupWith([{ id: 'l1', ingredient_id: 'pork', required_quantity: null, amount_text: '1パック', note: '冷凍', ingredient: pork }], [pork])
+      expect(screen.getByText('分量を確認')).toBeInTheDocument()
+      expect(screen.getByText(/1パック/)).toBeInTheDocument()
+      expect(screen.getByText('状態: 冷凍')).toBeInTheDocument()
+    })
+
+    it('調理のときは、量を入れた分だけ在庫から引き、選べばその換算を覚える', async () => {
+      setupWith([{ id: 'l1', ingredient_id: 'pork', required_quantity: null, amount_text: '1パック', ingredient: pork }], [pork])
+      supabase.rpc.mockResolvedValue({ data: 'log1', error: null })
+      await userEvent.click(screen.getByRole('button', { name: /これを作る/ }))
+      expect(screen.getByRole('note')).toHaveTextContent('次の材料は在庫から引きません(分量が決まっていない: 豚こま切れ肉。使った量を入れると引きます)')
+      const qty = screen.getByLabelText('豚こま切れ肉の使用量')
+      expect(qty).toHaveValue(null)
+      expect(screen.getByLabelText('豚こま切れ肉を使う')).not.toBeChecked()
+      await userEvent.type(qty, '200')
+      expect(screen.getByLabelText('豚こま切れ肉を使う')).toBeChecked()
+      await userEvent.click(screen.getByRole('checkbox', { name: /次から「1パック」を 200g として覚える/ }))
+      await userEvent.click(screen.getByRole('button', { name: '確定' }))
+      expect(supabase.rpc).toHaveBeenCalledWith('cook_recipe_v2', expect.objectContaining({ p_items: [{ ingredient_id: 'pork', quantity: 200, substitute_for: null }] }))
+      await waitFor(() => expect(remember).toHaveBeenCalledWith('pork', 'パック', 200))
+    })
+
+    it('量を入れなければ在庫から引かない', async () => {
+      setupWith([{ id: 'l1', ingredient_id: 'pork', required_quantity: null, amount_text: '1パック', ingredient: pork }], [pork])
+      supabase.rpc.mockResolvedValue({ data: 'log1', error: null })
+      await userEvent.click(screen.getByRole('button', { name: /これを作る/ }))
+      await userEvent.click(screen.getByRole('button', { name: '確定' }))
+      expect(supabase.rpc).toHaveBeenCalledWith('cook_recipe_v2', expect.objectContaining({ p_items: [] }))
+    })
+
+    it('確認待ちの材料は、候補を1タップで選ぶと材料を更新し、表記を覚える', async () => {
+      const momen = { id: 'momen', name: '木綿豆腐', unit: '丁', quantity: 1, catalog_id: 'c-momen' }
+      setupWith([{ id: 'l2', ingredient_id: null, source_name: '豆腐', required_quantity: null, amount_text: '1/2丁' }], [momen])
+      expect(screen.getByText('材料を確認')).toBeInTheDocument()
+      expect(screen.getByText('確認待ち')).toBeInTheDocument()
+      await userEvent.click(screen.getByRole('button', { name: '木綿豆腐' }))
+      await waitFor(() => expect(update).toHaveBeenCalledWith({ ingredient_id: 'momen', source_name: null, required_quantity: 0.5 }))
+      expect(updateEq).toHaveBeenCalledWith('id', 'l2')
+      expect(aliasInsert).toHaveBeenCalledWith({ group_id: 'g1', catalog_id: 'c-momen', alias: '豆腐' })
+    })
+  
+    it('覚えた換算で計算した材料は、確定画面でそのことを示し、量を直せる', async () => {
+      conversionMap = new Map([['pork:パック', 200]])
+      setupWith([{ id: 'l1', ingredient_id: 'pork', required_quantity: null, amount_text: '1パック', ingredient: pork }], [pork])
+      expect(screen.getByText('作れます')).toBeInTheDocument()
+      await userEvent.click(screen.getByRole('button', { name: /これを作る/ }))
+      expect(screen.getByText(/覚えた「1パック = 200g」で計算しました。商品で量が違うときは直してください/)).toBeInTheDocument()
+      expect(screen.getByLabelText('豚こま切れ肉の使用量')).toHaveValue(200)
+      conversionMap = new Map()
+    })
   })
 })
