@@ -20,13 +20,15 @@ import { parseAmount } from '@/lib/recipeImport/ingredientLine'
 const EPSILON = 1e-6
 const VAGUE_TEXT = /適量|少々|適宜|お好み|好みで|ひとつまみ|少量|たっぷり/
 
-// 数で分からない分量を、家庭で覚えた換算(1パック = 200g など)で数に直す。直せなければ null
-export function convertAmount(amountText, ingredientId, conversions) {
-  if (!amountText || !conversions?.size) return null
+// 数で分からない分量を、家庭で覚えた換算(1パック = 200g など)で数に直す。直せなければ null。
+// 換算は「冷蔵庫の食材の行 × 単位」ごと(家ごとに別の行)で、食材・単位が完全に一致するときだけ使う。幅(1〜2パック)には使わない。
+// scale: 人数を変えたときの倍率(元の分量の表記は人数を変えても変わらないため)
+export function convertAmount(amountText, ingredientId, conversions, scale = 1) {
+  if (!amountText || !ingredientId || !conversions?.size) return null
   const a = parseAmount(amountText)
   if (a.quantity == null || !a.unit || a.range) return null
   const per = conversions.get(`${ingredientId}:${a.unit}`)
-  return per ? round(a.quantity * per) : null
+  return per ? { quantity: round(a.quantity * per * scale), per, unit: a.unit } : null
 }
 
 function round(n) {
@@ -43,9 +45,9 @@ export function getRecipeStatus(recipe, ingredientsById, { substitutions = [], c
   // 1. そのものの在庫を割り当てる
   const lines = items.map((req) => {
     const current = ingredientsById.get(req.ingredient_id)
-    const converted = req.required_quantity == null ? convertAmount(req.amount_text, req.ingredient_id, conversions) : null
+    const converted = req.required_quantity == null ? convertAmount(req.amount_text, req.ingredient_id, conversions, req.scale ?? 1) : null
     const known = req.required_quantity != null || converted != null
-    const required = known ? Number(req.required_quantity ?? converted) || 0 : 0
+    const required = known ? Number(req.required_quantity ?? converted.quantity) || 0 : 0
     const line = {
       ingredientId: req.ingredient_id,
       name: current?.name ?? req.ingredient?.name ?? req.source_name ?? '(不明な食材)',
@@ -62,7 +64,8 @@ export function getRecipeStatus(recipe, ingredientsById, { substitutions = [], c
       amountText: req.amount_text ?? null,
       amountUnknown: !known && !VAGUE_TEXT.test(req.amount_text ?? ''),
       vague: !known && VAGUE_TEXT.test(req.amount_text ?? ''),
-      converted: converted != null,
+      // 家庭で覚えた換算で数にした(包装量は商品ごとに違うことがあるので、調理のときに明示する)
+      converted: converted ? { per: converted.per, unit: converted.unit } : null,
       note: req.note ?? null,
     }
     if (line.pending) return line
@@ -225,7 +228,17 @@ export function buildCookPlan(status) {
     }
     const originalQuantity = line.substitutes.length > 0 ? line.fromOriginal : line.requiredQuantity
     if (originalQuantity > 0 || line.substitutes.length === 0) {
-      rows.push({ key: `o:${line.ingredientId}`, ingredientId: line.ingredientId, name: line.name, unit: line.unit, quantity: round(originalQuantity), include: true, substituteFor: null })
+      rows.push({
+        key: `o:${line.ingredientId}`,
+        ingredientId: line.ingredientId,
+        name: line.name,
+        unit: line.unit,
+        quantity: round(originalQuantity),
+        include: true,
+        substituteFor: null,
+        converted: line.converted,
+        amountText: line.amountText,
+      })
     }
     for (const s of line.substitutes) {
       rows.push({ key: `s:${line.ingredientId}:${s.ingredientId}`, ingredientId: s.ingredientId, name: s.name, unit: s.unit, quantity: s.quantity, include: true, substituteFor: line.name, note: s.note })
@@ -241,8 +254,16 @@ export function scaleRecipe(recipe, factor) {
     ...recipe,
     recipe_ingredients: (recipe.recipe_ingredients ?? []).map((ri) => ({
       ...ri,
-      // 数が分からない分量は、人数を変えても数にしない
+      // 数が分からない分量は、人数を変えても数にしない(覚えた換算で数にするときに倍率を使う)
       required_quantity: ri.required_quantity == null ? null : round(Number(ri.required_quantity) * factor),
+      scale: ri.required_quantity == null ? factor : undefined,
     })),
   }
+}
+
+// 調理のときに在庫から引かない材料(量を入れない限り)。確定画面で明示する
+export function describeNotSubtracted(status, plan) {
+  const pending = status.lines.filter((l) => l.pending).map((l) => l.name)
+  const unknown = plan.filter((row) => row.unknown && !(row.include && Number(row.quantity) > 0)).map((row) => row.name)
+  return { pending, unknown }
 }

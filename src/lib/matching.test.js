@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildCookPlan, describeShortfalls, getRecipeStatus, sortRecipesByMakeability } from './matching'
+import { buildCookPlan, convertAmount, describeNotSubtracted, describeShortfalls, getRecipeStatus, scaleRecipe, sortRecipesByMakeability } from './matching'
 
 const stock = (items) => new Map(items.map((i) => [i.id, i]))
 const line = (ingredient_id, required_quantity, name = ingredient_id, unit = '個') => ({
@@ -174,6 +174,43 @@ describe('代替食材', () => {
       const status = getRecipeStatus({ recipe_ingredients: [ri('pork', null, '1パック'), { ingredient_id: null, source_name: '豆腐', amount_text: '1/2丁' }] }, fridge)
       const plan = buildCookPlan(status)
       expect(plan).toEqual([expect.objectContaining({ ingredientId: 'pork', quantity: '', include: false, unknown: true, amountText: '1パック' })])
+    })
+  })
+
+  describe('家庭で覚えた換算の範囲', () => {
+    const conversions = new Map([['pork:パック', 200]])
+    it('同じ食材・同じ単位のときだけ使う(別の食材・別の単位・幅には使わない)', () => {
+      expect(convertAmount('1パック', 'pork', conversions)).toEqual({ quantity: 200, per: 200, unit: 'パック' })
+      expect(convertAmount('1パック', 'beef', conversions)).toBeNull()
+      expect(convertAmount('1袋', 'pork', conversions)).toBeNull()
+      expect(convertAmount('1〜2パック', 'pork', conversions)).toBeNull()
+      expect(convertAmount('少々', 'pork', conversions)).toBeNull()
+    })
+
+    it('換算は冷蔵庫の食材の行ごとなので、ほかの家の同じ名前の食材には使わない', () => {
+      // 家ごとに冷蔵庫の行(ID)が別。ほかの家の豚こま切れ肉(pork-other)には、この家の換算は当たらない
+      expect(convertAmount('1パック', 'pork-other', conversions)).toBeNull()
+    })
+
+    it('人数を変えると、換算した量も人数に合わせる', () => {
+      const recipe = { servings: 2, recipe_ingredients: [{ ingredient_id: 'pork', required_quantity: null, amount_text: '1パック' }] }
+      const fridge = new Map([['pork', { id: 'pork', name: '豚こま切れ肉', unit: 'g', quantity: 300 }]])
+      expect(getRecipeStatus(scaleRecipe(recipe, 1), fridge, { conversions }).lines[0].requiredQuantity).toBe(200)
+      expect(getRecipeStatus(scaleRecipe(recipe, 2), fridge, { conversions })).toMatchObject({ level: 'almost', lines: [{ requiredQuantity: 400 }] })
+    })
+
+    it('調理の確定画面に、覚えた換算で計算したことを渡す(包装量が違えば直せる)', () => {
+      const fridge = new Map([['pork', { id: 'pork', name: '豚こま切れ肉', unit: 'g', quantity: 300 }]])
+      const status = getRecipeStatus({ recipe_ingredients: [{ ingredient_id: 'pork', required_quantity: null, amount_text: '1パック' }] }, fridge, { conversions })
+      expect(buildCookPlan(status)).toEqual([expect.objectContaining({ quantity: 200, include: true, converted: { per: 200, unit: 'パック' }, amountText: '1パック' })])
+    })
+
+    it('在庫から引かない材料を、調理の確定画面に出すために集める', () => {
+      const fridge = new Map([['pork', { id: 'pork', name: '豚こま切れ肉', unit: 'g', quantity: 300 }]])
+      const status = getRecipeStatus({ recipe_ingredients: [{ ingredient_id: 'pork', required_quantity: null, amount_text: '1パック' }, { ingredient_id: null, source_name: '豆腐' }] }, fridge)
+      const plan = buildCookPlan(status)
+      expect(describeNotSubtracted(status, plan)).toEqual({ pending: ['豆腐'], unknown: ['豚こま切れ肉'] })
+      expect(describeNotSubtracted(status, plan.map((r) => ({ ...r, include: true, quantity: 200 })))).toEqual({ pending: ['豆腐'], unknown: [] })
     })
   })
 })

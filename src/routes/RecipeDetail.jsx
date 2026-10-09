@@ -12,7 +12,7 @@ import { buildNameIndex, matchIngredientName } from '@/lib/ingredientName'
 import { parseAmount } from '@/lib/recipeImport/ingredientLine'
 import { quantityInUnit } from '@/lib/recipeImport/match'
 import { ensureIngredient, learnAliases } from '@/lib/recipeImport/save'
-import { buildCookPlan, describeShortfalls, getRecipeStatus, scaleRecipe } from '@/lib/matching'
+import { buildCookPlan, describeNotSubtracted, describeShortfalls, getRecipeStatus, scaleRecipe } from '@/lib/matching'
 import { formatQuantity } from '@/lib/format'
 import { supabase } from '@/supabaseClient'
 import { setBusy } from '@/lib/swUpdate'
@@ -278,7 +278,8 @@ export function RecipeDetail({ groupId }) {
                     </>
                   ) : (
                     <>
-                      必要 {formatQuantity(ri.required_quantity)}
+                      {line?.converted && <span className="text-violet-700 dark:text-violet-400">{ri.amount_text}≈</span>}
+                      必要 {formatQuantity(line?.converted ? line.requiredQuantity : ri.required_quantity)}
                       {unit} / 在庫 {formatQuantity(current?.quantity ?? 0)}
                       {unit}
                       {shortfall && (
@@ -416,6 +417,17 @@ export function RecipeDetail({ groupId }) {
             <SheetDescription>使った量と代替を確かめて確定します。使わない材料はチェックを外します</SheetDescription>
           </SheetHeader>
           <div className="flex flex-col gap-3 px-4">
+            {(() => {
+              const skipped = describeNotSubtracted(status, plan)
+              if (skipped.pending.length + skipped.unknown.length === 0) return null
+              return (
+                <p role="note" className="rounded-xl bg-violet-50 px-3 py-2 text-xs text-violet-900 dark:bg-violet-950/40 dark:text-violet-200">
+                  次の材料は在庫から引きません
+                  {skipped.unknown.length > 0 && `(分量が決まっていない: ${skipped.unknown.join('、')}。使った量を入れると引きます)`}
+                  {skipped.pending.length > 0 && `(どの食材か決まっていない: ${skipped.pending.join('、')}。レシピの画面で選ぶと引けるようになります)`}
+                </p>
+              )
+            })()}
             {plan.map((row) => (
               <div key={row.key} className="flex flex-col gap-0.5">
                 <div className="flex items-center gap-2">
@@ -439,6 +451,12 @@ export function RecipeDetail({ groupId }) {
                   <span className="text-xs text-muted-foreground w-8">{row.unit}</span>
                 </div>
                 {row.substituteFor && <p className="pl-6 text-xs text-amber-700 dark:text-amber-400">{row.substituteFor}の代わり</p>}
+                {row.converted && (
+                  <p className="pl-6 text-xs text-violet-700 dark:text-violet-400">
+                    レシピの「{row.amountText}」を、覚えた「1{row.converted.unit} = {row.converted.per}
+                    {row.unit}」で計算しました。商品で量が違うときは直してください
+                  </p>
+                )}
                 {row.unknown && (
                   <div className="flex flex-col gap-1 pl-6 text-xs text-muted-foreground">
                     <p>
