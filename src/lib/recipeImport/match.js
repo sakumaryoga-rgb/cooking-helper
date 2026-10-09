@@ -1,11 +1,13 @@
 import { buildNameIndex, displayName, matchIngredientName, nameKey as normalizeName } from '@/lib/ingredientName'
+import { isHeadingLine, parseIngredientLine, splitIngredientLine } from './ingredientLine'
 // 取り込んだ材料を、冷蔵庫の食材(同じグループ)→ 食材マスタ の順に名前で突き合わせ、
 // 保存先の食材と、その食材の単位での必要量を決める。決めきれないものは needsCheck にして画面で確かめてもらう。
 
 const KNOWN_UNITS = ['g', 'ml', '個', '本', '枚', 'パック', '束', '玉', '尾', '切れ', '袋', '缶', '丁', '片', 'かけ', '株', '房', '節', '腹']
 
 // 在庫で管理しないもの(最初は保存しない。画面でチェックすれば保存できる)
-const NOT_STOCKED = ['水', 'お湯', '湯', '熱湯', '氷', '氷水', 'ゆで汁', '茹で汁', 'のゆで汁', 'の茹で汁', '戻し汁']
+// (揚げ油・打ち粉のように量を決めにくく、在庫から引かないものも含む。レシピの材料としては残す)
+const NOT_STOCKED = ['水', 'お湯', '湯', '熱湯', '氷', '氷水', 'ゆで汁', '茹で汁', 'のゆで汁', 'の茹で汁', '戻し汁', 'の水', '揚げ油', '打ち粉']
 
 export function isNotStocked(name) {
   const n = String(name ?? '').normalize('NFKC').replace(/[(（[【][^)）\]】]*[)）\]】]/g, '').trim()
@@ -38,7 +40,9 @@ function round(n) {
 // 決めた保存先で、必要量と確認の要否を計算する。単位が食い違うときは換算せず(根拠のない換算をしない)、
 // 分量を空にして入力してもらう。g・ml は、材料の行に書かれた g・ml・大さじ などの表記からだけ求める
 function withQuantity(target, parsed) {
-  const q = quantityInUnit(parsed, target.unit)
+  // 幅(150〜200g)や、複数の食材に共通かどうか分からない分量は、決めずに入れてもらう
+  const uncertain = Boolean(parsed.range) || Boolean(parsed.sharedUnknown)
+  const q = uncertain ? null : quantityInUnit(parsed, target.unit)
   return {
     ...target,
     requiredQuantity: q != null ? round(q) : '',
@@ -52,7 +56,7 @@ function newOption(parsed) {
 
 // 取り込んだ材料1行を照合する(A: 自動で確定 / B: 候補から選ぶ / C: 新しい食材)
 export function resolveIngredient(parsed, ingredients, catalog, aliases = [], index = buildNameIndex({ ingredients, catalog, aliases })) {
-  const match = matchIngredientName(parsed.name, index)
+  const match = matchIngredientName(parsed.name, index, { notes: parsed.notes ?? [] })
   const target = match.status === 'auto' ? match.option : newOption(parsed)
   return {
     ...withQuantity(target, parsed),
@@ -98,4 +102,20 @@ export function mergeResolved(rows) {
     else merged.set(key, { ...row, requiredQuantity: qty > 0 ? qty : 0 })
   }
   return [...merged.values()].filter((r) => r.requiredQuantity > 0)
+}
+
+// 取り込んだ材料の行の一覧を、見出しの除外 → 複数の食材の分割 → 照合 の順に処理する(取り込み画面と検証で共通)
+export function importIngredientLines(lines, { ingredients = [], catalog = [], aliases = [], index } = {}) {
+  const idx = index ?? buildNameIndex({ ingredients, catalog, aliases })
+  const out = []
+  for (const raw of lines) {
+    if (isHeadingLine(raw)) {
+      out.push({ raw, heading: true })
+      continue
+    }
+    for (const parsed of splitIngredientLine(parseIngredientLine(raw))) {
+      out.push({ raw, item: { rawText: raw, ...resolveIngredient(parsed, ingredients, catalog, aliases, idx) } })
+    }
+  }
+  return out
 }

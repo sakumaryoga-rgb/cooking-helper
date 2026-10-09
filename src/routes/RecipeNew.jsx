@@ -12,8 +12,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { fetchRecipeFromUrl } from '@/lib/recipeImport/client'
 import { parseRecipeUrl, SUPPORTED_SITES } from '@/lib/recipeImport/sites'
-import { isHeadingLine, parseIngredientLine } from '@/lib/recipeImport/ingredientLine'
-import { resolveIngredient } from '@/lib/recipeImport/match'
+import { importIngredientLines } from '@/lib/recipeImport/match'
 import { findDuplicate, saveRecipe } from '@/lib/recipeImport/save'
 
 const MODES = [
@@ -67,12 +66,10 @@ export function RecipeNew({ groupId, userId }) {
     if (!title.trim()) setTitle(recipe.title)
     setSource({ sourceKey: recipe.sourceKey, site: recipe.site, servings: recipe.servings, yieldText: recipe.yieldText })
     if (recipe.servings && !extras.servings) setExtras((prev) => ({ ...prev, servings: String(recipe.servings) }))
-    const imported = recipe.ingredients
-      .filter((line) => !isHeadingLine(line))
-      .map((line) => {
-        const parsed = parseIngredientLine(line)
-        return { key: keyOf(), rawText: line, ...resolveIngredient(parsed, ingredients, catalog, aliases) }
-      })
+    // 見出しの除外 → 複数の食材の分割 → 照合(lib/recipeImport/match の共通の処理)
+    const imported = importIngredientLines(recipe.ingredients, { ingredients, catalog, aliases })
+      .filter((row) => row.item)
+      .map((row) => ({ key: keyOf(), ...row.item }))
     setItems((prev) => [...prev.filter((i) => !i.rawText), ...imported])
     setImportMessage(`${recipe.site} から ${imported.length} 件の材料を読み込みました。分量と保存する材料を確かめてください`)
   }

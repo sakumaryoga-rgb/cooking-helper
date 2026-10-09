@@ -7,53 +7,97 @@
 
 // ---- 1. 表記の統一(全角・半角、空白、かっこ、ひらがな・カタカナ)----
 const BRACKETS = /[(（[【<＜〈《「『]([^)）\]】>＞〉》」』]*)[)）\]】>＞〉》」』]/g
+// 内側のかっこ(中にかっこを含まない)。入れ子(「トマト（(皮むき)）」)は内側から外す
+const INNER_BRACKET = /[(（[【<＜〈《「『]([^(（[【<＜〈《「『)）\]】>＞〉》」』]*)[)）\]】>＞〉》」』]/
+
+// かっこを外した文字列と、かっこの中身の一覧
+export function splitBrackets(text) {
+  let rest = String(text ?? '')
+  const inner = []
+  for (let m = rest.match(INNER_BRACKET); m; m = rest.match(INNER_BRACKET)) {
+    if (m[1].trim()) inner.push(m[1].trim())
+    rest = rest.replace(m[0], ' ')
+  }
+  // 閉じていないかっこの残り
+  rest = rest.replace(/[(（[【<＜〈《「『)）\]】>＞〉》」』]/g, ' ')
+  return { rest: rest.replace(/\s+/g, ' ').trim(), inner }
+}
 
 export function nameKey(name) {
-  return String(name ?? '')
-    .normalize('NFKC')
-    .replace(BRACKETS, '')
-    .replace(/[\s・･,、。.]/g, '')
+  return splitBrackets(String(name ?? '').normalize('NFKC'))
+    .rest.replace(/[\s・･,、。.:：]/g, '')
     .replace(/[ァ-ヶ]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0x60))
     .toLowerCase()
 }
 
 // 画面に出す名前(かっこ書きを外す)
 export function displayName(name) {
-  const stripped = String(name ?? '').replace(BRACKETS, '').trim()
+  const stripped = splitBrackets(name).rest.replace(/[:：]+$/, '').trim()
   return stripped || String(name ?? '').trim()
 }
 
 // ---- 2. 修飾語と大きさ ----
 // 表記上の修飾(外しても同じ食材として在庫を数えてよい)
-const NEUTRAL_PREFIXES = ['国産', '新', '有機', '無農薬', 'お好みの', '好みの', '市販の', '皮付き', '皮つき', '大きめの', '小さめの']
-// 状態を表す修飾(保存方法や用途が変わる。照合には使うが、決めるのはユーザー)
-const STATE_WORDS = ['冷凍', '乾燥', '干し', '加熱済み', '加熱済', 'ゆで', '茹で', '蒸し', '解凍', '缶詰', '水煮']
+const NEUTRAL_PREFIXES = ['国産', '新', '有機', '無農薬', 'お好みの', '好みの', '市販の', '大きめの', '小さめの', '溶き', 'ブロック', '皮付き', '皮つき']
+// 下ごしらえ(切り方・用途)の言葉。食材は変わらないので、名前の前後から外して照合する
+const PREP_WORDS = [
+  'みじん切り', '粗みじん切り', '千切り', 'せん切り', '細切り', '薄切り', '厚切り', '乱切り', '角切り', '輪切り', '半月切り', 'いちょう切り',
+  'くし切り', 'ざく切り', '小口切り', 'そぎ切り', '斜め切り', '一口大', 'ひと口大', '刻み', 'ブロック', 'しゃぶしゃぶ用', 'すき焼き用',
+  '焼肉用', 'カレー用', 'シチュー用', '炒め物用', '煮物用', '皮むき', '皮をむいたもの', '加熱用', '生',
+]
+// 状態・品質を表す修飾(保存方法・用途・味が変わる。照合には使うが、決めるのはユーザー)
+const STATE_WORDS = [
+  '冷凍', '乾燥', '干し', '加熱済み', '加熱済', 'ゆで', '茹で', '蒸し', '解凍', '缶詰', '水煮',
+  '皮なし', '無塩', '有塩', '減塩', '甘塩', '加糖', '無糖', 'チューブ', '粉末', '顆粒',
+  'カット', 'ダイスカット', 'ホール', '刺身用', '生食用', 'すりおろし', 'おろし', '水溶き', '塩漬け', '味付け',
+]
+// 名前の先頭で外して照合するもの(状態・品質)。「有塩バター」のように名前そのものが辞書にあれば、外さずにそのまま確定する
+const STATE_PREFIXES = ['冷凍', '乾燥', '干し', '加熱済み', 'ゆで', '茹で', '蒸し', '解凍', '水煮', '皮なし', '無塩', '有塩', '減塩', '甘塩', 'すりおろし', 'おろし', '水溶き']
 const SIZE_WORDS = ['大きめ', '小さめ', '大', '中', '小', 's', 'm', 'l', 'lサイズ', 'mサイズ', 'sサイズ']
 
-export function analyzeName(raw) {
+// notes: 材料の行のかっこの中・分量の後ろの言葉(「じゃがいも 1個 冷凍」の「冷凍」)
+export function analyzeName(raw, notes = []) {
   const original = String(raw ?? '').trim()
   const nfkc = original.normalize('NFKC')
-  const state = []
+  const state = [] // 名前の先頭で外した状態の言葉
+  const annotState = [] // かっこ・注記にある状態の言葉(名前が一致しても自動では決めない)
   let size = null
-  // かっこの中の大きさ・状態(「じゃがいも(中)」「えび(冷凍)」)
-  for (const m of nfkc.matchAll(BRACKETS)) {
-    const inner = nameKey(m[1])
-    if (SIZE_WORDS.includes(inner)) size = inner
-    for (const w of STATE_WORDS) if (inner.includes(nameKey(w))) state.push(w)
+  // かっこの中・注記の大きさ・状態(「じゃがいも(中)」「えび(冷凍)」「トマト缶 (ホール)」)。名前の中の空白で区切った言葉も注記とみる
+  const { rest, inner: bracketInner } = splitBrackets(nfkc)
+  const words = rest.split(/\s+/).filter(Boolean)
+  const inner = [...bracketInner, ...words.slice(1), ...notes]
+  for (const text of inner) {
+    const k = nameKey(text)
+    if (SIZE_WORDS.includes(k)) size = k
+    for (const w of STATE_WORDS) if (k.includes(nameKey(w))) annotState.push(w)
   }
   const key = nameKey(original)
-  let base = key
+  // 本体の名前: 空白で区切られていれば最初の言葉(「鶏むね肉 皮付き」→ 鶏むね肉)
+  let base = words.length > 1 ? nameKey(words[0]) : key
   const neutral = []
   // 先頭の修飾語(繰り返し外す)。外した残りが2文字以上ある場合だけ
   for (let changed = true; changed; ) {
     changed = false
-    for (const w of [...NEUTRAL_PREFIXES, ...STATE_WORDS]) {
+    for (const w of [...NEUTRAL_PREFIXES, ...STATE_PREFIXES]) {
       const k = nameKey(w)
-      if (base.startsWith(k) && base.length - k.length >= 2) {
+      // 表記上の修飾は、残りが1文字(「溶き卵」の「卵」)でも外す(照合は登録済みの食材と完全に一致したときだけ)
+      const min = STATE_PREFIXES.includes(w) ? 2 : 1
+      if (base.startsWith(k) && base.length - k.length >= min) {
         base = base.slice(k.length)
-        ;(STATE_WORDS.includes(w) ? state : neutral).push(w)
+        ;(STATE_PREFIXES.includes(w) ? state : neutral).push(w)
         changed = true
       }
+    }
+  }
+  // 前後の下ごしらえの言葉(「にんじん細切り」「鶏もも肉一口大」)
+  for (const w of PREP_WORDS) {
+    const k = nameKey(w)
+    if (base.endsWith(k) && base.length - k.length >= 2) {
+      base = base.slice(0, -k.length)
+      neutral.push(w)
+    } else if (base.startsWith(k) && base.length - k.length >= 2) {
+      base = base.slice(k.length)
+      neutral.push(w)
     }
   }
   // 末尾の大きさ(「じゃがいも中」)
@@ -64,16 +108,18 @@ export function analyzeName(raw) {
       break
     }
   }
-  return { original, display: displayName(original), key, base, size, neutral, state: [...new Set(state)] }
+  // 先頭の大きさ(「中じゃがいも」「大玉ねぎ」)は、外した残りが登録済みの食材と一致するときだけ使う(照合側で確かめる)
+  const sizePrefix = /^(大|中|小)/.test(base) && base.length >= 3 ? base.slice(1) : null
+  return { original, display: displayName(original), key, base, sizePrefix, size, neutral, state: [...new Set(state)], annotState: [...new Set(annotState)] }
 }
 
 // ---- 3. 共通の別名辞書(コード側)----
 // DB の共通の別名辞書(ingredient_aliases、migration 013)を補う、語の単位の対応表。正式名は食材マスタの品目名。
 // 文字単位の置き換えはしない(「芋」を一律に「いも」にする、のような処理は別の食材を混ぜる恐れがある)
 export const COMMON_VARIANTS = {
-  じゃがいも: ['じゃが芋', '馬鈴薯', 'ジャガイモ'],
+  じゃがいも: ['ばれいしょ', 'じゃが芋', '馬鈴薯', 'ジャガイモ'],
   玉ねぎ: ['玉葱', 'たまねぎ', 'タマネギ', 'オニオン'],
-  にんじん: ['人参', 'ニンジン', 'キャロット'],
+  にんじん: ['人じん', '人参', 'ニンジン', 'キャロット'],
   長ねぎ: ['長葱', '長ネギ', '白ねぎ', '白ネギ', '根深ねぎ'],
   '万能ねぎ(小ねぎ)': ['小ねぎ', '小葱', '青ねぎ', '細ねぎ', '万能ねぎ', '万能葱'],
   さつまいも: ['さつま芋', '薩摩芋', 'サツマイモ'],
@@ -85,7 +131,7 @@ export const COMMON_VARIANTS = {
   白菜: ['はくさい'],
   ほうれん草: ['ほうれんそう', '法蓮草'],
   小松菜: ['こまつな'],
-  ナス: ['なす', '茄子'],
+  ナス: ['なすび', 'なす', '茄子'],
   きゅうり: ['胡瓜'],
   かぼちゃ: ['南瓜'],
   ごぼう: ['牛蒡'],
@@ -93,17 +139,17 @@ export const COMMON_VARIANTS = {
   たけのこ: ['筍', '竹の子'],
   しいたけ: ['椎茸', '生しいたけ'],
   まいたけ: ['舞茸'],
-  えのき: ['えのき茸', 'えのきだけ'],
+  えのき: ['榎茸', 'えのき茸', 'えのきだけ'],
   しめじ: ['ぶなしめじ'],
   ニラ: ['韮'],
-  '大葉(しそ)': ['大葉', '青じそ', 'しそ', '紫蘇'],
+  '大葉(しそ)': ['青紫蘇', 'あおじそ', '大葉', '青じそ', 'しそ', '紫蘇'],
   鶏もも肉: ['鶏もも', '鶏腿肉', 'とりもも肉'],
   鶏むね肉: ['鶏むね', '鶏胸肉', 'とりむね肉'],
   鶏ひき肉: ['鶏挽き肉', '鶏挽肉', '鶏ミンチ'],
   豚ひき肉: ['豚挽き肉', '豚挽肉', '豚ミンチ'],
   牛ひき肉: ['牛挽き肉', '牛挽肉', '牛ミンチ'],
   合いびき肉: ['合挽き肉', '合い挽き肉', '合挽肉', '合びき肉', 'あいびき肉'],
-  豚こま切れ肉: ['豚こま肉', '豚小間切れ肉', '豚こま', '豚細切れ肉'],
+  豚こま切れ肉: ['豚小間肉', '豚こま肉', '豚小間切れ肉', '豚こま', '豚細切れ肉'],
   牛こま切れ肉: ['牛こま肉', '牛小間切れ肉', '牛こま'],
   豚バラ肉: ['豚ばら肉', '豚バラ', '豚バラ薄切り肉'],
   '鮭(切り身)': ['鮭', 'さけ', '生鮭'],
@@ -124,16 +170,16 @@ export const COMMON_VARIANTS = {
   油揚げ: ['油あげ', '薄揚げ'],
   醤油: ['しょうゆ', 'しょう油', '濃口醤油', '濃口しょうゆ'],
   味噌: ['みそ', '合わせ味噌'],
-  砂糖: ['上白糖'],
-  料理酒: ['酒', '日本酒'],
+  砂糖: ['さとう', 'お砂糖', '上白糖'],
+  料理酒: ['料理用酒', '酒', '日本酒'],
   こしょう: ['胡椒'],
   塩: ['食塩'],
   酢: ['米酢', 'お酢'],
   みりん: ['本みりん', '味醂'],
-  白ごま: ['いりごま', '白いりごま', '炒りごま'],
+  白ごま: ['白胡麻', 'しろごま', 'いりごま', '白いりごま', '炒りごま'],
   '削り節(かつお節)': ['かつお節', 'かつおぶし', '鰹節'],
   片栗粉: ['かたくり粉'],
-  小麦粉: ['薄力粉'],
+  小麦粉: ['こむぎ粉', '薄力粉'],
   スパゲッティ: ['スパゲティ', 'パスタ'],
   中華麺: ['中華めん'],
   ケチャップ: ['トマトケチャップ'],
@@ -141,6 +187,10 @@ export const COMMON_VARIANTS = {
   鶏がらスープの素: ['鶏ガラスープの素'],
   ウインナー: ['ウィンナー', 'ウインナーソーセージ'],
   ピザ用チーズ: ['とろけるチーズ'],
+  ごま油: ['胡麻油', 'ゴマ油'],
+  オリーブオイル: ['オリーブ油'],
+  レモン: ['檸檬'],
+  りんご: ['林檎'],
 }
 
 // ---- 4. 照合 ----
@@ -215,8 +265,8 @@ function exactLookup(index, key) {
 const optionId = (o) => (o.kind === 'existing' ? `i:${o.ingredient.id}` : o.kind === 'catalog' ? `c:${o.catalogItem.id}` : 'new')
 
 // 候補(部分一致・類似)。近い順に最大 limit 件。候補の表示だけに使い、自動では決めない
-export function findCandidates(rawName, index, limit = 4) {
-  const a = analyzeName(rawName)
+export function findCandidates(rawName, index, limit = 4, notes = []) {
+  const a = analyzeName(rawName, notes)
   if (!a.key) return []
   const scored = new Map()
   const add = (option, score) => {
@@ -252,20 +302,23 @@ export function findCandidates(rawName, index, limit = 4) {
 }
 
 // 食材名を照合する。status: 'auto'(A: 自動で確定)/ 'choose'(B: 候補から選ぶ)/ 'new'(C: 新しい食材)
-export function matchIngredientName(rawName, index) {
-  const a = analyzeName(rawName)
+export function matchIngredientName(rawName, index, { notes = [] } = {}) {
+  const a = analyzeName(rawName, notes)
   if (!a.key) return { status: 'new', option: null, candidates: [], analysis: a }
-  // A-1: そのままの名前(家庭の別名・冷蔵庫・食材マスタ・共通の別名)
+  const annotated = a.annotState.length > 0
+  // A-1: そのままの名前(家庭の別名・冷蔵庫・食材マスタ・共通の別名)。かっこ・注記に状態の言葉があれば B
   const exact = exactLookup(index, a.key)
-  if (exact && a.state.length === 0) return { status: 'auto', option: exact.option, via: exact.via, candidates: [], analysis: a }
-  // A-2: 大きさ・表記上の修飾だけを外して一意に一致(状態の修飾があれば B)
-  const base = a.base !== a.key ? exactLookup(index, a.base) : null
-  if (base && a.state.length === 0) return { status: 'auto', option: base.option, via: 'base', candidates: [], analysis: a }
+  if (exact && !annotated) return { status: 'auto', option: exact.option, via: exact.via, candidates: [], analysis: a }
+  // A-2: 大きさ・表記上の修飾・下ごしらえの言葉だけを外して一意に一致(状態の修飾があれば B)
+  const base = (a.base !== a.key ? exactLookup(index, a.base) : null) ?? (a.sizePrefix ? exactLookup(index, a.sizePrefix) : null)
+  if (base && a.state.length === 0 && !annotated) return { status: 'auto', option: base.option, via: 'base', candidates: [], analysis: a }
   // B: 候補を出して選んでもらう
-  const candidates = findCandidates(rawName, index)
-  if (exact && !candidates.some((c) => optionId(c) === optionId(exact.option))) candidates.unshift(exact.option)
+  const candidates = findCandidates(rawName, index, 4, notes)
+  for (const hit of [base, exact]) {
+    if (hit && !candidates.some((c) => optionId(c) === optionId(hit.option))) candidates.unshift(hit.option)
+  }
   if (candidates.length > 0) {
-    return { status: 'choose', option: null, candidates, reason: a.state.length ? 'state' : 'similar', analysis: a }
+    return { status: 'choose', option: null, candidates: candidates.slice(0, 4), reason: a.state.length || annotated ? 'state' : 'similar', analysis: a }
   }
   // C: 似た食材がない
   return { status: 'new', option: null, candidates: [], analysis: a }

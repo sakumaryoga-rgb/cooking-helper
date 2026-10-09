@@ -31,7 +31,8 @@ describe('正規化の段階', () => {
     expect(analyzeName('じゃがいも中')).toMatchObject({ base: 'じゃがいも', size: '中' })
     expect(analyzeName('新じゃがいも')).toMatchObject({ base: 'じゃがいも', neutral: ['新'], state: [] })
     expect(analyzeName('冷凍えび')).toMatchObject({ base: 'えび', state: ['冷凍'] })
-    expect(analyzeName('えび(冷凍)')).toMatchObject({ state: ['冷凍'] })
+    expect(analyzeName('えび(冷凍)')).toMatchObject({ base: 'えび', annotState: ['冷凍'] })
+    expect(analyzeName('じゃがいも', ['冷凍'])).toMatchObject({ annotState: ['冷凍'] })
     expect(analyzeName('干ししいたけ')).toMatchObject({ base: 'しいたけ', state: ['干し'] })
     // 名前の一部を修飾語と取り違えない
     expect(analyzeName('生姜').base).toBe('生姜')
