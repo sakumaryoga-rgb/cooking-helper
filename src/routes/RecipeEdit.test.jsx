@@ -19,6 +19,17 @@ vi.mock('@/hooks/useRecipes', () => ({
     loading: false,
     recipes: [
       {
+        id: 'o1',
+        title: 'オムレツ',
+        url: null,
+        servings: 1,
+        instructions: '卵を溶く',
+        steps: [{ text: '卵を溶く', uses: [{ ingredient_id: 'egg', quantity: 2 }] }],
+        memo: null,
+        icon: null,
+        recipe_ingredients: [{ id: 'l9', ingredient_id: 'egg', required_quantity: 2, ingredient: { id: 'egg', name: '卵', unit: '個' } }],
+      },
+      {
         id: 'r1',
         title: 'だし巻き卵',
         url: 'https://example.com/r',
@@ -50,7 +61,9 @@ describe('レシピのカスタマイズ', () => {
     renderEdit()
     expect(screen.getByLabelText('料理名')).toHaveValue('だし巻き卵')
     expect(screen.getByLabelText('卵の分量')).toHaveValue(3)
-    expect(screen.getByLabelText('手順1')).toHaveValue('溶く')
+    // URL から取り込んだレシピは作り方を編集しない(元のページで見る)。保存済みの作り方は消さない
+    expect(screen.queryByLabelText('手順1')).not.toBeInTheDocument()
+    expect(screen.getByText(/作り方は元のレシピのページで見られます/)).toBeInTheDocument()
     await userEvent.clear(screen.getByLabelText('料理名'))
     await userEvent.type(screen.getByLabelText('料理名'), '甘いだし巻き卵')
     await userEvent.clear(screen.getByLabelText('卵の分量'))
@@ -62,6 +75,7 @@ describe('レシピのカスタマイズ', () => {
         recipeId: 'r1',
         title: '甘いだし巻き卵',
         extras: { icon: null, servings: 2, instructions: '溶く', memo: '砂糖多め' },
+        steps: undefined,
         items: [expect.objectContaining({ kind: 'existing', requiredQuantity: '4', include: true })],
       })
     )
@@ -95,5 +109,24 @@ describe('レシピのカスタマイズ', () => {
     await userEvent.click(screen.getByRole('button', { name: 'このレシピを削除' }))
     await userEvent.click(screen.getByRole('button', { name: '削除する' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('削除できませんでした')
+  })
+
+  it('オリジナルレシピは手順ごとの材料を編集でき、詳細から開いたときは保存で1つ前(詳細)に戻る', async () => {
+    vi.mocked(updateRecipe).mockResolvedValue({ recipeId: 'r1' })
+    render(
+      <MemoryRouter initialEntries={['/recipes/r1', { pathname: '/recipes/o1/edit', state: { from: 'detail' } }]} initialIndex={1}>
+        <Routes>
+          <Route path="/recipes/:id/edit" element={<RecipeEdit groupId="g1" />} />
+          <Route path="/recipes/:id" element={<p>前の画面</p>} />
+        </Routes>
+      </MemoryRouter>
+    )
+    expect(screen.getByLabelText('手順1')).toHaveValue('卵を溶く')
+    expect(screen.getByLabelText('手順1の卵の量')).toHaveValue(2)
+    await userEvent.click(screen.getByRole('button', { name: '保存する' }))
+    expect(updateRecipe).toHaveBeenLastCalledWith(
+      expect.objectContaining({ recipeId: 'o1', steps: [expect.objectContaining({ text: '卵を溶く', uses: [expect.objectContaining({ quantity: 2 })] })] })
+    )
+    expect(await screen.findByText('前の画面')).toBeInTheDocument()
   })
 })

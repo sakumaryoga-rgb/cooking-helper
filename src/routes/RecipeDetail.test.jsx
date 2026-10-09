@@ -286,4 +286,55 @@ describe('RecipeDetail', () => {
       conversionMap = new Map()
     })
   })
+
+  describe('戻る導線・元のレシピ・手順ごとの材料', () => {
+    function renderAt(entry, recipes, stock = []) {
+      useIngredients.mockReturnValue({ ingredients: stock, refresh: refreshIngredients })
+      useRecipes.mockReturnValue({ recipes, loading: false, refresh: vi.fn() })
+      return render(
+        <MemoryRouter initialEntries={[entry]}>
+          <Routes>
+            <Route path="/recipes/:id" element={<RecipeDetail groupId="g1" />} />
+            <Route path="/recipes" element={<p>レシピ一覧の画面</p>} />
+          </Routes>
+        </MemoryRouter>
+      )
+    }
+
+    it('レシピ一覧へ戻るリンクがあり、追加の直後は「保存しました」と一覧への導線を出す', async () => {
+      renderAt({ pathname: '/recipes/r1', state: { saved: 'created' } }, [recipe])
+      expect(screen.getByRole('link', { name: /レシピ一覧/ })).toHaveAttribute('href', '/recipes')
+      expect(screen.getByRole('status')).toHaveTextContent('レシピ帳に保存しました')
+      await userEvent.click(screen.getByRole('button', { name: 'レシピ一覧へ' }))
+      expect(await screen.findByText('レシピ一覧の画面')).toBeInTheDocument()
+    })
+
+    it('URL から取り込んだレシピは、元のレシピで作り方を見る導線を目立たせる', () => {
+      renderAt('/recipes/r1', [{ ...recipe, source_site: 'クラシル' }])
+      const link = screen.getByRole('link', { name: /元のレシピで作り方を見る/ })
+      expect(link).toHaveAttribute('href', 'https://example.com/oyakodon')
+      expect(link).toHaveAttribute('target', '_blank')
+    })
+
+    it('オリジナルレシピは、手順ごとに使う材料と量を出す', () => {
+      const egg = { id: 'egg', name: '卵', unit: '個', quantity: 4 }
+      renderAt('/recipes/o1', [
+        {
+          id: 'o1',
+          title: 'オムレツ',
+          url: null,
+          steps: [{ text: '卵を溶く', uses: [{ ingredient_id: 'egg', quantity: 2 }] }, { text: '焼く', uses: [] }],
+          recipe_ingredients: [{ id: 'l1', ingredient_id: 'egg', required_quantity: 3, ingredient: egg }],
+        },
+      ], [egg])
+      expect(within(screen.getByRole('list', { name: '手順1で使う材料' })).getByText('卵 2個')).toBeInTheDocument()
+      expect(screen.getByText(/手順の量の合計が材料の分量と違う材料があります\(卵 手順2\/材料3個\)/)).toBeInTheDocument()
+      expect(screen.queryByRole('link', { name: /元のレシピで作り方を見る/ })).not.toBeInTheDocument()
+    })
+
+    it('見つからないレシピからも一覧に戻れる', () => {
+      renderAt('/recipes/zz', [recipe])
+      expect(screen.getByRole('link', { name: 'レシピ一覧へ' })).toHaveAttribute('href', '/recipes')
+    })
+  })
 })

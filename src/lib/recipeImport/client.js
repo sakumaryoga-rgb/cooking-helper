@@ -1,9 +1,10 @@
 import { supabase } from '@/supabaseClient'
+import { SUPPORTED_SITES } from '@/lib/recipeImport/sites'
 
 const MESSAGES = {
-  unsupported_url: 'このURLからは材料を読み込めません。クラシル、DELISH KITCHEN、Nadia のレシピページのURLを貼ってください',
-  no_recipe_data: 'このページから材料を読み取れませんでした。材料は下で手動で追加してください',
-  fetch_failed: 'レシピのページを開けませんでした。時間をおいて試すか、材料を手動で追加してください',
+  unsupported_url: `このURLからは材料を読み込めません。${SUPPORTED_SITES.map((s) => s.name).join('、')} のレシピページのURLを貼ってください`,
+  no_recipe_data: 'このページからレシピの材料を読み取れませんでした(レシピ以外の記事のページかもしれません)',
+  fetch_failed: 'レシピのページを開けませんでした。時間をおいてもう一度お試しください',
   unauthorized: 'ログインし直してから、もう一度お試しください',
   not_configured: 'この環境ではURLからの読み込みを使えません。材料を手動で追加してください',
 }

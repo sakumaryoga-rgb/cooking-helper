@@ -46,7 +46,7 @@ describe('レシピURLの取り込み', () => {
 
     await userEvent.clear(screen.getByLabelText('きゅうりの分量'))
     await userEvent.type(screen.getByLabelText('きゅうりの分量'), '2')
-    await userEvent.click(screen.getByRole('button', { name: 'レシピを保存' }))
+    await userEvent.click(screen.getByRole('button', { name: 'レシピ帳に保存' }))
     const args = vi.mocked(saveRecipe).mock.calls[0][0]
     expect(args).toMatchObject({ title: 'バンバンジー', url: URL_, sourceKey: 'delishkitchen:194135459369058708', sourceSite: 'DELISH KITCHEN', servings: 2 })
     expect(args.items.find((i) => i.name === 'きゅうり').requiredQuantity).toBe('2')
@@ -66,7 +66,7 @@ describe('レシピURLの取り込み', () => {
     renderPage()
     await userEvent.type(screen.getByLabelText('レシピのURL'), 'https://cookpad.com/recipe/1')
     await userEvent.click(screen.getByRole('button', { name: '読み込む' }))
-    expect(screen.getByText(/材料を手動で追加してください/)).toBeInTheDocument()
+    expect(screen.getByText(/URLを残したまま、料理名と材料を下で入れて保存できます/)).toBeInTheDocument()
     expect(fetchRecipeFromUrl).not.toHaveBeenCalled()
   })
 
@@ -100,13 +100,14 @@ describe('自分で考えたレシピ', () => {
     await userEvent.click(screen.getByRole('button', { name: '手順2を上へ' }))
     await userEvent.click(screen.getByRole('button', { name: '手順1を下へ' }))
     await userEvent.type(screen.getByLabelText('わが家のメモ'), '甘めに')
-    await userEvent.click(screen.getByRole('button', { name: 'レシピを保存' }))
+    await userEvent.click(screen.getByRole('button', { name: 'レシピ帳に保存' }))
     expect(saveRecipe).toHaveBeenCalledWith(
       expect.objectContaining({
         title: 'おばあちゃんの肉じゃが',
         url: null,
         sourceKey: null,
-        extras: { icon: '🍲', servings: 4, instructions: '具を切る\n煮る', memo: '甘めに' },
+        extras: { icon: '🍲', servings: 4, instructions: null, memo: '甘めに' },
+        steps: [expect.objectContaining({ text: '具を切る', uses: [] }), expect.objectContaining({ text: '煮る', uses: [] })],
       })
     )
   })
