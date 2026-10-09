@@ -16,7 +16,8 @@ export function Login() {
   const [verifying, setVerifying] = useState(false)
   const [expired] = useState(() => takeSessionExpired())
 
-  // メールに届いた6桁のコードでログインする(リンクが別のブラウザで開いてしまう場合でも、この画面のままログインできる)
+  // メールに届いたコードでログインする(リンクが別のブラウザで開いてしまう場合でも、この画面のままログインできる)。
+  // コードの桁数は Supabase の設定(Email OTP Length、6〜10桁)による
   async function handleVerify(e) {
     e.preventDefault()
     setVerifying(true)
@@ -66,10 +67,10 @@ export function Login() {
                 {email} 宛にログイン用のメールを送りました。メールのリンクを開くとログインできます。
               </p>
               <form onSubmit={handleVerify} className="flex flex-col gap-2">
-                <Label htmlFor="otp">メールに6桁のコードがある場合は、ここに入力してもログインできます</Label>
+                <Label htmlFor="otp">メールに書かれたコード(数字)を入力しても、この画面のままログインできます</Label>
                 <div className="flex gap-2">
-                  <Input id="otp" inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))} />
-                  <Button type="submit" disabled={verifying || code.length !== 6}>
+                  <Input id="otp" inputMode="numeric" autoComplete="one-time-code" maxLength={10} value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))} />
+                  <Button type="submit" disabled={verifying || code.length < 6}>
                     ログイン
                   </Button>
                 </div>

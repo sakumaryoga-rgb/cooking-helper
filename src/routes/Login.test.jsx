@@ -17,9 +17,22 @@ describe('ログイン', () => {
     render(<Login />)
     await userEvent.type(screen.getByLabelText('メールアドレス'), 'me@example.com')
     await userEvent.click(screen.getByRole('button', { name: 'ログインリンクを送る' }))
-    await userEvent.type(screen.getByLabelText(/6桁のコード/), '123456')
+    await userEvent.type(screen.getByLabelText(/コード/), '123456')
     await userEvent.click(screen.getByRole('button', { name: 'ログイン' }))
     expect(supabase.auth.verifyOtp).toHaveBeenCalledWith({ email: 'me@example.com', token: '123456', type: 'email' })
+  })
+
+  it('コードは6〜10桁を受け付ける(Supabase の桁数の設定に合わせる)', async () => {
+    render(<Login />)
+    await userEvent.type(screen.getByLabelText('メールアドレス'), 'me@example.com')
+    await userEvent.click(screen.getByRole('button', { name: 'ログインリンクを送る' }))
+    const input = screen.getByLabelText(/コード/)
+    await userEvent.type(input, '12345')
+    expect(screen.getByRole('button', { name: 'ログイン' })).toBeDisabled()
+    await userEvent.type(input, '678abc')
+    expect(input).toHaveValue('12345678')
+    await userEvent.click(screen.getByRole('button', { name: 'ログイン' }))
+    expect(supabase.auth.verifyOtp).toHaveBeenCalledWith({ email: 'me@example.com', token: '12345678', type: 'email' })
   })
 
   it('自分でサインアウトしていないのにログインが切れた場合は知らせる', () => {
