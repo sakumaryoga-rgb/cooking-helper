@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import { DB_ENABLED } from '@/lib/runtimeEnv'
+import { withGroupHeader } from '@/lib/activeGroup'
 
 /* global __DB_ENABLED__ */
 // __DB_ENABLED__ を直接参照する(DB_ENABLED 経由だと最小化で分岐が消えない)
@@ -20,7 +21,10 @@ if (BUILD_DB_ENABLED && !isSupabaseConfigured) {
 
 // 接続しない環境では、名前解決されないことが保証された .invalid ドメインを指す。
 // 万一どこかのコードが通信しても、本番DBには一切届かない。
+// ログイン状態は supabase-js の既定(端末の localStorage に保存し、アクセストークンを自動で更新)のまま使う。
+// 選んでいる家は、すべての呼び出しに x-cookdoor-group ヘッダーで付ける(DB 側で所属を確かめる)。
 export const supabase = createClient(
   isSupabaseConfigured ? supabaseUrl : 'https://db-disabled.invalid',
-  isSupabaseConfigured ? supabaseAnonKey : 'db-disabled'
+  isSupabaseConfigured ? supabaseAnonKey : 'db-disabled',
+  { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }, global: { fetch: withGroupHeader() } }
 )

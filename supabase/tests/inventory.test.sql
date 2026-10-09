@@ -22,12 +22,7 @@ begin
   assert g.invite_code is null, '新しいグループには旧方式の招待コードを作らない(migration 011)';
   perform set_config('test.a_token', (select invite_token from create_group_invite()), false);
   assert my_group_id() = g.id, '作成者はそのグループに所属する';
-  begin
-    perform create_group('二つ目');
-    raise exception 'should have failed';
-  exception when others then
-    assert sqlerrm = 'すでにグループに所属しています', sqlerrm;
-  end;
+  -- 2つ目の家を作れること・切り替えは multi_group.test.sql で確かめる(migration 021)
 end $$;
 
 -- ---------------------------------------------------------------
@@ -161,12 +156,8 @@ begin
   get diagnostics n = row_count;
   assert n = 0, 'B は A の食材を更新できない';
 
-  begin
-    perform join_group_with_invite(current_setting('test.a_token'));
-    raise exception 'should have failed';
-  exception when others then
-    assert sqlerrm = 'すでにグループに所属しています', sqlerrm;
-  end;
+  -- 招待トークンが無効なら参加できない(有効なトークンでの参加は section 5 と multi_group.test.sql)
+  assert join_group_with_invite('invalid-token') is null, '無効なトークンでは参加できない';
 end $$;
 
 reset role;

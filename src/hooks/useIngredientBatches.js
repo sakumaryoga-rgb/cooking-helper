@@ -14,10 +14,12 @@ export function useIngredientBatches(groupId) {
 
     const { data, error } = await supabase
       .from('ingredient_batches')
-      .select('id, ingredient_id, quantity, added_on, best_before, use_by, created_at')
+      .select('id, ingredient_id, quantity, added_on, best_before, use_by, created_at, ingredients!inner(group_id)')
+      .eq('ingredients.group_id', groupId)
 
     if (error) console.error('食材ロットの取得に失敗しました', error)
-    setBatches(data ?? [])
+    // 選んでいる家のロットだけ(複数の家に所属している場合、RLS では所属するすべての家のロットが読めるため)
+    setBatches((data ?? []).map(({ ingredients: _, ...b }) => b))
   }, [groupId])
 
   useEffect(() => {
