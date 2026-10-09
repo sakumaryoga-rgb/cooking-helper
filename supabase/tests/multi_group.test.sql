@@ -23,16 +23,19 @@ end $$;
 
 -- P は自分の P家を持ったまま、招待で Q家に参加する
 select set_config('request.jwt.claim.sub', '00000000-0000-4000-8000-00000000ee01', false);
+-- 自分の家を先に作る(実際の利用と同じく、参加とは別の操作 = 別のトランザクション。参加日時が分かれる)
 do $$
-declare
-  p groups;
-  joined groups;
-  again groups;
+declare p groups;
 begin
   p := create_group('P家');
   perform set_config('test.p', p.id::text, false);
   insert into ingredients (group_id, name, unit, quantity) values (p.id, 'Pの牛乳', 'ml', 500);
-
+end $$;
+do $$
+declare
+  joined groups;
+  again groups;
+begin
   joined := join_group_with_invite(current_setting('test.q_token'));
   assert joined.id = current_setting('test.q')::uuid, '既存の家を持っていても招待先に参加できる';
   again := join_group_with_invite(current_setting('test.q_token'));
