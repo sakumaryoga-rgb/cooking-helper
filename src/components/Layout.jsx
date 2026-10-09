@@ -2,6 +2,7 @@ import { NavLink, Outlet } from 'react-router-dom'
 import { Home, ChefHat, Refrigerator, Settings } from 'lucide-react'
 import { AdSlot } from '@/components/AdSlot'
 import { BrandMark } from '@/components/BrandMark'
+import { HouseBadge } from '@/components/HouseSwitcher'
 import { APP_NAME } from '@/lib/brand'
 
 // 下部タブ4つ(設計書 4 章)。親指が届く下側に置き、iPhone の安全領域の分だけ余白を足す
@@ -12,13 +13,14 @@ const NAV_ITEMS = [
   { to: '/settings', label: '設定', icon: Settings },
 ]
 
-export function Layout({ groupName, notice, onDismissNotice }) {
+export function Layout({ groupId, groupName, notice, onDismissNotice }) {
   return (
     <div className="min-h-svh flex flex-col bg-background">
       <header className="pt-safe border-b sticky top-0 bg-background/90 backdrop-blur z-10">
         <div className="max-w-lg mx-auto px-4 h-14 flex items-center">
           <span className="flex min-w-0 items-center gap-2">
             <BrandMark size="sm" showName={false} />
+            {groupId && <HouseBadge id={groupId} className="size-6 rounded-lg" />}
             <span className="font-medium text-sm truncate" aria-label="選択中の家">{groupName ?? APP_NAME}</span>
           </span>
         </div>

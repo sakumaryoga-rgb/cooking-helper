@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Copy, Check, Link2, LogOut } from 'lucide-react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Input } from '@/components/ui/input'
+import { HouseSwitcher } from '@/components/HouseSwitcher'
 import { maskEmail } from '@/lib/maskEmail'
 import { markSignOutRequested } from '@/lib/sessionNotice'
 import { parseInviteToken } from '@/lib/invite'
@@ -57,8 +57,6 @@ function useMembers(groupId) {
 export function Settings({ group, groups = [group], onSelectGroup, onGroupsChanged, email, userId }) {
   const members = useMembers(group.id)
   const navigate = useNavigate()
-  const [newGroupName, setNewGroupName] = useState('')
-  const [inviteInput, setInviteInput] = useState('')
   const [houseMessage, setHouseMessage] = useState('')
   const [houseBusy, setHouseBusy] = useState(false)
 
@@ -67,27 +65,25 @@ export function Settings({ group, groups = [group], onSelectGroup, onGroupsChang
     navigate('/')
   }
 
-  async function handleCreateHouse(e) {
-    e.preventDefault()
+  async function createHouse(name) {
     setHouseBusy(true)
     setHouseMessage('')
-    const { data, error: rpcError } = await supabase.rpc('create_group', { group_name: newGroupName })
+    const { data, error: rpcError } = await supabase.rpc('create_group', { group_name: name })
     setHouseBusy(false)
     if (rpcError || !data?.id) {
-      setHouseMessage(rpcError?.message ?? '家を作れませんでした')
-      return
+      setHouseMessage(rpcError?.message ?? '家を建てられませんでした')
+      return false
     }
-    setNewGroupName('')
     await onGroupsChanged?.(data.id)
     navigate('/')
+    return true
   }
 
-  async function handleJoinHouse(e) {
-    e.preventDefault()
-    const token = parseInviteToken(inviteInput)
+  async function joinHouse(link) {
+    const token = parseInviteToken(link)
     if (!token) {
       setHouseMessage('招待リンクをそのまま貼り付けてください')
-      return
+      return false
     }
     setHouseBusy(true)
     setHouseMessage('')
@@ -95,15 +91,15 @@ export function Settings({ group, groups = [group], onSelectGroup, onGroupsChang
     setHouseBusy(false)
     if (rpcError) {
       setHouseMessage(rpcError.message)
-      return
+      return false
     }
     if (!data?.id) {
-      setHouseMessage('招待リンクが無効か、期限が切れています。グループのメンバーに新しい招待リンクを発行してもらってください')
-      return
+      setHouseMessage('招待リンクが無効か、期限が切れています。家族に新しい招待リンクを発行してもらってください')
+      return false
     }
-    setInviteInput('')
     await onGroupsChanged?.(data.id)
     navigate('/')
+    return true
   }
   const isAdmin = useIsAdmin()
   const [status, setStatus] = useState(null) // { active, expiresAt } | null
@@ -174,40 +170,16 @@ export function Settings({ group, groups = [group], onSelectGroup, onGroupsChang
     <div className="flex flex-col gap-4">
       <h1 className="text-lg font-medium">設定</h1>
       <Card>
-        <CardHeader>
-          <CardTitle className="text-base">家の切り替え</CardTitle>
-          <CardDescription>参加している家を選ぶと、冷蔵庫・レシピ・調理の記録がその家のものに切り替わります</CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-3">
-          <ul className="flex flex-col gap-1" aria-label="参加している家">
-            {groups.map((g) => (
-              <li key={g.id}>
-                <button
-                  type="button"
-                  aria-pressed={g.id === group.id}
-                  className={`flex w-full items-center justify-between rounded-md border px-3 py-2 text-sm ${g.id === group.id ? 'border-primary bg-primary/15 font-medium' : ''}`}
-                  onClick={() => switchTo(g.id)}
-                  disabled={g.id === group.id}
-                >
-                  {g.name}
-                  {g.id === group.id && <span className="text-xs">選択中</span>}
-                </button>
-              </li>
-            ))}
-          </ul>
-          <form onSubmit={handleJoinHouse} className="flex gap-2">
-            <Input aria-label="招待リンク" placeholder="招待リンクを貼り付けて参加" value={inviteInput} onChange={(e) => setInviteInput(e.target.value)} autoComplete="off" />
-            <Button type="submit" variant="outline" disabled={houseBusy || !inviteInput.trim()}>
-              参加
-            </Button>
-          </form>
-          <form onSubmit={handleCreateHouse} className="flex gap-2">
-            <Input aria-label="新しい家の名前" placeholder="新しい家の名前(例: 実家)" value={newGroupName} maxLength={40} onChange={(e) => setNewGroupName(e.target.value)} />
-            <Button type="submit" variant="outline" disabled={houseBusy || !newGroupName.trim()}>
-              作成
-            </Button>
-          </form>
-          {houseMessage && <p className="text-sm text-destructive">{houseMessage}</p>}
+        <CardContent className="pt-1">
+          <HouseSwitcher
+            groups={groups}
+            currentId={group.id}
+            onSelect={switchTo}
+            onCreate={createHouse}
+            onJoin={joinHouse}
+            busy={houseBusy}
+            message={houseMessage}
+          />
         </CardContent>
       </Card>
       <Card>

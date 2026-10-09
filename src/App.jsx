@@ -96,7 +96,7 @@ export default function App() {
           </>
         ) : (
           // key で家ごとに画面を作り直す(切り替えた後に前の家のデータを表示しない)
-          <Route element={<Layout key={group.id} groupName={group.name} notice={invite.notice} onDismissNotice={invite.dismiss} />}>
+          <Route element={<Layout key={group.id} groupId={group.id} groupName={group.name} notice={invite.notice} onDismissNotice={invite.dismiss} />}>
             <Route index element={<Home groupId={group.id} />} />
             <Route path="/fridge" element={<Fridge groupId={group.id} />} />
             <Route path="/recipes" element={<Recipes groupId={group.id} />} />
