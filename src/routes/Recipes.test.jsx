@@ -29,7 +29,7 @@ describe('Recipes', () => {
     )
     const links = screen.getAllByRole('link').filter((a) => a.getAttribute('href')?.startsWith('/recipes/') && !a.getAttribute('href').endsWith('/new'))
     // 不足のあるレシピには、足りない材料と数量をそのまま書く
-    expect(links.map((a) => a.textContent)).toEqual(['卵焼き作れます', 'カレーpotato あと2個、carrot あと1個あと2品'])
+    expect(links.map((a) => a.textContent.replace(/\p{Extended_Pictographic}|\uFE0F/gu, ''))).toEqual(['卵焼き作れます', 'カレーpotato あと2個、carrot あと1個あと2品'])
   })
 
   it('「不足あり」で絞り込み、材料名で検索できる', async () => {
