@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { takeSessionExpired } from '@/lib/sessionNotice'
 import { supabase } from '@/supabaseClient'
 import { DB_ENABLED } from '@/lib/runtimeEnv'
 import { BrandMark } from '@/components/BrandMark'
@@ -11,6 +12,19 @@ export function Login() {
   const [email, setEmail] = useState('')
   const [status, setStatus] = useState('idle') // idle | sending | sent | error
   const [errorMessage, setErrorMessage] = useState('')
+  const [code, setCode] = useState('')
+  const [verifying, setVerifying] = useState(false)
+  const [expired] = useState(() => takeSessionExpired())
+
+  // メールに届いた6桁のコードでログインする(リンクが別のブラウザで開いてしまう場合でも、この画面のままログインできる)
+  async function handleVerify(e) {
+    e.preventDefault()
+    setVerifying(true)
+    setErrorMessage('')
+    const { error } = await supabase.auth.verifyOtp({ email, token: code.trim(), type: 'email' })
+    setVerifying(false)
+    if (error) setErrorMessage('コードが正しくないか、期限が切れています。もう一度ログインリンクを送ってください')
+  }
 
   async function handleSubmit(e) {
     e.preventDefault()
@@ -36,6 +50,10 @@ export function Login() {
             <BrandMark />
           </CardTitle>
           <CardDescription>メールアドレスにログイン用のリンクを送ります</CardDescription>
+          {expired && <p className="text-sm text-destructive">ログインの有効期限が切れました。もう一度ログインしてください</p>}
+          <p className="text-xs text-muted-foreground">
+            Safari、Chrome、ホーム画面に追加したアプリは、それぞれ別にログインが必要です。同じメールアドレスでログインすれば、同じ家とデータが表示されます。
+          </p>
         </CardHeader>
         <CardContent>
           {!DB_ENABLED ? (
@@ -43,9 +61,21 @@ export function Login() {
               プレビュー環境では本番のデータベースに接続しないため、ログインできません。
             </p>
           ) : status === 'sent' ? (
-            <p className="text-sm text-muted-foreground">
-              {email} 宛にログインリンクを送信しました。メールを確認してください。
-            </p>
+            <div className="flex flex-col gap-3 text-sm">
+              <p className="text-muted-foreground">
+                {email} 宛にログイン用のメールを送りました。メールのリンクを開くとログインできます。
+              </p>
+              <form onSubmit={handleVerify} className="flex flex-col gap-2">
+                <Label htmlFor="otp">メールに6桁のコードがある場合は、ここに入力してもログインできます</Label>
+                <div className="flex gap-2">
+                  <Input id="otp" inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))} />
+                  <Button type="submit" disabled={verifying || code.length !== 6}>
+                    ログイン
+                  </Button>
+                </div>
+              </form>
+              {errorMessage && <p className="text-destructive">{errorMessage}</p>}
+            </div>
           ) : (
             <form onSubmit={handleSubmit} className="flex flex-col gap-4">
               <div className="flex flex-col gap-1.5">

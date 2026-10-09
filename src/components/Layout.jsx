@@ -12,19 +12,30 @@ const NAV_ITEMS = [
   { to: '/settings', label: '設定', icon: Settings },
 ]
 
-export function Layout({ groupName }) {
+export function Layout({ groupName, notice, onDismissNotice }) {
   return (
     <div className="min-h-svh flex flex-col bg-background">
       <header className="pt-safe border-b sticky top-0 bg-background/90 backdrop-blur z-10">
         <div className="max-w-lg mx-auto px-4 h-14 flex items-center">
           <span className="flex min-w-0 items-center gap-2">
             <BrandMark size="sm" showName={false} />
-            <span className="font-medium text-sm truncate">{groupName ?? APP_NAME}</span>
+            <span className="font-medium text-sm truncate" aria-label="選択中の家">{groupName ?? APP_NAME}</span>
           </span>
         </div>
       </header>
 
       <main className="flex-1 max-w-lg w-full mx-auto px-4 py-4 pb-[calc(6rem+env(safe-area-inset-bottom,0px))]">
+        {notice && (
+          <div
+            role="status"
+            className={`mb-4 flex items-start justify-between gap-2 rounded-lg px-3 py-2 text-sm ${notice.kind === 'error' ? 'bg-destructive/10 text-destructive' : 'bg-primary/20'}`}
+          >
+            <span>{notice.text}</span>
+            <button type="button" className="shrink-0 text-xs underline" onClick={onDismissNotice}>
+              閉じる
+            </button>
+          </div>
+        )}
         <Outlet />
         <AdSlot />
       </main>

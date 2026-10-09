@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useCallback, useEffect } from 'react'
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { Loader2 } from 'lucide-react'
 import { useSession } from '@/hooks/useSession'
@@ -17,6 +17,7 @@ import { Contact } from '@/routes/Contact'
 import { Admin } from '@/routes/Admin'
 import { ConsentScreen } from '@/components/ConsentScreen'
 import { useConsent } from '@/hooks/useConsent'
+import { usePendingInvite } from '@/hooks/usePendingInvite'
 import { Layout } from '@/components/Layout'
 import { UpdatePrompt } from '@/components/UpdatePrompt'
 import { PreviewBanner } from '@/components/PreviewBanner'
@@ -36,7 +37,7 @@ function FullScreenLoader() {
 
 export default function App() {
   const { session, loading: sessionLoading } = useSession()
-  const { group, loading: groupLoading, refresh: refreshGroup } = useGroup(session)
+  const { groups, group, loading: groupLoading, refresh: refreshGroup, selectGroup } = useGroup(session)
   const location = useLocation()
   const consent = useConsent(session?.user?.id ?? null)
 
@@ -51,6 +52,14 @@ export default function App() {
   useEffect(() => {
     capturePendingInvite(location, (path) => window.history.replaceState(window.history.state, '', path))
   }, [location])
+
+  // ログイン後(家の一覧を読んだ後)に、覚えていた招待で招待先の家に参加して、その家を選ぶ
+  const joinAndSelect = useCallback((groupId) => refreshGroup(groupId), [refreshGroup])
+  const invite = usePendingInvite({
+    ready: Boolean(session) && !groupLoading && !consent.loading && !consent.needsConsent,
+    onJoined: joinAndSelect,
+    checkKey: location.key,
+  })
 
   if (sessionLoading) {
     return (
@@ -82,17 +91,18 @@ export default function App() {
           <Route path="*" element={<FullScreenLoader />} />
         ) : !group ? (
           <>
-            <Route path="/onboarding" element={<Onboarding onGroupChanged={refreshGroup} />} />
+            <Route path="/onboarding" element={<Onboarding onGroupChanged={refreshGroup} notice={invite.notice} />} />
             <Route path="*" element={<Navigate to="/onboarding" replace />} />
           </>
         ) : (
-          <Route element={<Layout groupName={group.name} />}>
+          // key で家ごとに画面を作り直す(切り替えた後に前の家のデータを表示しない)
+          <Route element={<Layout key={group.id} groupName={group.name} notice={invite.notice} onDismissNotice={invite.dismiss} />}>
             <Route index element={<Home groupId={group.id} />} />
             <Route path="/fridge" element={<Fridge groupId={group.id} />} />
             <Route path="/recipes" element={<Recipes groupId={group.id} />} />
             <Route path="/recipes/new" element={<RecipeNew groupId={group.id} userId={session.user.id} />} />
             <Route path="/recipes/:id" element={<RecipeDetail groupId={group.id} />} />
-            <Route path="/settings" element={<Settings group={group} email={session.user.email} userId={session.user.id} />} />
+            <Route path="/settings" element={<Settings group={group} groups={groups} onSelectGroup={selectGroup} onGroupsChanged={refreshGroup} email={session.user.email} userId={session.user.id} />} />
             <Route path="/group" element={<Navigate to="/settings" replace />} />
             <Route path="/contact" element={<Contact />} />
             <Route path="/admin" element={<Admin />} />

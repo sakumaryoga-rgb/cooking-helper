@@ -21,12 +21,38 @@ function mockRpc(handlers) {
 }
 
 describe('設定画面', () => {
+  it('参加している家を切り替え・作成・招待リンクで参加できる', async () => {
+    const onSelectGroup = vi.fn()
+    const onGroupsChanged = vi.fn()
+    mockRpc({
+      get_group_invite_status: () => ({ data: [], error: null }),
+      create_group: () => ({ data: { id: 'g3', name: '実家' }, error: null }),
+      join_group_with_invite: () => ({ data: { id: 'g4', name: '友人宅' }, error: null }),
+    })
+    const groups = [group, { id: 'g2', name: 'シェアハウス' }]
+    render(
+      <MemoryRouter>
+        <Settings group={group} groups={groups} onSelectGroup={onSelectGroup} onGroupsChanged={onGroupsChanged} email="me@example.com" userId="u1" />
+      </MemoryRouter>
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'シェアハウス' }))
+    expect(onSelectGroup).toHaveBeenCalledWith('g2')
+    await userEvent.type(screen.getByLabelText('新しい家の名前'), '実家')
+    await userEvent.click(screen.getByRole('button', { name: '作成' }))
+    expect(onGroupsChanged).toHaveBeenCalledWith('g3')
+    await userEvent.type(screen.getByLabelText('招待リンク'), `https://cookdoor.app/onboarding#invite=${'a'.repeat(43)}`)
+    await userEvent.click(screen.getByRole('button', { name: '参加' }))
+    expect(supabase.rpc).toHaveBeenCalledWith('join_group_with_invite', { p_token: 'a'.repeat(43) })
+    expect(onGroupsChanged).toHaveBeenCalledWith('g4')
+  })
+
   it('メンバー、アカウント、この端末だけのサインアウトがある', async () => {
     mockRpc({ get_group_invite_status: () => ({ data: [], error: null }) })
     render(<MemoryRouter><Settings group={group} email="me@example.com" userId="u1" /></MemoryRouter>)
     expect(await screen.findByText('メンバー(2人)')).toBeInTheDocument()
     expect(screen.getByText('あなた')).toBeInTheDocument()
-    expect(screen.getByText('me@example.com')).toBeInTheDocument()
+    expect(screen.getByText('m***@ex***.com')).toBeInTheDocument()
+    expect(screen.queryByText('me@example.com')).not.toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'この端末でサインアウト' }))
     expect(supabase.auth.signOut).toHaveBeenCalledWith({ scope: 'local' })
   })

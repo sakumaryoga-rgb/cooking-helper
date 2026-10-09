@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { parseInviteToken, takePendingInvite } from '@/lib/invite'
+import { parseInviteToken } from '@/lib/invite'
 import { supabase } from '@/supabaseClient'
 import { BrandMark } from '@/components/BrandMark'
 import { Button } from '@/components/ui/button'
@@ -8,30 +8,28 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
 
-export function Onboarding({ onGroupChanged }) {
+export function Onboarding({ onGroupChanged, notice }) {
   const navigate = useNavigate()
 
-  // 招待リンクから来た場合は、そのトークンで参加する画面を最初に出す
-  const [pending] = useState(() => takePendingInvite())
-  const [mode, setMode] = useState(pending.token ? 'join' : 'create')
+  // 開いた招待リンクは App(usePendingInvite)がログイン後に自動で処理する。失敗したときは理由を出し、
+  // 招待リンクを貼り付けて参加し直せるようにする
+  const [mode, setMode] = useState(notice?.kind === 'error' ? 'join' : 'create')
   const [groupName, setGroupName] = useState('')
-  const [inviteInput, setInviteInput] = useState(pending.token ?? '')
+  const [inviteInput, setInviteInput] = useState('')
   const [saving, setSaving] = useState(false)
-  const [error, setError] = useState(
-    pending.legacy ? 'この招待リンクは古い形式のため使えません。グループのメンバーに新しい招待リンクを発行してもらってください' : ''
-  )
+  const [error, setError] = useState(notice?.kind === 'error' ? notice.text : '')
 
   async function handleCreate(e) {
     e.preventDefault()
     setSaving(true)
     setError('')
-    const { error: rpcError } = await supabase.rpc('create_group', { group_name: groupName })
+    const { data: created, error: rpcError } = await supabase.rpc('create_group', { group_name: groupName })
     setSaving(false)
     if (rpcError) {
       setError(rpcError.message)
       return
     }
-    await onGroupChanged()
+    await onGroupChanged(created?.id)
     navigate('/fridge', { replace: true })
   }
 
@@ -54,7 +52,7 @@ export function Onboarding({ onGroupChanged }) {
       setError('招待リンクが無効か、期限が切れています。グループのメンバーに新しい招待リンクを発行してもらってください')
       return
     }
-    await onGroupChanged()
+    await onGroupChanged(data.id)
     navigate('/fridge', { replace: true })
   }
 
@@ -67,6 +65,10 @@ export function Onboarding({ onGroupChanged }) {
           <CardDescription>COOKDOOR で冷蔵庫とレシピを共有する世帯・グループを設定します</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
+          <p className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
+            家族から招待リンクをもらっている場合は、家を作らずに、その招待リンクをもう一度開くか「招待リンクで参加」に貼り付けてください。
+            ログインのメールを別のアプリやブラウザで開くと、招待が引き継がれないことがあります。
+          </p>
           <div className="flex gap-2">
             <Button
               type="button"

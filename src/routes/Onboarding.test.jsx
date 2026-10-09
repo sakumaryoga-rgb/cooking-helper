@@ -24,13 +24,19 @@ describe('招待リンクでの参加', () => {
     supabase.rpc.mockReset()
   })
 
-  it('開いた招待リンクのトークンで参加する', async () => {
-    localStorage.setItem('pendingInviteToken', TOKEN)
+  it('招待の自動参加に失敗した理由を出し、リンクを貼って参加し直せる(参加した家を選ぶ)', async () => {
     supabase.rpc.mockResolvedValue({ data: { id: 'g1', name: 'A家' }, error: null })
-    const changed = renderOnboarding()
+    const changed = vi.fn()
+    render(
+      <MemoryRouter>
+        <Onboarding onGroupChanged={changed} notice={{ kind: 'error', text: '招待リンクが無効か、期限が切れています。' }} />
+      </MemoryRouter>
+    )
+    expect(screen.getByText('招待リンクが無効か、期限が切れています。')).toBeInTheDocument()
+    await userEvent.type(screen.getByLabelText('招待リンク'), TOKEN)
     await userEvent.click(screen.getByRole('button', { name: 'グループに参加' }))
     expect(supabase.rpc).toHaveBeenCalledWith('join_group_with_invite', { p_token: TOKEN })
-    expect(changed).toHaveBeenCalled()
+    expect(changed).toHaveBeenCalledWith('g1')
   })
 
   it('無効・期限切れのリンクは案内を出す', async () => {
