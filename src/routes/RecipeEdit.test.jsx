@@ -4,8 +4,10 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { RecipeEdit } from './RecipeEdit'
 import { updateRecipe } from '@/lib/recipeImport/save'
+import { supabase } from '@/supabaseClient'
 
-vi.mock('@/supabaseClient', () => ({ supabase: {} }))
+const deleteChain = { eq: vi.fn(() => deleteChain), select: vi.fn() }
+vi.mock('@/supabaseClient', () => ({ supabase: { from: vi.fn(() => ({ delete: () => deleteChain })) } }))
 vi.mock('@/components/IngredientPicker', () => ({ IngredientPicker: () => null }))
 vi.mock('@/lib/recipeImport/save', () => ({ updateRecipe: vi.fn() }))
 const fridge = [{ id: 'egg', name: '卵', unit: '個', quantity: 6 }]
@@ -34,6 +36,7 @@ function renderEdit() {
       <Routes>
         <Route path="/recipes/:id/edit" element={<RecipeEdit groupId="g1" />} />
         <Route path="/recipes/:id" element={<p>詳細画面</p>} />
+        <Route path="/recipes" element={<p>レシピ一覧</p>} />
       </Routes>
     </MemoryRouter>
   )
@@ -45,7 +48,7 @@ describe('レシピのカスタマイズ', () => {
     renderEdit()
     expect(screen.getByLabelText('料理名')).toHaveValue('だし巻き卵')
     expect(screen.getByLabelText('卵の分量')).toHaveValue(3)
-    expect(screen.getByLabelText('作り方')).toHaveValue('溶く')
+    expect(screen.getByLabelText('手順1')).toHaveValue('溶く')
     await userEvent.clear(screen.getByLabelText('料理名'))
     await userEvent.type(screen.getByLabelText('料理名'), '甘いだし巻き卵')
     await userEvent.clear(screen.getByLabelText('卵の分量'))
@@ -68,5 +71,27 @@ describe('レシピのカスタマイズ', () => {
     renderEdit()
     await userEvent.click(screen.getByRole('button', { name: '保存する' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('権限がありません')
+  })
+
+  it('確認してからレシピを削除し、一覧に戻る', async () => {
+    deleteChain.select.mockResolvedValue({ data: [{ id: 'r1' }], error: null })
+    renderEdit()
+    await userEvent.click(screen.getByRole('button', { name: 'このレシピを削除' }))
+    expect(screen.getByText('「だし巻き卵」を削除しますか?')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '削除する' }))
+    expect(supabase.from).toHaveBeenCalledWith('recipes')
+    expect(deleteChain.eq).toHaveBeenCalledWith('id', 'r1')
+    expect(await screen.findByText('レシピ一覧')).toBeInTheDocument()
+  })
+
+  it('やめるを押したら削除しない。削除できなかったら理由を出す', async () => {
+    deleteChain.select.mockResolvedValue({ data: [], error: null })
+    renderEdit()
+    await userEvent.click(screen.getByRole('button', { name: 'このレシピを削除' }))
+    await userEvent.click(screen.getByRole('button', { name: 'やめる' }))
+    expect(deleteChain.select).not.toHaveBeenCalled()
+    await userEvent.click(screen.getByRole('button', { name: 'このレシピを削除' }))
+    await userEvent.click(screen.getByRole('button', { name: '削除する' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('削除できませんでした')
   })
 })

@@ -136,7 +136,7 @@ export function RecipeDetail({ groupId }) {
           className="flex shrink-0 items-center gap-1 rounded-full border bg-card px-3 py-1.5 text-xs font-medium shadow-sm hover:bg-accent/50"
         >
           <Pencil className="size-3.5" />
-          編集
+          編集・削除
         </Link>
       </div>
 

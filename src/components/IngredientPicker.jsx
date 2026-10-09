@@ -4,6 +4,8 @@ import { supabase } from '@/supabaseClient'
 import { useIngredientCatalog } from '@/hooks/useIngredientCatalog'
 import { useIngredientAliases } from '@/hooks/useIngredientAliases'
 import { formatQuantity } from '@/lib/format'
+import { CATEGORIES, CATEGORY_ICONS } from '@/lib/ingredientCategory'
+import { canonicalName } from '@/lib/recipeImport/match'
 import {
   Dialog,
   DialogContent,
@@ -36,24 +38,7 @@ const LONG_PRESS_MOVE_TOLERANCE = 8
 
 const UNIT_PRESETS = ['個', 'g', 'ml', '本', 'パック', '袋', '枚']
 
-// カテゴリごとの目印アイコン(hyponex 野菜大辞典の写真は著作物のため使えないので、
-// 一目で見分けられる絵文字アイコンを代わりに割り当てている)
-const CATEGORY_ICONS = {
-  肉類: '🥩',
-  魚介類: '🐟',
-  果菜類: '🍅',
-  葉茎菜類: '🥬',
-  根菜類: '🥕',
-  キノコ類: '🍄',
-  果物: '🍎',
-  '卵・乳製品': '🥚',
-  大豆製品: '🫘',
-  穀物: '🌾',
-  '麺・パン': '🍞',
-  '調味料・油': '🧂',
-}
-
-const CATEGORIES = Object.keys(CATEGORY_ICONS)
+// カテゴリと目印のアイコンは冷蔵庫・レシピの取り込みと共通(lib/ingredientCategory)
 
 // カテゴリごとに(sort_orderで並んだ状態の)食材をグルーピングする。
 // 出現順=カテゴリの表示順になる。
@@ -74,7 +59,7 @@ function groupByCategory(items) {
 
 // マスタ食材の一覧行。長押しするとカタログからの完全削除を確認する
 // (通常のタップ選択とは別ジェスチャーなので、長押し発火後の後続クリックは握りつぶす)
-function CatalogItemRow({ item, category, isSearching, disabled, onSelect, onRequestDelete, keywords }) {
+function CatalogItemRow({ item, category, isSearching, disabled, onSelect, onRequestDelete, keywords, stock }) {
   const timerRef = useRef(null)
   const longPressFiredRef = useRef(false)
   const startPosRef = useRef({ x: 0, y: 0 })
@@ -134,6 +119,11 @@ function CatalogItemRow({ item, category, isSearching, disabled, onSelect, onReq
     >
       {isSearching && <span className="text-base leading-none">{CATEGORY_ICONS[category] ?? '🍽️'}</span>}
       <span className="flex-1">{item.name}</span>
+      {stock ? (
+        <span className="rounded-full bg-emerald-50 px-1.5 py-px text-[10px] text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
+          冷蔵庫に {stock}
+        </span>
+      ) : null}
       <span className="text-muted-foreground text-xs">{item.unit}</span>
     </CommandItem>
   )
@@ -172,25 +162,24 @@ export function IngredientPicker({ open, onOpenChange, groupId, ingredients, onS
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [deletingCatalog, setDeletingCatalog] = useState(false)
 
-  const availableIngredients = useMemo(
-    () => ingredients.filter((i) => !excludeIds.includes(i.id)),
-    [ingredients, excludeIds]
-  )
+  // 冷蔵庫の行と食材マスタの品目を結び付ける(マスタの ID → 名前)。冷蔵庫にある食材も、カテゴリの中から選ぶ
+  const fridgeByCatalog = useMemo(() => {
+    const map = new Map()
+    for (const c of catalog) {
+      const row = ingredients.find((i) => i.catalog_id === c.id) ?? ingredients.find((i) => i.name === c.name)
+      if (row) map.set(c.id, row)
+    }
+    return map
+  }, [catalog, ingredients])
 
-  // すでにこのグループの冷蔵庫にある食材は、カタログ側の一覧から除外する
-  // (excludeIds ではなく ingredients 全件で判定: レシピ下書き中のタグ付け除外とは別軸のため)
-  const groupCatalogIds = useMemo(
-    () => new Set(ingredients.map((i) => i.catalog_id).filter(Boolean)),
-    [ingredients]
-  )
-  const groupNames = useMemo(() => new Set(ingredients.map((i) => i.name)), [ingredients])
-
-  const availableCatalog = useMemo(
-    () => catalog.filter((c) => !groupCatalogIds.has(c.id) && !groupNames.has(c.name)),
-    [catalog, groupCatalogIds, groupNames]
-  )
-
-  const catalogGroups = useMemo(() => groupByCategory(availableCatalog), [availableCatalog])
+  // 食材マスタに結び付いていない冷蔵庫の行(以前に作られたもの)は「その他」に出す
+  const catalogGroups = useMemo(() => {
+    const linked = new Set([...fridgeByCatalog.values()].map((i) => i.id))
+    const orphans = ingredients
+      .filter((i) => !linked.has(i.id))
+      .map((i) => ({ id: `fridge-${i.id}`, name: i.name, unit: i.unit, category: 'その他', fridgeRow: i }))
+    return groupByCategory([...catalog, ...orphans])
+  }, [catalog, ingredients, fridgeByCatalog])
 
   const trimmedSearch = search.trim()
   const isSearching = trimmedSearch.length > 0
@@ -224,6 +213,13 @@ export function IngredientPicker({ open, onOpenChange, groupId, ingredients, onS
   function handleSelectExisting(ingredient) {
     onSelect(ingredient)
     handleOpenChange(false)
+  }
+
+  // カテゴリの一覧から選んだとき: 冷蔵庫にすでにあればその行、なければ在庫0で作る
+  function handlePick(item) {
+    const existing = item.fridgeRow ?? fridgeByCatalog.get(item.id)
+    if (existing) handleSelectExisting(existing)
+    else handleSelectCatalog(item)
   }
 
   async function handleConfirmCatalogDelete() {
@@ -281,10 +277,18 @@ export function IngredientPicker({ open, onOpenChange, groupId, ingredients, onS
     setSaving(true)
     setError(null)
 
+    // 表記だけ違う同じ食材(じゃが芋 / じゃがいも)が冷蔵庫か食材マスタにあれば、新しく作らずにそれを使う
+    const canon = canonicalName(trimmedSearch)
+    const sameFridge = ingredients.find((i) => canonicalName(i.name) === canon)
+    if (sameFridge) {
+      setSaving(false)
+      handleSelectExisting(sameFridge)
+      return
+    }
     // 同名のマスタ食材(共通、または自分の家庭の品目)が既にあればそちらの単位・カテゴリを優先して使う
     const pickSameName = (rows) => rows?.find((c) => c.group_id) ?? rows?.find((c) => !c.group_id) ?? null
     const { data: sameName } = await supabase.from('ingredient_catalog').select('*').eq('name', trimmedSearch)
-    let catalogItem = pickSameName(sameName)
+    let catalogItem = pickSameName(sameName) ?? pickSameName(catalog.filter((c) => canonicalName(c.name) === canon))
 
     // 自分の家庭の品目が別カテゴリに入っている場合、選んだカテゴリへ移す(共通の品目は変更できないのでそのまま使う)
     if (catalogItem && catalogItem.group_id && catalogItem.category !== newCategory) {
@@ -389,24 +393,6 @@ export function IngredientPicker({ open, onOpenChange, groupId, ingredients, onS
               <CommandList>
                 <CommandEmpty>該当する食材が見つかりません</CommandEmpty>
 
-                {availableIngredients.length > 0 && (
-                  <CommandGroup heading="登録済みの食材">
-                    {availableIngredients.map((ingredient) => (
-                      <CommandItem
-                        key={ingredient.id}
-                        value={ingredient.name}
-                        onSelect={() => handleSelectExisting(ingredient)}
-                      >
-                        <span className="flex-1">{ingredient.name}</span>
-                        <span className="text-muted-foreground text-xs">
-                          在庫 {formatQuantity(ingredient.quantity)}
-                          {ingredient.unit}
-                        </span>
-                      </CommandItem>
-                    ))}
-                  </CommandGroup>
-                )}
-
                 {!catalogLoading &&
                   catalogGroups.map(({ category, items }) => {
                     const expanded = isSearching || openCategories.has(category)
@@ -430,18 +416,24 @@ export function IngredientPicker({ open, onOpenChange, groupId, ingredients, onS
                         )}
                         {expanded && (
                           <CommandGroup heading={isSearching ? category : undefined}>
-                            {items.map((item) => (
-                              <CatalogItemRow
-                                key={item.id}
-                                item={item}
-                                category={category}
-                                isSearching={isSearching}
-                                disabled={catalogSavingId === item.id}
-                                onSelect={handleSelectCatalog}
-                                onRequestDelete={item.group_id ? setDeleteTarget : null}
-                                keywords={aliasesByCatalog.get(item.id)}
-                              />
-                            ))}
+                            {items.map((item) => {
+                              const row = item.fridgeRow ?? fridgeByCatalog.get(item.id)
+                              const qty = row && Number(row.quantity) > 0 ? `${formatQuantity(row.quantity)}${row.unit}` : null
+                              return (
+                                <CatalogItemRow
+                                  key={item.id}
+                                  item={item}
+                                  category={category}
+                                  isSearching={isSearching}
+                                  // レシピで使っている材料は、もう一度は選べない
+                                  disabled={catalogSavingId === item.id || (row ? excludeIds.includes(row.id) : false)}
+                                  onSelect={handlePick}
+                                  onRequestDelete={item.group_id && !item.fridgeRow ? setDeleteTarget : null}
+                                  keywords={aliasesByCatalog.get(item.id)}
+                                  stock={qty}
+                                />
+                              )
+                            })}
                           </CommandGroup>
                         )}
                       </div>

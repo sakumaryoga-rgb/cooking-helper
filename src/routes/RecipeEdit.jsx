@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, Trash2 } from 'lucide-react'
 import { supabase } from '@/supabaseClient'
 import { useIngredients } from '@/hooks/useIngredients'
 import { useRecipes } from '@/hooks/useRecipes'
@@ -10,6 +10,14 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { updateRecipe } from '@/lib/recipeImport/save'
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 
 // 保存したレシピを自分好みに変える(料理名・材料と分量・人数・作り方・メモ・絵)
 export function RecipeEdit({ groupId }) {
@@ -49,6 +57,22 @@ function RecipeEditForm({ recipe, groupId, ingredients }) {
   })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+
+  // レシピを削除する(材料の行も消える。冷蔵庫の食材と、作った記録の在庫の履歴は残る)
+  async function handleDelete() {
+    setDeleting(true)
+    setError('')
+    const { data, error: deleteError } = await supabase.from('recipes').delete().eq('id', recipe.id).select('id')
+    setDeleting(false)
+    setConfirmDelete(false)
+    if (deleteError || !data?.length) {
+      setError('レシピを削除できませんでした。選んでいる家のレシピか確かめてください')
+      return
+    }
+    navigate('/recipes', { replace: true })
+  }
 
   async function handleSubmit(e) {
     e.preventDefault()
@@ -115,6 +139,32 @@ function RecipeEditForm({ recipe, groupId, ingredients }) {
           </Button>
         </div>
       </form>
+
+      <div className="mt-4 border-t pt-4">
+        <Button type="button" variant="destructive" className="w-full" onClick={() => setConfirmDelete(true)} disabled={deleting}>
+          <Trash2 className="size-4" />
+          このレシピを削除
+        </Button>
+      </div>
+
+      <AlertDialog open={confirmDelete} onOpenChange={(open) => !open && setConfirmDelete(false)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>「{recipe.title}」を削除しますか?</AlertDialogTitle>
+            <AlertDialogDescription>
+              家族全員のレシピ一覧から消え、元に戻せません。冷蔵庫の食材はそのまま残ります。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <Button type="button" variant="outline" onClick={() => setConfirmDelete(false)} disabled={deleting}>
+              やめる
+            </Button>
+            <Button type="button" variant="destructive" onClick={handleDelete} disabled={deleting}>
+              {deleting ? '削除中...' : '削除する'}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

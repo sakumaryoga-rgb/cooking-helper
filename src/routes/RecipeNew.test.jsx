@@ -91,7 +91,12 @@ describe('自分で考えたレシピ', () => {
     await userEvent.type(screen.getByLabelText('料理名'), 'おばあちゃんの肉じゃが')
     await userEvent.click(screen.getByRole('radio', { name: '絵 🍲' }))
     await userEvent.type(screen.getByLabelText('何人分'), '4')
-    await userEvent.type(screen.getByLabelText('作り方'), '具を切る{enter}煮る')
+    await userEvent.type(screen.getByLabelText('手順1'), '具を切る')
+    await userEvent.click(screen.getByRole('button', { name: '手順を追加' }))
+    await userEvent.type(screen.getByLabelText('手順2'), '煮る')
+    // 並べ替えもできる
+    await userEvent.click(screen.getByRole('button', { name: '手順2を上へ' }))
+    await userEvent.click(screen.getByRole('button', { name: '手順1を下へ' }))
     await userEvent.type(screen.getByLabelText('わが家のメモ'), '甘めに')
     await userEvent.click(screen.getByRole('button', { name: 'レシピを保存' }))
     expect(saveRecipe).toHaveBeenCalledWith(

@@ -1,3 +1,6 @@
+import { useState } from 'react'
+import { ArrowDown, ArrowUp, Plus, X } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
@@ -52,17 +55,7 @@ export function RecipeExtrasFields({ value, onChange }) {
         />
       </div>
 
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="recipe-instructions">作り方</Label>
-        <Textarea
-          id="recipe-instructions"
-          rows={5}
-          maxLength={4000}
-          value={value.instructions ?? ''}
-          onChange={(e) => onChange({ instructions: e.target.value })}
-          placeholder={'1行に1つの手順を書くと、番号付きで表示されます\n例: 卵を溶いて塩をひとつまみ入れる'}
-        />
-      </div>
+      <StepsEditor value={value.instructions ?? ''} onChange={(instructions) => onChange({ instructions })} />
 
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="recipe-memo">わが家のメモ</Label>
@@ -88,4 +81,70 @@ export function normalizeExtras(value) {
     instructions: (value.instructions ?? '').trim() || null,
     memo: (value.memo ?? '').trim() || null,
   }
+}
+
+// 作り方を、番号付きの手順の一覧で入力する(保存は1手順1行のテキスト。DB の形は変えない)
+function toSteps(text) {
+  const steps = String(text ?? '')
+    .split('\n')
+    .map((s) => s.trim().replace(/^\d+[.)、.]\s*/, ''))
+    .filter(Boolean)
+  return steps.length ? steps : ['']
+}
+
+export function StepsEditor({ value, onChange }) {
+  const [steps, setSteps] = useState(() => toSteps(value))
+
+  function update(next) {
+    setSteps(next)
+    // 手順の中の改行は1行にまとめる(1手順1行で保存するため)
+    onChange(next.map((s) => s.replace(/\s*\n\s*/g, ' ').trim()).filter(Boolean).join('\n'))
+  }
+
+  const set = (i, text) => update(steps.map((s, j) => (j === i ? text : s)))
+  const remove = (i) => update(steps.length === 1 ? [''] : steps.filter((_, j) => j !== i))
+  const move = (i, d) => {
+    const next = [...steps]
+    ;[next[i], next[i + d]] = [next[i + d], next[i]]
+    update(next)
+  }
+
+  return (
+    <fieldset className="flex flex-col gap-2">
+      <legend className="mb-1 text-sm font-medium">作り方</legend>
+      <ol className="flex flex-col gap-2">
+        {steps.map((step, i) => (
+          <li key={i} className="flex items-start gap-2">
+            <span className="mt-2 flex size-6 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground" aria-hidden="true">
+              {i + 1}
+            </span>
+            <Textarea
+              aria-label={`手順${i + 1}`}
+              rows={2}
+              maxLength={500}
+              className="min-h-10 flex-1"
+              value={step}
+              onChange={(e) => set(i, e.target.value)}
+              placeholder={i === 0 ? '例: じゃがいもの皮をむいて一口大に切る' : '次の手順'}
+            />
+            <div className="flex flex-col">
+              <Button type="button" size="icon" variant="ghost" className="size-6" aria-label={`手順${i + 1}を上へ`} disabled={i === 0} onClick={() => move(i, -1)}>
+                <ArrowUp className="size-3.5" />
+              </Button>
+              <Button type="button" size="icon" variant="ghost" className="size-6" aria-label={`手順${i + 1}を下へ`} disabled={i === steps.length - 1} onClick={() => move(i, 1)}>
+                <ArrowDown className="size-3.5" />
+              </Button>
+              <Button type="button" size="icon" variant="ghost" className="size-6" aria-label={`手順${i + 1}を消す`} onClick={() => remove(i)}>
+                <X className="size-3.5" />
+              </Button>
+            </div>
+          </li>
+        ))}
+      </ol>
+      <Button type="button" variant="outline" size="sm" className="self-start rounded-full" onClick={() => update([...steps, ''])} disabled={steps.length >= 30}>
+        <Plus className="size-4" />
+        手順を追加
+      </Button>
+    </fieldset>
+  )
 }

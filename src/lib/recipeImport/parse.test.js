@@ -142,3 +142,36 @@ describe('別名辞書での突き合わせ', () => {
     expect(resolve('特製だれ 大さじ1')).toMatchObject({ kind: 'catalog', name: 'うちのだれ', unit: 'ml', requiredQuantity: 15 })
   })
 })
+
+describe('表記揺れの吸収', () => {
+  const catalog = [
+    { id: 'c-potato', name: 'じゃがいも', unit: '個' },
+    { id: 'c-onion', name: '玉ねぎ', unit: '個' },
+    { id: 'c-pork', name: '豚ひき肉', unit: 'g' },
+  ]
+  const resolve = (line, fridge = []) => resolveIngredient(parseIngredientLine(line), fridge, catalog, [])
+
+  it.each(['じゃがいも 2個', 'ジャガイモ 2個', 'じゃが芋 2個', '馬鈴薯 2個', '新じゃがいも 2個', 'じゃがいも(中) 2個', 'じゃがいも中 2個'])(
+    '%s は食材マスタの「じゃがいも」になる',
+    (line) => {
+      const r = resolve(line)
+      expect(r.kind).toBe('catalog')
+      expect(r.catalogItem.id).toBe('c-potato')
+      expect(r.requiredQuantity).toBe(2)
+    }
+  )
+
+  it('冷蔵庫にある食材を、漢字・かなの違いがあっても優先する', () => {
+    const fridge = [{ id: 'i1', name: 'たまねぎ', unit: '個', catalog_id: null }]
+    expect(resolve('玉葱 1個', fridge)).toMatchObject({ kind: 'existing', ingredient: { id: 'i1' } })
+    expect(resolve('タマネギ 1個', fridge)).toMatchObject({ kind: 'existing', ingredient: { id: 'i1' } })
+  })
+
+  it('挽き肉の漢字・かなの違いもそろえる', () => {
+    expect(resolve('豚挽き肉 200g')).toMatchObject({ kind: 'catalog', catalogItem: { id: 'c-pork' }, requiredQuantity: 200 })
+  })
+
+  it('取り込んだときの名前を残す(付け替えたら別名として覚えるため)', () => {
+    expect(resolve('じゃが芋 2個').sourceName).toBe('じゃが芋')
+  })
+})
