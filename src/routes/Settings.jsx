@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Copy, Check, Link2, LogOut } from 'lucide-react'
+import { Copy, Check, Crown, Link2, LogOut, Settings2 } from 'lucide-react'
 import { Link, useNavigate } from 'react-router-dom'
 import { HouseSwitcher } from '@/components/HouseSwitcher'
+import { memberLabel, useHouseMembers } from '@/hooks/useHouseMembers'
 import { maskEmail } from '@/lib/maskEmail'
 import { markSignOutRequested } from '@/lib/sessionNotice'
 import { parseInviteToken } from '@/lib/invite'
@@ -34,28 +35,9 @@ function useIsAdmin() {
   return isAdmin
 }
 
-function useMembers(groupId) {
-  const [members, setMembers] = useState([])
-  useEffect(() => {
-    let cancelled = false
-    supabase
-      .from('group_members')
-      .select('user_id, joined_at')
-      .eq('group_id', groupId)
-      .order('joined_at')
-      .then(({ data }) => {
-        if (!cancelled) setMembers(data ?? [])
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [groupId])
-  return members
-}
-
 // 設定(設計書 4 章): 家族グループ、招待、メンバー、アカウント、規約、バージョン。課金は枠だけ
 export function Settings({ group, groups = [group], onSelectGroup, onGroupsChanged, email, userId }) {
-  const members = useMembers(group.id)
+  const { members } = useHouseMembers(group.id)
   const navigate = useNavigate()
   const [houseMessage, setHouseMessage] = useState('')
   const [houseBusy, setHouseBusy] = useState(false)
@@ -175,6 +157,7 @@ export function Settings({ group, groups = [group], onSelectGroup, onGroupsChang
             groups={groups}
             currentId={group.id}
             onSelect={switchTo}
+            onManage={(id) => navigate(`/settings/houses/${id}`)}
             onCreate={createHouse}
             onJoin={joinHouse}
             busy={houseBusy}
@@ -223,17 +206,25 @@ export function Settings({ group, groups = [group], onSelectGroup, onGroupsChang
       <Card>
         <CardHeader>
           <CardTitle className="text-base">メンバー({members.length}人)</CardTitle>
-          <CardDescription>このグループで冷蔵庫とレシピを共有しています</CardDescription>
+          <CardDescription>この家で冷蔵庫とレシピを共有しています</CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="flex flex-col gap-3">
           <ul className="flex flex-col gap-1 text-sm">
             {members.map((m, i) => (
               <li key={m.user_id} className="flex items-center justify-between">
-                <span>{m.user_id === userId ? 'あなた' : `メンバー ${i + 1}`}</span>
+                <span className="flex items-center gap-1.5">
+                  {memberLabel(m, i, userId)}
+                  {m.display_name && m.user_id === userId && <span className="text-xs text-muted-foreground">(あなた)</span>}
+                  {m.role === 'owner' && <Crown className="size-3.5 text-amber-500" aria-label="管理者" />}
+                </span>
                 <span className="text-xs text-muted-foreground">{new Date(m.joined_at).toLocaleDateString('ja-JP')} 参加</span>
               </li>
             ))}
           </ul>
+          <Button variant="outline" onClick={() => navigate(`/settings/houses/${group.id}`)}>
+            <Settings2 className="size-4" />
+            この家の管理
+          </Button>
         </CardContent>
       </Card>
 

@@ -11,6 +11,7 @@ import { Recipes } from '@/routes/Recipes'
 import { RecipeNew } from '@/routes/RecipeNew'
 import { RecipeDetail } from '@/routes/RecipeDetail'
 import { Settings } from '@/routes/Settings'
+import { HouseManage } from '@/routes/HouseManage'
 import { Home } from '@/routes/Home'
 import { Terms, Privacy } from '@/routes/Legal'
 import { Contact } from '@/routes/Contact'
@@ -103,6 +104,7 @@ export default function App() {
             <Route path="/recipes/new" element={<RecipeNew groupId={group.id} userId={session.user.id} />} />
             <Route path="/recipes/:id" element={<RecipeDetail groupId={group.id} />} />
             <Route path="/settings" element={<Settings group={group} groups={groups} onSelectGroup={selectGroup} onGroupsChanged={refreshGroup} email={session.user.email} userId={session.user.id} />} />
+            <Route path="/settings/houses/:id" element={<HouseManage groups={groups} userId={session.user.id} onGroupsChanged={refreshGroup} />} />
             <Route path="/group" element={<Navigate to="/settings" replace />} />
             <Route path="/contact" element={<Contact />} />
             <Route path="/admin" element={<Admin />} />
