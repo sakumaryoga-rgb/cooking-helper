@@ -5,7 +5,7 @@ import { useIngredientCatalog } from '@/hooks/useIngredientCatalog'
 import { useIngredientAliases } from '@/hooks/useIngredientAliases'
 import { formatQuantity } from '@/lib/format'
 import { CATEGORIES, CATEGORY_ICONS } from '@/lib/ingredientCategory'
-import { findCandidates } from '@/lib/recipeImport/match'
+import { buildNameIndex, findCandidates, matchIngredientName, nameKey, searchKeywords } from '@/lib/ingredientName'
 import {
   Dialog,
   DialogContent,
@@ -142,15 +142,8 @@ export function IngredientPicker({ open, onOpenChange, groupId, ingredients, onS
     const ownNames = new Set(rawCatalog.filter((c) => c.group_id).map((c) => c.name))
     return rawCatalog.filter((c) => c.group_id || !ownNames.has(c.name))
   }, [rawCatalog])
-  // 検索で別名(人参、玉葱など)からも見つかるようにする
-  const aliasesByCatalog = useMemo(() => {
-    const map = new Map()
-    for (const a of aliases) {
-      if (!map.has(a.catalog_id)) map.set(a.catalog_id, [])
-      map.get(a.catalog_id).push(a.alias)
-    }
-    return map
-  }, [aliases])
+  // 食材名の照合と検索は、レシピの取り込みと同じ共通の処理(lib/ingredientName)を使う
+  const nameIndex = useMemo(() => buildNameIndex({ ingredients, catalog: rawCatalog, aliases }), [ingredients, rawCatalog, aliases])
   const [search, setSearch] = useState('')
   const [creating, setCreating] = useState(false)
   const [newUnit, setNewUnit] = useState(UNIT_PRESETS[0])
@@ -168,11 +161,11 @@ export function IngredientPicker({ open, onOpenChange, groupId, ingredients, onS
   const fridgeByCatalog = useMemo(() => {
     const map = new Map()
     for (const c of catalog) {
-      const row = ingredients.find((i) => i.catalog_id === c.id) ?? ingredients.find((i) => i.name === c.name)
+      const row = nameIndex.fridgeByCatalog.get(c.id) ?? nameIndex.fridgeByKey.get(nameKey(c.name))
       if (row) map.set(c.id, row)
     }
     return map
-  }, [catalog, ingredients])
+  }, [catalog, nameIndex])
 
   // 食材マスタに結び付いていない冷蔵庫の行(以前に作られたもの)は「その他」に出す
   const catalogGroups = useMemo(() => {
@@ -275,10 +268,16 @@ export function IngredientPicker({ open, onOpenChange, groupId, ingredients, onS
     handleOpenChange(false)
   }
 
-  // 似た食材(じゃが芋 / じゃがいも など)があれば、勝手に決めずに確認する
+  // 入力した名前を照合する: 同じ食材が登録済み(名前・別名が一致)ならそれを使い、
+  // 似た食材があれば勝手に決めずに確認し、なければ新しく登録する
   function handleCreateRequest() {
     if (!trimmedSearch) return
-    const found = findCandidates(trimmedSearch, ingredients, catalog, aliases)
+    const match = matchIngredientName(trimmedSearch, nameIndex)
+    if (match.status === 'auto') {
+      handleUseSimilar(match.option)
+      return
+    }
+    const found = match.candidates.length ? match.candidates : findCandidates(trimmedSearch, nameIndex)
     if (found.length > 0) {
       setSimilar(found)
       return
@@ -442,7 +441,7 @@ export function IngredientPicker({ open, onOpenChange, groupId, ingredients, onS
                                   disabled={catalogSavingId === item.id || (row ? excludeIds.includes(row.id) : false)}
                                   onSelect={handlePick}
                                   onRequestDelete={item.group_id && !item.fridgeRow ? setDeleteTarget : null}
-                                  keywords={aliasesByCatalog.get(item.id)}
+                                  keywords={item.fridgeRow ? [nameKey(item.name)] : searchKeywords(item, nameIndex)}
                                   stock={qty}
                                 />
                               )

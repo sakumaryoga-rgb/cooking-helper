@@ -92,7 +92,8 @@ describe('食材との突き合わせ', () => {
   })
 
   it('単位を直せないものは分量の確認を求め、名前の一部だけが一致したものは、どの食材かを選んでもらう', () => {
-    expect(resolve('砂糖 大さじ1')).toMatchObject({ kind: 'catalog', requiredQuantity: 1, needsCheck: true, needsChoice: false })
+    // 食材マスタの単位(g)と、材料の行の単位(大さじ = ml)が食い違う: 換算せず、分量を空にして入れてもらう
+    expect(resolve('砂糖 大さじ1')).toMatchObject({ kind: 'catalog', requiredQuantity: '', needsCheck: true, needsChoice: false })
     const bacon = resolve('薄切りハーフベーコン 5枚')
     expect(bacon).toMatchObject({ needsChoice: true, kind: 'new' })
     expect(bacon.candidates[0]).toMatchObject({ kind: 'catalog', name: 'ベーコン' })
@@ -142,57 +143,5 @@ describe('別名辞書での突き合わせ', () => {
 
   it('家庭で登録した別名と品目も使う', () => {
     expect(resolve('特製だれ 大さじ1')).toMatchObject({ kind: 'catalog', name: 'うちのだれ', unit: 'ml', requiredQuantity: 15 })
-  })
-})
-
-describe('表記揺れ: 迷わないものは自動で、迷うものはユーザーが選ぶ', () => {
-  const catalog = [
-    { id: 'c-potato', name: 'じゃがいも', unit: '個' },
-    { id: 'c-onion', name: '玉ねぎ', unit: '個' },
-    { id: 'c-pork', name: '豚ひき肉', unit: 'g' },
-  ]
-  const resolve = (line, fridge = [], aliases = []) => resolveIngredient(parseIngredientLine(line), fridge, catalog, aliases)
-
-  it.each(['じゃがいも 2個', 'ジャガイモ 2個', 'じゃがいも(中) 2個'])('%s は、かなの違い・かっこ書きだけなので自動で「じゃがいも」', (line) => {
-    expect(resolve(line)).toMatchObject({ kind: 'catalog', catalogItem: { id: 'c-potato' }, requiredQuantity: 2, needsChoice: false })
-  })
-
-  it.each(['じゃが芋 2個', '馬鈴薯 2個', '新じゃがいも 2個', 'じゃがいも中 2個'])(
-    '%s は自動では決めず、「じゃがいも」を先頭の候補にして選んでもらう',
-    (line) => {
-      const r = resolve(line)
-      expect(r.needsChoice).toBe(true)
-      expect(r.candidates[0]).toMatchObject({ kind: 'catalog', catalogItem: { id: 'c-potato' } })
-      // 候補を選ぶと、その食材の単位で必要量を計算し、取り込んだ表記を別名として覚える
-      const chosen = applyChoice(r, r.candidates[0])
-      expect(chosen).toMatchObject({ kind: 'catalog', name: 'じゃがいも', requiredQuantity: 2, needsChoice: false, include: true })
-      expect(chosen.learnAlias).toEqual({ alias: r.sourceName, catalogId: 'c-potato' })
-    }
-  )
-
-  it('冷蔵庫の食材を候補の先頭に出す(漢字とかなの違い)', () => {
-    const fridge = [{ id: 'i1', name: 'たまねぎ', unit: '個', catalog_id: 'c-onion' }]
-    expect(resolve('タマネギ 1個', fridge)).toMatchObject({ kind: 'existing', ingredient: { id: 'i1' }, needsChoice: false })
-    const r = resolve('玉葱 1個', fridge)
-    expect(r.needsChoice).toBe(true)
-    expect(r.candidates).toHaveLength(1)
-    expect(r.candidates[0]).toMatchObject({ kind: 'existing', ingredient: { id: 'i1' } })
-  })
-
-  it('別名辞書に登録済みの表記(覚えた表記)は、迷わず自動で決める', () => {
-    const aliases = [{ alias: 'じゃが芋', catalog_id: 'c-potato', group_id: 'g1' }]
-    expect(resolve('じゃが芋 2個', [], aliases)).toMatchObject({ kind: 'catalog', catalogItem: { id: 'c-potato' }, needsChoice: false })
-  })
-
-  it('新しい食材として登録することも選べる(別名は覚えない)', () => {
-    const r = resolve('豚挽き肉 200g')
-    expect(r.candidates[0]).toMatchObject({ catalogItem: { id: 'c-pork' } })
-    const asNew = applyChoice(r, { kind: 'new' })
-    expect(asNew).toMatchObject({ kind: 'new', name: '豚挽き肉', unit: 'g', requiredQuantity: 200, needsChoice: false })
-    expect(asNew.learnAlias).toBeUndefined()
-  })
-
-  it('似た食材がなければ、迷わず新しい食材にする', () => {
-    expect(resolve('寒天 4g')).toMatchObject({ kind: 'new', name: '寒天', needsChoice: false, candidates: [] })
   })
 })

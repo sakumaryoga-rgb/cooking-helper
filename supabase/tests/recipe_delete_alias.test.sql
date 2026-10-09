@@ -58,6 +58,9 @@ begin
   get diagnostics n = row_count;
   assert n = 0, '他の家のレシピは削除できない';
   assert not exists (select 1 from ingredient_aliases where alias = 'メークイン'), '他の家の別名は見えない';
+  delete from ingredient_aliases where alias = 'メークイン';
+  get diagnostics n = row_count;
+  assert n = 0, '他の家の別名は消せない';
 end $$;
 
 -- U はレシピを削除できる。材料の行は消え、冷蔵庫の食材と作った記録は残り、取り消しもできる
@@ -72,6 +75,14 @@ begin
   assert (select quantity from ingredients where id = current_setting('test.potato')::uuid) = 3, '冷蔵庫の食材は残る';
   perform undo_cook(current_setting('test.log')::uuid);
   assert (select quantity from ingredients where id = current_setting('test.potato')::uuid) = 5, 'レシピを消しても、作った記録は取り消せる';
+  -- 誤って覚えた別名は、自分の家なら消せる(設定の「忘れる」)
+  delete from ingredient_aliases where group_id = current_setting('test.u')::uuid and alias = 'メークイン';
+  get diagnostics n = row_count;
+  assert n = 1, '自分の家の別名は消せる';
+  -- 共通の別名は消せない
+  delete from ingredient_aliases where group_id is null;
+  get diagnostics n = row_count;
+  assert n = 0, '共通の別名は消せない';
 end $$;
 reset role;
 select set_config('request.headers', '', false);

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/supabaseClient'
 import { useSharedKitchen } from '@/hooks/kitchenData'
 
@@ -12,20 +12,16 @@ export function useIngredientAliases() {
 export function useIngredientAliasesSource(enabled = true) {
   const [aliases, setAliases] = useState([])
 
-  useEffect(() => {
-    if (!enabled) return undefined
-    let cancelled = false
-    supabase
-      .from('ingredient_aliases')
-      .select('alias, catalog_id, group_id')
-      .then(({ data, error }) => {
-        if (error) console.error('食材の別名の取得に失敗しました', error)
-        if (!cancelled) setAliases(data ?? [])
-      })
-    return () => {
-      cancelled = true
-    }
+  const refresh = useCallback(async () => {
+    if (!enabled) return
+    const { data, error } = await supabase.from('ingredient_aliases').select('alias, catalog_id, group_id')
+    if (error) console.error('食材の別名の取得に失敗しました', error)
+    setAliases(data ?? [])
   }, [enabled])
 
-  return useMemo(() => ({ aliases }), [aliases])
+  useEffect(() => {
+    refresh()
+  }, [refresh])
+
+  return useMemo(() => ({ aliases, refresh }), [aliases, refresh])
 }

@@ -10,6 +10,7 @@ import { supabase } from '@/supabaseClient'
 import { buildInviteUrl } from '@/lib/invite'
 import { useSubstitutions } from '@/hooks/useSubstitutions'
 import { useIngredientCatalog } from '@/hooks/useIngredientCatalog'
+import { useIngredientAliases } from '@/hooks/useIngredientAliases'
 import { Button } from '@/components/ui/button'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
 import { APP_VERSION } from '@/lib/appVersion'
@@ -92,6 +93,19 @@ export function Settings({ group, groups = [group], onSelectGroup, onGroupsChang
   const { disabledRules, enableRule } = useSubstitutions(group.id)
   const { catalog } = useIngredientCatalog()
   const catalogName = (id) => catalog.find((c) => c.id === id)?.name ?? '(不明)'
+  // この家で覚えた食材の別名(レシピの取り込みで付け替えたときに覚えたもの)。誤って覚えたものは消せる
+  const { aliases, refresh: refreshAliases } = useIngredientAliases()
+  const ownAliases = (aliases ?? []).filter((a) => a.group_id === group.id)
+  const [aliasError, setAliasError] = useState('')
+  async function forgetAlias(alias) {
+    setAliasError('')
+    const { error: deleteError } = await supabase.from('ingredient_aliases').delete().eq('group_id', group.id).eq('alias', alias)
+    if (deleteError) {
+      setAliasError('別名を消せませんでした')
+      return
+    }
+    await refreshAliases?.()
+  }
 
   const loadStatus = useCallback(async () => {
     const { data, error: rpcError } = await supabase.rpc('get_group_invite_status')
@@ -260,6 +274,29 @@ export function Settings({ group, groups = [group], onSelectGroup, onGroupsChang
                 </li>
               ))}
             </ul>
+          </CardContent>
+        </Card>
+      )}
+      {ownAliases.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">覚えた食材の別名</CardTitle>
+            <CardDescription>レシピの取り込みで選んだ表記です。この家だけで使い、次から自動でその食材になります</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ul className="flex flex-col divide-y divide-border">
+              {ownAliases.map((a) => (
+                <li key={a.alias} className="flex items-center justify-between gap-2 py-2 text-sm">
+                  <span>
+                    「{a.alias}」→ {catalogName(a.catalog_id)}
+                  </span>
+                  <Button size="sm" variant="ghost" onClick={() => forgetAlias(a.alias)} aria-label={`「${a.alias}」を忘れる`}>
+                    忘れる
+                  </Button>
+                </li>
+              ))}
+            </ul>
+            {aliasError && <p className="text-sm text-destructive">{aliasError}</p>}
           </CardContent>
         </Card>
       )}

@@ -55,9 +55,18 @@ export async function ensureIngredient(supabase, groupId, row, fridge) {
 
 // items: 画面で確認した材料(resolveIngredient の結果、または手動で選んだ食材)
 const CHOICE_MESSAGE = 'どの食材か選んでいない材料があります。材料の一覧で選んでください'
+const QUANTITY_MESSAGE = '分量が入っていない材料があります。材料の一覧で分量を入れるか、保存しない材料のチェックを外してください'
+
+// 保存の前に、ユーザーの判断が必要な材料が残っていないか確かめる
+function pendingDecision(items) {
+  if (items.some((i) => i.include && i.needsChoice)) return CHOICE_MESSAGE
+  if (items.some((i) => i.include && !(Number(i.requiredQuantity) > 0))) return QUANTITY_MESSAGE
+  return null
+}
 
 export async function saveRecipe({ supabase, groupId, userId, title, url, sourceKey, sourceSite, servings, items, fridge, extras = {} }) {
-  if (items.some((i) => i.include && i.needsChoice)) return { error: CHOICE_MESSAGE }
+  const pending = pendingDecision(items)
+  if (pending) return { error: pending }
   const rows = mergeResolved(items)
   if (!title.trim()) return { error: 'タイトルを入力してください' }
   if (rows.length === 0) return { error: '材料を1つ以上、必要な分量を入力して追加してください' }
@@ -127,8 +136,13 @@ export async function learnAliases(supabase, groupId, items) {
     rows.push({ group_id: groupId, catalog_id: catalogId, alias })
   }
   for (const row of rows) {
-    const { error } = await supabase.from('ingredient_aliases').insert(row)
-    if (error && error.code !== '23505') console.error('別名を覚えられませんでした', error)
+    let { error } = await supabase.from('ingredient_aliases').insert(row)
+    if (error?.code === '23505') {
+      // 同じ表記をこの家で別の食材として覚えていた: 新しく選んだ食材で覚え直す
+      await supabase.from('ingredient_aliases').delete().eq('group_id', groupId).eq('alias', row.alias)
+      ;({ error } = await supabase.from('ingredient_aliases').insert(row))
+    }
+    if (error) console.error('別名を覚えられませんでした', error)
   }
 }
 
@@ -141,7 +155,8 @@ export async function findDuplicate(supabase, groupId, sourceKey) {
 // 保存したレシピのカスタマイズ。新しい食材は先に冷蔵庫の行(在庫0)を用意し、
 // レシピと材料の差し替えは update_recipe(migration 023)が1つのトランザクションで行う
 export async function updateRecipe({ supabase, groupId, recipeId, title, items, fridge, extras }) {
-  if (items.some((i) => i.include && i.needsChoice)) return { error: CHOICE_MESSAGE }
+  const pending = pendingDecision(items)
+  if (pending) return { error: pending }
   const rows = mergeResolved(items)
   if (!title.trim()) return { error: '料理名を入力してください' }
   if (rows.length === 0) return { error: '材料を1つ以上、必要な分量を入力して追加してください' }
