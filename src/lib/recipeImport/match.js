@@ -53,21 +53,6 @@ export function canonicalName(name) {
   return n
 }
 
-function findByName(list, key, raw) {
-  const exact = list.find((item) => normalizeName(item.name) === key)
-  if (exact) return { item: exact, fuzzy: false }
-  // 表記揺れをそろえて一致するもの(じゃが芋 → じゃがいも)
-  const canon = canonicalName(raw ?? key)
-  const variant = canon ? list.find((item) => canonicalName(item.name) === canon) : null
-  if (variant) return { item: variant, fuzzy: false }
-  // 「薄切りハーフベーコン」→「ベーコン」のように、名前の末尾が一致する最も長いもの
-  let best = null
-  for (const item of list) {
-    const n = normalizeName(item.name)
-    if (n.length >= 2 && key.endsWith(n) && (!best || n.length > normalizeName(best.name).length)) best = item
-  }
-  return best ? { item: best, fuzzy: true } : null
-}
 
 // 解析した分量を、保存先の食材の単位に直す。直せなければ null
 export function quantityInUnit(parsed, unit) {
@@ -89,53 +74,120 @@ function round(n) {
   return Math.round(n * 100) / 100
 }
 
-// 別名辞書(人参 → にんじん)で食材マスタの品目を探す
-function findByAlias(aliases, catalog, key, raw) {
-  const canon = canonicalName(raw ?? key)
-  const hit = aliases.find((a) => normalizeName(a.alias) === key) ?? aliases.find((a) => canonicalName(a.alias) === canon)
+// 迷わず決められるのは「名前が同じ」(かなの違い・かっこ書きは同じとみなす)と「別名辞書にある表記」だけ。
+// それ以外(漢字とかなの違い、名前の一部が同じ など)は候補を出して、どの食材かをユーザーに選んでもらう
+function exactAliasItem(aliases, catalog, key) {
+  const hit = aliases.find((a) => normalizeName(a.alias) === key)
   return hit ? catalog.find((c) => c.id === hit.catalog_id) ?? null : null
+}
+
+function existingOption(ingredient) {
+  return { kind: 'existing', ingredient, name: ingredient.name, unit: ingredient.unit }
+}
+
+function catalogOption(catalogItem) {
+  return { kind: 'catalog', catalogItem, name: catalogItem.name, unit: catalogItem.unit }
+}
+
+// 似ている食材の候補(冷蔵庫の行を優先し、同じ品目は1つにまとめる)。近い順に最大4件
+export function findCandidates(rawName, ingredients, catalog, aliases = []) {
+  const key = normalizeName(rawName)
+  const canon = canonicalName(rawName)
+  if (!key) return []
+  const score = (name) => {
+    const n = normalizeName(name)
+    const c = canonicalName(name)
+    if (c === canon) return 1
+    if (n.length >= 2 && (key.endsWith(n) || canon.endsWith(c))) return 2
+    if (n.length >= 2 && (key.startsWith(n) || n.startsWith(key) || n.endsWith(key))) return 3
+    if (c.length >= 2 && (canon.includes(c) || c.includes(canon))) return 4
+    return 0
+  }
+  const aliasScore = (catalogId) => {
+    const hit = aliases.find((a) => a.catalog_id === catalogId && canonicalName(a.alias) === canon)
+    return hit ? 1 : 0
+  }
+  const options = []
+  const seenCatalog = new Set()
+  for (const i of ingredients) {
+    const sc = score(i.name) || (i.catalog_id ? aliasScore(i.catalog_id) : 0)
+    if (!sc) continue
+    options.push({ ...existingOption(i), score: sc })
+    if (i.catalog_id) seenCatalog.add(i.catalog_id)
+  }
+  for (const c of catalog) {
+    if (seenCatalog.has(c.id) || ingredients.some((i) => i.name === c.name)) continue
+    const sc = score(c.name) || aliasScore(c.id)
+    if (sc) options.push({ ...catalogOption(c), score: sc })
+  }
+  return options
+    .sort((x, y) => x.score - y.score || x.name.length - y.name.length)
+    .slice(0, 4)
+    .map(({ score: _, ...o }) => o)
+}
+
+// 決めた保存先で、必要量と確認の要否を計算する
+function withQuantity(target, parsed) {
+  const q = quantityInUnit(parsed, target.unit)
+  return {
+    ...target,
+    requiredQuantity: q != null ? round(q) : parsed.vague ? '' : 1,
+    needsCheck: q == null && !parsed.vague,
+  }
 }
 
 export function resolveIngredient(parsed, ingredients, catalog, aliases = []) {
   const key = normalizeName(parsed.name)
-  const canon = key ? canonicalName(parsed.name) : ''
-  const aliasItem = key ? findByAlias(aliases, catalog, key, parsed.name) : null
-  // 冷蔵庫: 名前が同じもの(表記揺れを含む)→ 別名が指す品目と同じもの(マスタの ID か名前)→ 名前の末尾が一致するもの
-  const exactFridge = key
-    ? ingredients.find((i) => normalizeName(i.name) === key) ?? ingredients.find((i) => canonicalName(i.name) === canon)
-    : null
+  const aliasItem = key ? exactAliasItem(aliases, catalog, key) : null
+  // 冷蔵庫: 名前が同じもの → 別名が指す品目と同じもの(マスタの ID か名前)。食材マスタ: 別名 → 名前が同じもの
+  const exactFridge = key ? ingredients.find((i) => normalizeName(i.name) === key) : null
   const aliasFridge =
     !exactFridge && aliasItem
       ? ingredients.find((i) => i.catalog_id === aliasItem.id || normalizeName(i.name) === normalizeName(aliasItem.name))
       : null
-  const fromFridge = exactFridge
-    ? { item: exactFridge, fuzzy: false }
+  const exactCatalog = !exactFridge && !aliasFridge && !aliasItem && key ? catalog.find((c) => normalizeName(c.name) === key) : null
+  const certain = exactFridge
+    ? existingOption(exactFridge)
     : aliasFridge
-      ? { item: aliasFridge, fuzzy: false }
-      : !aliasItem && key
-        ? findByName(ingredients, key, parsed.name)
-        : null
-  const fromCatalog = fromFridge ? null : aliasItem ? { item: aliasItem, fuzzy: false } : key ? findByName(catalog, key, parsed.name) : null
+      ? existingOption(aliasFridge)
+      : aliasItem
+        ? catalogOption(aliasItem)
+        : exactCatalog
+          ? catalogOption(exactCatalog)
+          : null
+  const newOption = { kind: 'new', name: displayName(parsed.name), unit: guessUnit(parsed) }
+  const candidates = certain || !key ? [] : findCandidates(parsed.name, ingredients, catalog, aliases)
 
-  let target
-  if (fromFridge) {
-    target = { kind: 'existing', ingredient: fromFridge.item, name: fromFridge.item.name, unit: fromFridge.item.unit, fuzzy: fromFridge.fuzzy }
-  } else if (fromCatalog) {
-    target = { kind: 'catalog', catalogItem: fromCatalog.item, name: fromCatalog.item.name, unit: fromCatalog.item.unit, fuzzy: fromCatalog.fuzzy }
-  } else {
-    target = { kind: 'new', name: displayName(parsed.name), unit: guessUnit(parsed), fuzzy: false }
-  }
-
-  const q = quantityInUnit(parsed, target.unit)
   return {
-    ...target,
-    // 取り込んだときの名前(付け替えたときに、家庭の別名として覚える)
+    ...withQuantity(certain ?? newOption, parsed),
+    // 取り込んだときの名前と解析結果(どの食材かを選び直したときに、必要量を計算し直し、別名として覚える)
     sourceName: displayName(parsed.name),
-    requiredQuantity: q != null ? round(q) : parsed.vague ? '' : 1,
+    parsed,
+    candidates,
+    // 似た食材があって決めきれない: ユーザーが選ぶまで保存しない
+    needsChoice: candidates.length > 0,
     // 「適量」「少々」は必要量を決められないので、最初は保存しない
     include: !parsed.vague && Boolean(parsed.name) && !isNotStocked(parsed.name),
-    needsCheck: target.fuzzy || (q == null && !parsed.vague),
   }
+}
+
+// どの食材かを選んだとき(候補 / 新しい食材 / ほかの食材)。候補やほかの食材を選んだら、取り込んだ表記を別名として覚える
+export function applyChoice(item, option) {
+  const parsed = item.parsed ?? { quantity: Number(item.requiredQuantity) || 1, unit: item.unit }
+  const target =
+    option.kind === 'new'
+      ? { kind: 'new', name: item.sourceName ?? item.name, unit: guessUnit(parsed) }
+      : option.kind === 'existing'
+        ? existingOption(option.ingredient)
+        : catalogOption(option.catalogItem)
+  const catalogId = option.kind === 'existing' ? option.ingredient.catalog_id : option.kind === 'catalog' ? option.catalogItem.id : null
+  const alias = item.sourceName
+  const learn = option.kind !== 'new' && alias && catalogId && normalizeName(alias) !== normalizeName(target.name)
+  const next = { ...item, ...withQuantity(target, parsed), include: true, needsChoice: false, learnAlias: learn ? { alias, catalogId } : undefined }
+  if (option.kind === 'new') delete next.ingredient
+  if (option.kind !== 'catalog') delete next.catalogItem
+  if (option.kind !== 'existing') delete next.ingredient
+  return next
 }
 
 // 同じ保存先(冷蔵庫の食材・マスタ・新しい名前)に向かう行を1つにまとめ、必要量を足す

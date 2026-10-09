@@ -60,11 +60,15 @@ describe('食材を選ぶ画面', () => {
     expect(onSelect).toHaveBeenCalledWith(fridge[1])
   })
 
-  it('リストにない食材として、表記だけ違う食材を登録しようとしたら冷蔵庫の食材を使う', async () => {
+  it('リストにない食材として、似た食材を登録しようとしたら、同じ食材か確認する(勝手に決めない)', async () => {
     const onSelect = renderPicker()
     await userEvent.click(screen.getByRole('button', { name: 'リストにない食材を追加' }))
     await userEvent.type(screen.getByLabelText('食材名'), 'じゃが芋')
     await userEvent.click(screen.getByRole('button', { name: '追加して選択' }))
+    expect(screen.getByText('似ている食材があります。同じ食材ですか?')).toBeInTheDocument()
+    expect(onSelect).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: '別の食材として「じゃが芋」を登録する' })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '「じゃがいも」を使う' }))
     expect(onSelect).toHaveBeenCalledWith(fridge[0])
     expect(supabase.from).not.toHaveBeenCalled()
   })

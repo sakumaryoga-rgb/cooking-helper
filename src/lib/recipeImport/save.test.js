@@ -127,17 +127,24 @@ describe('冷蔵庫とレシピの食材の整合性', () => {
     expect(fridgeInsert.row).toMatchObject({ name: 'ほたて貝柱', catalog_id: catalogInsert.row ? expect.any(String) : undefined, quantity: 0 })
   })
 
-  it('表記の違う冷蔵庫の食材は、新しく作らずにそれを使う', async () => {
+  it('どの食材か選んでいない材料があれば保存しない', async () => {
+    const supabase = mockSupabase()
+    const result = await saveRecipe({
+      supabase, groupId: 'g1', userId: 'u1', title: 'ポテト', url: null, fridge,
+      items: [{ key: 'a', kind: 'new', name: 'じゃが芋', unit: '個', requiredQuantity: 2, include: true, needsChoice: true }],
+    })
+    expect(result.error).toMatch(/どの食材か選んでいない/)
+    expect(supabase.calls).toHaveLength(0)
+  })
+
+  it('「新しい食材」を選んだら、表記の似た冷蔵庫の食材に勝手にまとめない', async () => {
     const supabase = mockSupabase()
     await saveRecipe({
       supabase, groupId: 'g1', userId: 'u1', title: 'ポテト', url: null,
       fridge: [{ id: 'p1', name: 'じゃがいも', unit: '個' }],
-      items: [{ key: 'a', kind: 'new', name: 'じゃが芋', unit: '個', requiredQuantity: 2, include: true }],
+      items: [{ key: 'a', kind: 'new', name: 'じゃが芋', unit: '個', requiredQuantity: 2, include: true, needsChoice: false }],
     })
-    expect(supabase.calls.filter((c) => c.table === 'ingredients')).toHaveLength(0)
-    expect(supabase.calls.find((c) => c.table === 'recipe_ingredients').row).toEqual([
-      { ingredient_id: 'p1', required_quantity: 2, recipe_id: 'r1', raw_text: null },
-    ])
+    expect(supabase.calls.find((c) => c.table === 'ingredients').row).toMatchObject({ name: 'じゃが芋' })
   })
 
   it('付け替えた材料は、取り込んだときの表記をこの家の別名として覚える', async () => {

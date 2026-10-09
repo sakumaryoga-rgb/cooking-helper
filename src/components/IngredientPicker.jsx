@@ -5,7 +5,7 @@ import { useIngredientCatalog } from '@/hooks/useIngredientCatalog'
 import { useIngredientAliases } from '@/hooks/useIngredientAliases'
 import { formatQuantity } from '@/lib/format'
 import { CATEGORIES, CATEGORY_ICONS } from '@/lib/ingredientCategory'
-import { canonicalName } from '@/lib/recipeImport/match'
+import { findCandidates } from '@/lib/recipeImport/match'
 import {
   Dialog,
   DialogContent,
@@ -161,6 +161,8 @@ export function IngredientPicker({ open, onOpenChange, groupId, ingredients, onS
   const [openCategories, setOpenCategories] = useState(() => new Set())
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [deletingCatalog, setDeletingCatalog] = useState(false)
+  // 「リストにない食材を追加」で、似た食材が見つかったとき(使うか、新しく登録するかを選んでもらう)
+  const [similar, setSimilar] = useState(null)
 
   // 冷蔵庫の行と食材マスタの品目を結び付ける(マスタの ID → 名前)。冷蔵庫にある食材も、カテゴリの中から選ぶ
   const fridgeByCatalog = useMemo(() => {
@@ -189,6 +191,7 @@ export function IngredientPicker({ open, onOpenChange, groupId, ingredients, onS
     setCreating(false)
     setNewUnit(UNIT_PRESETS[0])
     setNewCategory(CATEGORIES[0])
+    setSimilar(null)
     setError(null)
     setOpenCategories(new Set())
   }
@@ -272,23 +275,33 @@ export function IngredientPicker({ open, onOpenChange, groupId, ingredients, onS
     handleOpenChange(false)
   }
 
+  // 似た食材(じゃが芋 / じゃがいも など)があれば、勝手に決めずに確認する
+  function handleCreateRequest() {
+    if (!trimmedSearch) return
+    const found = findCandidates(trimmedSearch, ingredients, catalog, aliases)
+    if (found.length > 0) {
+      setSimilar(found)
+      return
+    }
+    handleCreate()
+  }
+
+  function handleUseSimilar(option) {
+    setSimilar(null)
+    if (option.kind === 'existing') handleSelectExisting(option.ingredient)
+    else handleSelectCatalog(option.catalogItem)
+  }
+
   async function handleCreate() {
     if (!trimmedSearch) return
+    setSimilar(null)
     setSaving(true)
     setError(null)
 
-    // 表記だけ違う同じ食材(じゃが芋 / じゃがいも)が冷蔵庫か食材マスタにあれば、新しく作らずにそれを使う
-    const canon = canonicalName(trimmedSearch)
-    const sameFridge = ingredients.find((i) => canonicalName(i.name) === canon)
-    if (sameFridge) {
-      setSaving(false)
-      handleSelectExisting(sameFridge)
-      return
-    }
     // 同名のマスタ食材(共通、または自分の家庭の品目)が既にあればそちらの単位・カテゴリを優先して使う
     const pickSameName = (rows) => rows?.find((c) => c.group_id) ?? rows?.find((c) => !c.group_id) ?? null
     const { data: sameName } = await supabase.from('ingredient_catalog').select('*').eq('name', trimmedSearch)
-    let catalogItem = pickSameName(sameName) ?? pickSameName(catalog.filter((c) => canonicalName(c.name) === canon))
+    let catalogItem = pickSameName(sameName)
 
     // 自分の家庭の品目が別カテゴリに入っている場合、選んだカテゴリへ移す(共通の品目は変更できないのでそのまま使う)
     if (catalogItem && catalogItem.group_id && catalogItem.category !== newCategory) {
@@ -497,12 +510,27 @@ export function IngredientPicker({ open, onOpenChange, groupId, ingredients, onS
                 ))}
               </div>
             </div>
+            {similar && (
+              <div role="alert" className="flex flex-col gap-2 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-800 dark:bg-amber-950/40">
+                <p className="font-medium">似ている食材があります。同じ食材ですか?</p>
+                <div className="flex flex-wrap gap-2">
+                  {similar.map((option) => (
+                    <Button key={option.kind + (option.ingredient?.id ?? option.catalogItem?.id)} type="button" size="sm" variant="outline" onClick={() => handleUseSimilar(option)}>
+                      「{option.name}」を使う
+                    </Button>
+                  ))}
+                </div>
+                <Button type="button" size="sm" variant="ghost" className="self-start" onClick={handleCreate} disabled={saving}>
+                  別の食材として「{trimmedSearch}」を登録する
+                </Button>
+              </div>
+            )}
             {error && <p className="text-destructive text-sm">{error}</p>}
             <div className="flex justify-end gap-2">
               <Button type="button" variant="ghost" onClick={() => setCreating(false)}>
                 戻る
               </Button>
-              <Button type="button" onClick={handleCreate} disabled={saving || !trimmedSearch}>
+              <Button type="button" onClick={handleCreateRequest} disabled={saving || !trimmedSearch || Boolean(similar)}>
                 {saving ? '追加中...' : '追加して選択'}
               </Button>
             </div>

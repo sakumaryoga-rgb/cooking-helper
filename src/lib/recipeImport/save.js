@@ -1,4 +1,4 @@
-import { canonicalName, mergeResolved, normalizeName } from './match'
+import { mergeResolved, normalizeName } from './match'
 import { guessCategory } from '@/lib/ingredientCategory'
 
 const DUPLICATE_MESSAGE = 'このレシピはすでに保存されています'
@@ -35,8 +35,7 @@ export async function ensureIngredient(supabase, groupId, row, fridge) {
   const found = fridge.find(
     (i) =>
       (row.kind === 'catalog' && i.catalog_id === row.catalogItem.id) ||
-      normalizeName(i.name) === normalizeName(name) ||
-      canonicalName(i.name) === canonicalName(name)
+      normalizeName(i.name) === normalizeName(name)
   )
   if (found) return found.id
 
@@ -55,7 +54,10 @@ export async function ensureIngredient(supabase, groupId, row, fridge) {
 }
 
 // items: 画面で確認した材料(resolveIngredient の結果、または手動で選んだ食材)
+const CHOICE_MESSAGE = 'どの食材か選んでいない材料があります。材料の一覧で選んでください'
+
 export async function saveRecipe({ supabase, groupId, userId, title, url, sourceKey, sourceSite, servings, items, fridge, extras = {} }) {
+  if (items.some((i) => i.include && i.needsChoice)) return { error: CHOICE_MESSAGE }
   const rows = mergeResolved(items)
   if (!title.trim()) return { error: 'タイトルを入力してください' }
   if (rows.length === 0) return { error: '材料を1つ以上、必要な分量を入力して追加してください' }
@@ -139,6 +141,7 @@ export async function findDuplicate(supabase, groupId, sourceKey) {
 // 保存したレシピのカスタマイズ。新しい食材は先に冷蔵庫の行(在庫0)を用意し、
 // レシピと材料の差し替えは update_recipe(migration 023)が1つのトランザクションで行う
 export async function updateRecipe({ supabase, groupId, recipeId, title, items, fridge, extras }) {
+  if (items.some((i) => i.include && i.needsChoice)) return { error: CHOICE_MESSAGE }
   const rows = mergeResolved(items)
   if (!title.trim()) return { error: '料理名を入力してください' }
   if (rows.length === 0) return { error: '材料を1つ以上、必要な分量を入力して追加してください' }
