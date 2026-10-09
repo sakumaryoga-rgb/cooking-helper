@@ -298,10 +298,7 @@ export function Fridge({ groupId }) {
       {loading ? (
         <p className="text-sm text-muted-foreground">読み込み中...</p>
       ) : rows.length === 0 ? (
-        <div className="flex flex-col items-center gap-2 py-10 text-center text-sm text-muted-foreground">
-          <span className="text-5xl" aria-hidden="true">🧊</span>
-          <p>まだ食材がありません。「追加」から登録しましょう。</p>
-        </div>
+        <p className="py-10 text-center text-sm text-muted-foreground">まだ食材がありません。「追加」から登録しましょう。</p>
       ) : (
         <>
           {inStock.length > 0 ? (
@@ -309,10 +306,7 @@ export function Fridge({ groupId }) {
               <ul className="flex flex-col divide-y divide-border">{inStock.map(renderRow)}</ul>
             </FridgeDoor>
           ) : (
-            <div className="flex flex-col items-center gap-1 py-6 text-center text-sm text-muted-foreground">
-              <span className="text-4xl" aria-hidden="true">🌬️</span>
-              <p>在庫のある食材はありません。</p>
-            </div>
+            <p className="py-6 text-center text-sm text-muted-foreground">在庫のある食材はありません。</p>
           )}
           {emptyRows.length > 0 && (
             <div className="flex flex-col gap-2">

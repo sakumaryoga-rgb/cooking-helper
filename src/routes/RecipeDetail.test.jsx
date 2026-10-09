@@ -187,4 +187,24 @@ describe('RecipeDetail', () => {
     expect(refreshIngredients).toHaveBeenCalled()
     cookLogs = []
   })
+
+  it('作り方は番号付きで、メモとカスタマイズの入り口を出す。自分で考えたレシピには印をつける', () => {
+    useIngredients.mockReturnValue({ ingredients: [], refresh: refreshIngredients })
+    useRecipes.mockReturnValue({
+      recipes: [{ id: 'r1', title: 'わが家カレー', url: null, instructions: '1. 切る\n2. 煮る', memo: '隠し味はりんご', icon: '🍛', recipe_ingredients: [] }],
+      loading: false,
+    })
+    render(
+      <MemoryRouter initialEntries={['/recipes/r1']}>
+        <Routes>
+          <Route path="/recipes/:id" element={<RecipeDetail groupId="g1" />} />
+        </Routes>
+      </MemoryRouter>
+    )
+    expect(screen.getByText('わが家のオリジナル')).toBeInTheDocument()
+    const steps = screen.getAllByRole('listitem').filter((li) => /切る|煮る/.test(li.textContent))
+    expect(steps.map((li) => li.textContent)).toEqual(['1切る', '2煮る'])
+    expect(screen.getByText('隠し味はりんご')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /編集/ })).toHaveAttribute('href', '/recipes/r1/edit')
+  })
 })

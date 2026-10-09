@@ -1,7 +1,7 @@
 // 作れるかどうかの札。文言は従来どおり、見た目だけ丸い札に絵文字を添える
 const STYLES = {
   makeable: { emoji: '✨', cls: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300' },
-  substitutable: { emoji: '🔄', cls: 'bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300' },
+  substitutable: { emoji: '🪄', cls: 'bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300' },
   empty: { emoji: '📝', cls: 'bg-muted text-muted-foreground' },
   almost: { emoji: '🛒', cls: 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300' },
   short: { emoji: '🛒', cls: 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300' },

@@ -1,13 +1,21 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/supabaseClient'
+import { useSharedKitchen } from '@/hooks/kitchenData'
 
 // 代替ルール(共通 + 自分の家庭)と、家庭で使わないことにしたルール。
 // 判定に使うのは「使わない」に入っていないルールだけ
 export function useSubstitutions(groupId) {
+  const shared = useSharedKitchen('substitutions', groupId)
+  const own = useSubstitutionsSource(groupId, !shared)
+  return shared ?? own
+}
+
+export function useSubstitutionsSource(groupId, enabled = true) {
   const [rules, setRules] = useState([])
   const [optOutIds, setOptOutIds] = useState(() => new Set())
 
   const refresh = useCallback(async () => {
+    if (!enabled) return
     const [{ data: ruleRows, error: ruleError }, { data: optRows, error: optError }] = await Promise.all([
       supabase.from('ingredient_substitutions').select('id, from_catalog_id, to_catalog_id, ratio, note, group_id'),
       supabase.from('substitution_opt_outs').select('substitution_id'),
@@ -15,7 +23,7 @@ export function useSubstitutions(groupId) {
     if (ruleError || optError) console.error('代替ルールの取得に失敗しました', ruleError ?? optError)
     setRules(ruleRows ?? [])
     setOptOutIds(new Set((optRows ?? []).map((r) => r.substitution_id)))
-  }, [])
+  }, [enabled])
 
   useEffect(() => {
     refresh()
@@ -52,5 +60,5 @@ export function useSubstitutions(groupId) {
     [refresh]
   )
 
-  return { rules: enabledRules, disabledRules, disableRule, enableRule }
+  return useMemo(() => ({ rules: enabledRules, disabledRules, disableRule, enableRule }), [enabledRules, disabledRules, disableRule, enableRule])
 }

@@ -1,9 +1,16 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/supabaseClient'
+import { debounce, useSharedKitchen } from '@/hooks/kitchenData'
 
 // グループの食材ロット(数量+追加日)を取得し、他メンバーの変更をリアルタイムに反映する。
 // RLSにより自分のグループの行しか届かないので、group_idでの明示的な絞り込みは不要。
 export function useIngredientBatches(groupId) {
+  const shared = useSharedKitchen('batches', groupId)
+  const own = useIngredientBatchesSource(shared ? null : groupId)
+  return shared ?? own
+}
+
+export function useIngredientBatchesSource(groupId) {
   const [batches, setBatches] = useState([])
 
   const refresh = useCallback(async () => {
@@ -29,15 +36,17 @@ export function useIngredientBatches(groupId) {
   useEffect(() => {
     if (!groupId) return
 
+    const reload = debounce(refresh)
     const channel = supabase
       .channel(`ingredient-batches-${groupId}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'ingredient_batches' }, () => refresh())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'ingredient_batches' }, () => reload())
       .subscribe()
 
     return () => {
+      reload.cancel()
       supabase.removeChannel(channel)
     }
   }, [groupId, refresh])
 
-  return { batches, refresh }
+  return useMemo(() => ({ batches, refresh }), [batches, refresh])
 }

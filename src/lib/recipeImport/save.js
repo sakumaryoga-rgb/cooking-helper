@@ -3,7 +3,7 @@ import { mergeResolved, normalizeName } from './match'
 const DUPLICATE_MESSAGE = 'このレシピはすでに保存されています'
 
 // 保存先の食材(冷蔵庫の行)を用意する。ない食材は在庫0で作る(手動の材料選択と同じ扱い)
-async function ensureIngredient(supabase, groupId, row, fridge) {
+export async function ensureIngredient(supabase, groupId, row, fridge) {
   if (row.kind === 'existing') return row.ingredient.id
   const name = row.kind === 'catalog' ? row.catalogItem.name : row.name
   const found = fridge.find(
@@ -25,7 +25,7 @@ async function ensureIngredient(supabase, groupId, row, fridge) {
 }
 
 // items: 画面で確認した材料(resolveIngredient の結果、または手動で選んだ食材)
-export async function saveRecipe({ supabase, groupId, userId, title, url, sourceKey, sourceSite, servings, items, fridge }) {
+export async function saveRecipe({ supabase, groupId, userId, title, url, sourceKey, sourceSite, servings, items, fridge, extras = {} }) {
   const rows = mergeResolved(items)
   if (!title.trim()) return { error: 'タイトルを入力してください' }
   if (rows.length === 0) return { error: '材料を1つ以上、必要な分量を入力して追加してください' }
@@ -57,7 +57,10 @@ export async function saveRecipe({ supabase, groupId, userId, title, url, source
       created_by: userId,
       source_key: sourceKey ?? null,
       source_site: sourceSite ?? null,
-      servings: servings ?? null,
+      servings: extras.servings ?? servings ?? null,
+      instructions: extras.instructions ?? null,
+      memo: extras.memo ?? null,
+      icon: extras.icon ?? null,
     })
     .select('id')
     .single()
@@ -83,4 +86,32 @@ export async function findDuplicate(supabase, groupId, sourceKey) {
   if (!sourceKey) return null
   const { data } = await supabase.from('recipes').select('id, title').eq('group_id', groupId).eq('source_key', sourceKey).maybeSingle()
   return data ?? null
+}
+
+// 保存したレシピのカスタマイズ。新しい食材は先に冷蔵庫の行(在庫0)を用意し、
+// レシピと材料の差し替えは update_recipe(migration 023)が1つのトランザクションで行う
+export async function updateRecipe({ supabase, groupId, recipeId, title, items, fridge, extras }) {
+  const rows = mergeResolved(items)
+  if (!title.trim()) return { error: '料理名を入力してください' }
+  if (rows.length === 0) return { error: '材料を1つ以上、必要な分量を入力して追加してください' }
+  const pItems = []
+  try {
+    for (const row of rows) {
+      const id = await ensureIngredient(supabase, groupId, row, fridge)
+      pItems.push({ ingredient_id: id, required_quantity: row.requiredQuantity, raw_text: row.rawText ?? null })
+    }
+  } catch (e) {
+    return { error: e.message }
+  }
+  const { error } = await supabase.rpc('update_recipe', {
+    p_recipe_id: recipeId,
+    p_title: title,
+    p_servings: extras.servings,
+    p_instructions: extras.instructions,
+    p_memo: extras.memo,
+    p_icon: extras.icon,
+    p_items: pItems,
+  })
+  if (error) return { error: error.message || 'レシピを保存できませんでした' }
+  return { recipeId }
 }

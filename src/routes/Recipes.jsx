@@ -13,7 +13,7 @@ import { dishLook } from '@/lib/foodLook'
 const FILTERS = [
   { id: 'all', label: 'すべて', emoji: '📖', match: () => true },
   { id: 'makeable', label: '作れる', emoji: '✨', match: (s) => s.level === 'makeable' },
-  { id: 'substitutable', label: '代替で作れる', emoji: '🔄', match: (s) => s.level === 'substitutable' },
+  { id: 'substitutable', label: '代替で作れる', emoji: '🪄', match: (s) => s.level === 'substitutable' },
   { id: 'short', label: '不足あり', emoji: '🛒', match: (s) => s.level === 'almost' || s.level === 'short' },
 ]
 
@@ -74,15 +74,9 @@ export function Recipes({ groupId }) {
       {loading ? (
         <p className="text-sm text-muted-foreground">読み込み中...</p>
       ) : sorted.length === 0 ? (
-        <div className="flex flex-col items-center gap-2 py-10 text-center text-sm text-muted-foreground">
-          <span className="text-5xl" aria-hidden="true">🍽️</span>
-          <p>まだレシピがありません。「追加」から登録しましょう。</p>
-        </div>
+        <p className="py-10 text-center text-sm text-muted-foreground">まだレシピがありません。「追加」から登録しましょう。</p>
       ) : visible.length === 0 ? (
-        <div className="flex flex-col items-center gap-2 py-10 text-center text-sm text-muted-foreground">
-          <span className="text-5xl" aria-hidden="true">🔍</span>
-          <p>条件に合うレシピはありません</p>
-        </div>
+        <p className="py-10 text-center text-sm text-muted-foreground">条件に合うレシピはありません</p>
       ) : (
         <ul className="flex flex-col gap-2.5">
           {visible.map(({ recipe, status }) => (

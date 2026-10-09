@@ -69,7 +69,8 @@ const PLATES = ['bg-amber-100', 'bg-rose-100', 'bg-sky-100', 'bg-emerald-100', '
 
 export function dishLook(recipe) {
   const title = recipe?.title ?? ''
-  const found = DISH_LOOK.find(([re]) => re.test(title))
+  // 自分で選んだ絵があればそれを使う
+  const found = recipe?.icon ? [null, recipe.icon] : DISH_LOOK.find(([re]) => re.test(title))
   let h = 0
   for (const ch of String(recipe?.id ?? title)) h = (h * 31 + ch.charCodeAt(0)) >>> 0
   return { emoji: found ? found[1] : '🍽️', bg: PLATES[h % PLATES.length] }

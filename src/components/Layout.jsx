@@ -1,8 +1,10 @@
+import { Suspense } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
 import { Home, ChefHat, Refrigerator, Settings } from 'lucide-react'
 import { AdSlot } from '@/components/AdSlot'
 import { BrandMark } from '@/components/BrandMark'
 import { HouseBadge } from '@/components/HouseSwitcher'
+import { KitchenDataProvider } from '@/components/KitchenDataProvider'
 import { APP_NAME } from '@/lib/brand'
 
 // 下部タブ4つ(設計書 4 章)。親指が届く下側に置き、iPhone の安全領域の分だけ余白を足す
@@ -38,7 +40,15 @@ export function Layout({ groupId, groupName, notice, onDismissNotice }) {
             </button>
           </div>
         )}
-        <Outlet />
+        <Suspense fallback={<p className="text-sm text-muted-foreground">読み込み中...</p>}>
+          {groupId ? (
+            <KitchenDataProvider groupId={groupId}>
+              <Outlet />
+            </KitchenDataProvider>
+          ) : (
+            <Outlet />
+          )}
+        </Suspense>
         <AdSlot />
       </main>
 

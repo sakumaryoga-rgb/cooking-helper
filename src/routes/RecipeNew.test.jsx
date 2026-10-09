@@ -77,3 +77,30 @@ describe('レシピURLの取り込み', () => {
     expect(screen.getByRole('button', { name: '材料を選択' })).toBeInTheDocument()
   })
 })
+
+describe('自分で考えたレシピ', () => {
+  beforeEach(() => {
+    vi.mocked(saveRecipe).mockReset()
+    vi.mocked(saveRecipe).mockResolvedValue({ recipeId: 'r9' })
+  })
+
+  it('URLなしで、料理名・作り方・メモ・人数・絵をつけて保存できる', async () => {
+    renderPage()
+    await userEvent.click(screen.getByRole('tab', { name: '自分で考える' }))
+    expect(screen.queryByLabelText('レシピのURL')).not.toBeInTheDocument()
+    await userEvent.type(screen.getByLabelText('料理名'), 'おばあちゃんの肉じゃが')
+    await userEvent.click(screen.getByRole('radio', { name: '絵 🍲' }))
+    await userEvent.type(screen.getByLabelText('何人分'), '4')
+    await userEvent.type(screen.getByLabelText('作り方'), '具を切る{enter}煮る')
+    await userEvent.type(screen.getByLabelText('わが家のメモ'), '甘めに')
+    await userEvent.click(screen.getByRole('button', { name: 'レシピを保存' }))
+    expect(saveRecipe).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'おばあちゃんの肉じゃが',
+        url: null,
+        sourceKey: null,
+        extras: { icon: '🍲', servings: 4, instructions: '具を切る\n煮る', memo: '甘めに' },
+      })
+    )
+  })
+})

@@ -1,21 +1,15 @@
-import { useCallback, useEffect } from 'react'
+import { Suspense, lazy, useCallback, useEffect } from 'react'
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { Loader2 } from 'lucide-react'
 import { useSession } from '@/hooks/useSession'
 import { useGroup } from '@/hooks/useGroup'
 import { Login } from '@/routes/Login'
 import { AuthCallback } from '@/routes/AuthCallback'
-import { Onboarding } from '@/routes/Onboarding'
 import { Fridge } from '@/routes/Fridge'
 import { Recipes } from '@/routes/Recipes'
-import { RecipeNew } from '@/routes/RecipeNew'
 import { RecipeDetail } from '@/routes/RecipeDetail'
 import { Settings } from '@/routes/Settings'
-import { HouseManage } from '@/routes/HouseManage'
 import { Home } from '@/routes/Home'
-import { Terms, Privacy } from '@/routes/Legal'
-import { Contact } from '@/routes/Contact'
-import { Admin } from '@/routes/Admin'
 import { ConsentScreen } from '@/components/ConsentScreen'
 import { useConsent } from '@/hooks/useConsent'
 import { usePendingInvite } from '@/hooks/usePendingInvite'
@@ -25,6 +19,16 @@ import { PreviewBanner } from '@/components/PreviewBanner'
 import { BrandMark } from '@/components/BrandMark'
 import { useTelemetry } from '@/hooks/useTelemetry'
 import { capturePendingInvite } from '@/lib/invite'
+
+// めったに開かない画面は、開いたときに読み込む(起動時に読み込む量を減らす)
+const Onboarding = lazy(() => import('@/routes/Onboarding').then((m) => ({ default: m.Onboarding })))
+const RecipeNew = lazy(() => import('@/routes/RecipeNew').then((m) => ({ default: m.RecipeNew })))
+const RecipeEdit = lazy(() => import('@/routes/RecipeEdit').then((m) => ({ default: m.RecipeEdit })))
+const HouseManage = lazy(() => import('@/routes/HouseManage').then((m) => ({ default: m.HouseManage })))
+const Terms = lazy(() => import('@/routes/Legal').then((m) => ({ default: m.Terms })))
+const Privacy = lazy(() => import('@/routes/Legal').then((m) => ({ default: m.Privacy })))
+const Contact = lazy(() => import('@/routes/Contact').then((m) => ({ default: m.Contact })))
+const Admin = lazy(() => import('@/routes/Admin').then((m) => ({ default: m.Admin })))
 
 function FullScreenLoader() {
   return (
@@ -75,6 +79,7 @@ export default function App() {
     <>
       <PreviewBanner />
       <UpdatePrompt />
+      <Suspense fallback={<FullScreenLoader />}>
       <Routes>
         <Route path="/auth/callback" element={<AuthCallback />} />
         {/* 規約とポリシーは、ログイン前・同意前でも読めるようにする */}
@@ -103,6 +108,7 @@ export default function App() {
             <Route path="/recipes" element={<Recipes groupId={group.id} />} />
             <Route path="/recipes/new" element={<RecipeNew groupId={group.id} userId={session.user.id} />} />
             <Route path="/recipes/:id" element={<RecipeDetail groupId={group.id} />} />
+            <Route path="/recipes/:id/edit" element={<RecipeEdit groupId={group.id} />} />
             <Route path="/settings" element={<Settings group={group} groups={groups} onSelectGroup={selectGroup} onGroupsChanged={refreshGroup} email={session.user.email} userId={session.user.id} />} />
             <Route path="/settings/houses/:id" element={<HouseManage groups={groups} userId={session.user.id} onGroupsChanged={refreshGroup} />} />
             <Route path="/group" element={<Navigate to="/settings" replace />} />
@@ -112,6 +118,7 @@ export default function App() {
           </Route>
         )}
       </Routes>
+      </Suspense>
     </>
   )
 }
