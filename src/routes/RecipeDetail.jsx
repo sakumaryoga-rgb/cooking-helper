@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
-import { ExternalLink, Check, ChefHat, Minus, Pencil, Plus } from 'lucide-react'
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
+import { ArrowLeft, BookOpen, CheckCircle2, ExternalLink, Check, ChefHat, Minus, Pencil, Plus, X } from 'lucide-react'
 import { useIngredients } from '@/hooks/useIngredients'
 import { useRecipes } from '@/hooks/useRecipes'
 import { useIngredientCatalog } from '@/hooks/useIngredientCatalog'
@@ -21,12 +21,17 @@ import { Input } from '@/components/ui/input'
 import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { MakeableBadge } from '@/components/MakeableBadge'
 import { dishLook } from '@/lib/foodLook'
+import { savedUsageMismatches } from '@/lib/recipeSteps'
 
 // 確定のあとに「取り消す」を出しておく時間
 const UNDO_TOAST_MS = 8000
 
 export function RecipeDetail({ groupId }) {
   const { id } = useParams()
+  const location = useLocation()
+  const navigate = useNavigate()
+  // 追加・取り込みの直後(RecipeNew から)は「保存しました」と一覧への導線を出す
+  const [savedNotice, setSavedNotice] = useState(() => location.state?.saved === 'created')
   const { ingredients, refresh: refreshIngredients } = useIngredients(groupId)
   const { recipes, loading, refresh: refreshRecipes } = useRecipes(groupId)
   const { aliases } = useIngredientAliases()
@@ -159,12 +164,41 @@ export function RecipeDetail({ groupId }) {
   }
 
   if (loading) return <p className="text-sm text-muted-foreground">読み込み中...</p>
-  if (!recipe) return <p className="text-sm text-muted-foreground">レシピが見つかりません</p>
+  if (!recipe)
+    return (
+      <div className="flex flex-col items-start gap-3">
+        <p className="text-sm text-muted-foreground">レシピが見つかりません(削除されたか、ほかの家のレシピです)</p>
+        <Link to="/recipes" replace className="text-sm underline underline-offset-2">
+          レシピ一覧へ
+        </Link>
+      </div>
+    )
 
   const shownServings = servings ?? baseServings
+  const stepMismatches = savedUsageMismatches(recipe.steps, recipe.recipe_ingredients ?? [])
+  const nameOfUse = (u) => (u.ingredient_id ? ingredientsById.get(u.ingredient_id)?.name ?? (recipe.recipe_ingredients ?? []).find((r) => r.ingredient_id === u.ingredient_id)?.ingredient?.name : u.source_name) ?? '(材料)'
+  const unitOfUse = (u) => (u.ingredient_id ? ingredientsById.get(u.ingredient_id)?.unit ?? '' : '')
 
   return (
     <div className="flex flex-col gap-4 pb-16">
+      <Link to="/recipes" className="inline-flex w-fit items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
+        <ArrowLeft className="size-4" />
+        レシピ一覧
+      </Link>
+
+      {savedNotice && (
+        <div role="status" className="flex items-center gap-2 rounded-2xl bg-emerald-50 px-3 py-2.5 text-sm text-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200">
+          <CheckCircle2 className="size-4 shrink-0" />
+          <span className="flex-1">レシピ帳に保存しました</span>
+          <Button size="sm" variant="outline" className="h-7 rounded-full bg-background" onClick={() => navigate('/recipes')}>
+            レシピ一覧へ
+          </Button>
+          <button type="button" aria-label="閉じる" className="rounded-full p-1 hover:bg-emerald-100 dark:hover:bg-emerald-900" onClick={() => setSavedNotice(false)}>
+            <X className="size-3.5" />
+          </button>
+        </div>
+      )}
+
       <div className="flex items-start gap-3">
         <span className={`flex size-16 shrink-0 items-center justify-center rounded-2xl text-4xl ${dishLook(recipe).bg}`} aria-hidden="true">
           {dishLook(recipe).emoji}
@@ -183,6 +217,7 @@ export function RecipeDetail({ groupId }) {
         </div>
         <Link
           to={`/recipes/${recipe.id}/edit`}
+          state={{ from: 'detail' }}
           className="flex shrink-0 items-center gap-1 rounded-full border bg-card px-3 py-1.5 text-xs font-medium shadow-sm hover:bg-accent/50"
         >
           <Pencil className="size-3.5" />
@@ -334,22 +369,75 @@ export function RecipeDetail({ groupId }) {
         })}
       </ul>
 
-      {recipe.instructions && (
+      {recipe.url && (
+        // URL から取り込んだレシピ: 作り方は元のページで見る
+        <a
+          href={recipe.url}
+          target="_blank"
+          rel="noreferrer"
+          className="group flex items-center gap-3 rounded-2xl border-2 border-primary/60 bg-primary/10 px-4 py-3 shadow-sm transition-colors hover:bg-primary/20"
+        >
+          <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground">
+            <BookOpen className="size-5" />
+          </span>
+          <span className="flex min-w-0 flex-1 flex-col">
+            <span className="text-sm font-semibold">元のレシピで作り方を見る</span>
+            <span className="truncate text-xs text-muted-foreground">{recipe.source_site ? `${recipe.source_site} のページを開きます` : recipe.url}</span>
+          </span>
+          <ExternalLink className="size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+        </a>
+      )}
+
+      {Array.isArray(recipe.steps) && recipe.steps.length > 0 ? (
+        // 手順ごとの材料と量(オリジナルレシピ)
         <section className="flex flex-col gap-2">
           <h2 className="text-base font-semibold">作り方</h2>
           <ol className="flex flex-col gap-2">
-            {recipe.instructions
-              .split('\n')
-              .map((step) => step.trim())
-              .filter(Boolean)
-              .map((step, i) => (
-                <li key={i} className="flex gap-2.5 rounded-2xl border bg-card px-3 py-2.5 text-sm">
-                  <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground">{i + 1}</span>
-                  <span className="whitespace-pre-wrap">{step.replace(/^\d+[.)、.]\s*/, '')}</span>
-                </li>
-              ))}
+            {recipe.steps.map((step, i) => (
+              <li key={i} className="flex gap-2.5 rounded-2xl border bg-card px-3 py-2.5 text-sm">
+                <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground">{i + 1}</span>
+                <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+                  {step.text && <span className="whitespace-pre-wrap">{step.text}</span>}
+                  {(step.uses ?? []).length > 0 && (
+                    <ul className="flex flex-wrap gap-1.5" aria-label={`手順${i + 1}で使う材料`}>
+                      {step.uses.map((u, k) => (
+                        <li key={k} className="rounded-full bg-muted px-2 py-0.5 text-xs">
+                          {nameOfUse(u)}
+                          {u.quantity ? ` ${formatQuantity(u.quantity)}${unitOfUse(u)}` : ''}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </li>
+            ))}
           </ol>
+          {stepMismatches.length > 0 && (
+            <p className="text-xs text-muted-foreground">
+              手順の量の合計が材料の分量と違う材料があります(
+              {stepMismatches.map((m) => `${nameOfUse({ ingredient_id: m.ingredientId })} 手順${m.stepsTotal}/材料${m.recipeQuantity}${unitOfUse({ ingredient_id: m.ingredientId })}`).join('、')}
+              )。在庫は材料の分量で引きます
+            </p>
+          )}
         </section>
+      ) : (
+        recipe.instructions && (
+          <section className="flex flex-col gap-2">
+            <h2 className="text-base font-semibold">作り方{recipe.url ? '(メモ)' : ''}</h2>
+            <ol className="flex flex-col gap-2">
+              {recipe.instructions
+                .split('\n')
+                .map((step) => step.trim())
+                .filter(Boolean)
+                .map((step, i) => (
+                  <li key={i} className="flex gap-2.5 rounded-2xl border bg-card px-3 py-2.5 text-sm">
+                    <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground">{i + 1}</span>
+                    <span className="whitespace-pre-wrap">{step.replace(/^\d+[.)、.]\s*/, '')}</span>
+                  </li>
+                ))}
+            </ol>
+          </section>
+        )
       )}
 
       {recipe.memo && (

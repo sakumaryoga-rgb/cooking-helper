@@ -122,8 +122,10 @@ export function mergeResolved(rows) {
       prev.requiredQuantity = prev.requiredQuantity !== '' && known && prev.unit === row.unit ? round(prev.requiredQuantity + qty) : ''
       prev.amountText = [prev.amountText, row.amountText].filter(Boolean).join(' + ').slice(0, 60)
       prev.note = [...new Set([prev.note, row.note].filter(Boolean))].join('・') || null
+      if (row.key) prev.memberKeys.push(row.key)
     } else {
-      merged.set(key, { ...row, requiredQuantity: known ? qty : '' })
+      // memberKeys: まとめた元の行(手順で使う材料を、保存先の食材に結び付けるため)
+      merged.set(key, { ...row, requiredQuantity: known ? qty : '', memberKeys: row.key ? [row.key] : [] })
     }
   }
   return [...merged.values()]

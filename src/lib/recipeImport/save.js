@@ -1,5 +1,6 @@
 import { mergeResolved, normalizeName } from './match'
 import { guessCategory } from '@/lib/ingredientCategory'
+import { stepsToInstructions, stepsToSaved } from '@/lib/recipeSteps'
 
 const DUPLICATE_MESSAGE = 'このレシピはすでに保存されています'
 
@@ -62,6 +63,8 @@ async function toIngredientRows(supabase, groupId, items, fridge) {
   const rows = mergeResolved(items)
   const byIngredient = new Map()
   const pending = []
+  // 材料の一覧の行(key)→ 保存先({ ingredient_id } か 確認待ちの { source_name })。手順で使う材料に使う
+  const targets = new Map()
   for (const row of rows) {
     const qty = Number(row.requiredQuantity) > 0 ? Number(row.requiredQuantity) : null
     const base = {
@@ -71,10 +74,13 @@ async function toIngredientRows(supabase, groupId, items, fridge) {
       note: row.note ? String(row.note).slice(0, 60) : null,
     }
     if (row.needsChoice) {
-      pending.push({ ...base, ingredient_id: null, source_name: String(row.sourceName || row.name).slice(0, 80) })
+      const sourceName = String(row.sourceName || row.name).slice(0, 80)
+      pending.push({ ...base, ingredient_id: null, source_name: sourceName })
+      for (const k of row.memberKeys ?? []) targets.set(k, { source_name: sourceName })
       continue
     }
     const id = await ensureIngredient(supabase, groupId, row, fridge)
+    for (const k of row.memberKeys ?? []) targets.set(k, { ingredient_id: id })
     const prev = byIngredient.get(id)
     if (prev) {
       prev.required_quantity = prev.required_quantity != null && qty != null ? Math.round((prev.required_quantity + qty) * 100) / 100 : null
@@ -85,10 +91,18 @@ async function toIngredientRows(supabase, groupId, items, fridge) {
       byIngredient.set(id, { ...base, ingredient_id: id, source_name: null })
     }
   }
-  return [...byIngredient.values(), ...pending]
+  const out = [...byIngredient.values(), ...pending]
+  out.targets = targets
+  return out
 }
 
-export async function saveRecipe({ supabase, groupId, userId, title, url, sourceKey, sourceSite, servings, items, fridge, extras = {} }) {
+// 手順(編集中の形)を保存する形にする。steps がなければ undefined(手順の記録は変えない)
+function savedSteps(steps, items, targets) {
+  if (!steps) return undefined
+  return stepsToSaved(steps, items, (item) => targets.get(item.key) ?? null)
+}
+
+export async function saveRecipe({ supabase, groupId, userId, title, url, sourceKey, sourceSite, servings, items, fridge, extras = {}, steps }) {
   if (!title.trim()) return { error: 'タイトルを入力してください' }
   if (!items.some((i) => i.include)) return { error: '材料を1つ以上追加してください' }
 
@@ -109,9 +123,11 @@ export async function saveRecipe({ supabase, groupId, userId, title, url, source
       source_key: sourceKey ?? null,
       source_site: sourceSite ?? null,
       servings: extras.servings ?? servings ?? null,
-      instructions: extras.instructions ?? null,
+      instructions: steps ? stepsToInstructions(steps) || null : extras.instructions ?? null,
       memo: extras.memo ?? null,
       icon: extras.icon ?? null,
+      // 手順ごとの材料(オリジナルレシピだけ。migration 025)
+      ...(steps ? { steps: savedSteps(steps, items, ingredientRows.targets).length ? savedSteps(steps, items, ingredientRows.targets) : null } : {}),
     })
     .select('id')
     .single()
@@ -159,7 +175,7 @@ export async function findDuplicate(supabase, groupId, sourceKey) {
 
 // 保存したレシピのカスタマイズ。新しい食材は先に冷蔵庫の行(在庫0)を用意し、
 // レシピと材料の差し替えは update_recipe(migration 023)が1つのトランザクションで行う
-export async function updateRecipe({ supabase, groupId, recipeId, title, items, fridge, extras }) {
+export async function updateRecipe({ supabase, groupId, recipeId, title, items, fridge, extras, steps }) {
   if (!title.trim()) return { error: '料理名を入力してください' }
   if (!items.some((i) => i.include)) return { error: '材料を1つ以上追加してください' }
   let pItems
@@ -172,10 +188,12 @@ export async function updateRecipe({ supabase, groupId, recipeId, title, items, 
     p_recipe_id: recipeId,
     p_title: title,
     p_servings: extras.servings,
-    p_instructions: extras.instructions,
+    p_instructions: steps ? stepsToInstructions(steps) || null : extras.instructions,
     p_memo: extras.memo,
     p_icon: extras.icon,
-    p_items: pItems,
+    p_items: pItems.map((r) => ({ ...r })),
+    // 手順を編集しない(URL から取り込んだレシピ)ときは送らない = 変えない
+    ...(steps ? { p_steps: savedSteps(steps, items, pItems.targets) } : {}),
   })
   if (error) return { error: error.message || 'レシピを保存できませんでした' }
   await learnAliases(supabase, groupId, items)

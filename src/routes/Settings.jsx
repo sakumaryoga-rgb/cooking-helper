@@ -3,7 +3,7 @@ import { Copy, Check, Crown, Link2, LogOut, Settings2 } from 'lucide-react'
 import { Link, useNavigate } from 'react-router-dom'
 import { HouseSwitcher } from '@/components/HouseSwitcher'
 import { memberLabel, useHouseMembers } from '@/hooks/useHouseMembers'
-import { maskEmail } from '@/lib/maskEmail'
+import { PlanCard } from '@/components/PlanCard'
 import { markSignOutRequested } from '@/lib/sessionNotice'
 import { parseInviteToken } from '@/lib/invite'
 import { supabase } from '@/supabaseClient'
@@ -245,7 +245,10 @@ export function Settings({ group, groups = [group], onSelectGroup, onGroupsChang
       <Card>
         <CardHeader>
           <CardTitle className="text-base">アカウント</CardTitle>
-          <CardDescription>{maskEmail(email)}</CardDescription>
+          {/* 本人のメールアドレス(Supabase Auth のセッションから。アプリの DB には保存しない。家族には表示しない) */}
+          <CardDescription className="break-all">
+            ログイン中のメールアドレス: <span className="font-medium text-foreground">{email}</span>
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <Button variant="outline" className="w-full" onClick={handleSignOut}>
@@ -300,12 +303,7 @@ export function Settings({ group, groups = [group], onSelectGroup, onGroupsChang
           </CardContent>
         </Card>
       )}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">プラン</CardTitle>
-          <CardDescription>準備中です</CardDescription>
-        </CardHeader>
-      </Card>
+      <PlanCard />
 
       <Card>
         <CardContent className="flex flex-col gap-2 text-sm">

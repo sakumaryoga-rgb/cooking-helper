@@ -9,7 +9,8 @@ const AMOUNT_START = new RegExp(`^(?:${SHARED}|約)*(?:[0-9.\\/½¼¾⅓⅔]|大
 const BRACKET = /[(（[【<＜〈《]([^)）\]】>＞〉》]*)[)）\]】>＞〉》]/g
 
 function toHalfWidth(text) {
-  return String(text).normalize('NFKC')
+  // 「200ɡ」(ラテン文字の ɡ)も g とみなす
+  return String(text).normalize('NFKC').replace(/ɡ/g, 'g')
 }
 
 function parseNumber(text) {
@@ -83,7 +84,12 @@ function bracketNotes(text) {
 }
 
 export function parseIngredientLine(raw) {
-  const line = String(raw ?? '').trim()
+  // 名前と分量を「…」で区切る書き方(「塩…小さじ1/4」)は空白とみなす。グループの記号(「Aみりん」の A)は外す
+  const line = String(raw ?? '')
+    .replace(/\s*[…‥]+\s*/g, ' ')
+    .replace(/ɡ/g, 'g')
+    .trim()
+    .replace(/^[A-EＡ-Ｅ](?=[\u3040-\u30ff\u4e00-\u9fff])/, '')
   const notes = []
   let name
   let amountText = ''

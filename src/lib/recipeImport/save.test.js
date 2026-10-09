@@ -163,3 +163,21 @@ describe('冷蔵庫とレシピの食材の整合性', () => {
     expect(supabase.calls.find((c) => c.table === 'ingredient_aliases').row).toEqual({ group_id: 'g1', catalog_id: 'c-potato', alias: 'メークイン' })
   })
 })
+
+describe('手順ごとの材料の保存', () => {
+  it('手順で使う材料を、保存先の食材(まとめた行も含む)に結び付けて保存する', async () => {
+    const supabase = mockSupabase()
+    await saveRecipe({
+      supabase, groupId: 'g1', userId: 'u1', title: '肉じゃが', url: null, fridge,
+      items: [
+        { key: 'a', kind: 'existing', ingredient: fridge[0], name: 'きゅうり', unit: '本', requiredQuantity: 1, include: true },
+        { key: 'b', kind: 'existing', ingredient: fridge[0], name: 'きゅうり', unit: '本', requiredQuantity: 1, include: true },
+      ],
+      steps: [{ id: 's1', text: '切る', uses: [{ itemKey: 'a', quantity: '1' }, { itemKey: 'b', quantity: '1' }] }],
+    })
+    const recipe = supabase.calls.find((c) => c.table === 'recipes').row
+    expect(recipe.instructions).toBe('切る')
+    expect(recipe.steps).toEqual([{ text: '切る', uses: [{ ingredient_id: 'i1', quantity: 1 }, { ingredient_id: 'i1', quantity: 1 }] }])
+  })
+})
+

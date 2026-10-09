@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, Trash2 } from 'lucide-react'
 import { supabase } from '@/supabaseClient'
 import { useIngredients } from '@/hooks/useIngredients'
@@ -9,6 +9,8 @@ import { useIngredientAliases } from '@/hooks/useIngredientAliases'
 import { buildNameIndex, matchIngredientName } from '@/lib/ingredientName'
 import { RecipeItemsEditor, keyOf } from '@/components/RecipeItemsEditor'
 import { RecipeExtrasFields, normalizeExtras } from '@/components/RecipeExtrasFields'
+import { RecipeStepsEditor } from '@/components/RecipeStepsEditor'
+import { stepsFromSaved } from '@/lib/recipeSteps'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -37,6 +39,11 @@ export function RecipeEdit({ groupId }) {
 
 function RecipeEditForm({ recipe, groupId, ingredients, catalog = [], aliases = [] }) {
   const navigate = useNavigate()
+  const location = useLocation()
+  // 詳細画面から開いたときは、保存・やめるで履歴を1つ戻る(詳細画面を二重に積まない)
+  const fromDetail = location.state?.from === 'detail'
+  const backToDetail = () => (fromDetail ? navigate(-1) : navigate(`/recipes/${recipe.id}`, { replace: true }))
+  const original = !recipe.url
   const [title, setTitle] = useState(recipe.title)
   const [items, setItems] = useState(() => {
     const index = buildNameIndex({ ingredients, catalog, aliases })
@@ -68,6 +75,8 @@ function RecipeEditForm({ recipe, groupId, ingredients, catalog = [], aliases = 
       return { ...common, kind: 'existing', ingredient, name: ingredient.name, unit: ingredient.unit }
     })
   })
+  // 作り方(オリジナルレシピだけ。URL から取り込んだレシピは元のページで見るので編集しない。保存済みの作り方は消さない)
+  const [steps, setSteps] = useState(() => (original ? stepsFromSaved(recipe.steps, recipe.instructions, items) : null))
   const [extras, setExtras] = useState({
     icon: recipe.icon ?? '',
     servings: recipe.servings ? String(recipe.servings) : '',
@@ -105,18 +114,29 @@ function RecipeEditForm({ recipe, groupId, ingredients, catalog = [], aliases = 
       items,
       fridge: ingredients,
       extras: normalizeExtras(extras),
+      steps: original ? steps : undefined,
     })
     setSaving(false)
     if (result.error) {
       setError(result.error)
       return
     }
-    navigate(`/recipes/${recipe.id}`, { replace: true })
+    backToDetail()
   }
 
   return (
     <div className="flex flex-col gap-4">
-      <Link to={`/recipes/${recipe.id}`} className="inline-flex w-fit items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
+      <Link
+        to={`/recipes/${recipe.id}`}
+        replace
+        onClick={(e) => {
+          if (fromDetail) {
+            e.preventDefault()
+            navigate(-1)
+          }
+        }}
+        className="inline-flex w-fit items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+      >
         <ArrowLeft className="size-4" />
         レシピに戻る
       </Link>
@@ -141,6 +161,14 @@ function RecipeEditForm({ recipe, groupId, ingredients, catalog = [], aliases = 
           emptyText="材料がありません。「材料を選択」から追加してください"
         />
 
+        {original ? (
+          <RecipeStepsEditor steps={steps} setSteps={setSteps} items={items} />
+        ) : (
+          <p className="rounded-2xl bg-muted/60 px-3 py-2 text-xs text-muted-foreground">
+            作り方は元のレシピのページで見られます(このレシピの画面の「元のレシピで作り方を見る」から)
+          </p>
+        )}
+
         <RecipeExtrasFields value={extras} onChange={(patch) => setExtras((prev) => ({ ...prev, ...patch }))} />
 
         {error && (
@@ -150,7 +178,7 @@ function RecipeEditForm({ recipe, groupId, ingredients, catalog = [], aliases = 
         )}
 
         <div className="flex gap-2">
-          <Button type="button" variant="outline" className="flex-1" onClick={() => navigate(`/recipes/${recipe.id}`)}>
+          <Button type="button" variant="outline" className="flex-1" onClick={backToDetail}>
             やめる
           </Button>
           <Button type="submit" className="flex-1" disabled={saving}>

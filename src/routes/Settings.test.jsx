@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { Settings } from './Settings'
@@ -59,8 +59,9 @@ describe('設定画面', () => {
     render(<MemoryRouter><Settings group={group} email="me@example.com" userId="u1" /></MemoryRouter>)
     expect(await screen.findByText('メンバー(2人)')).toBeInTheDocument()
     expect(screen.getByText('あなた')).toBeInTheDocument()
-    expect(screen.getByText('m***@ex***.com')).toBeInTheDocument()
-    expect(screen.queryByText('me@example.com')).not.toBeInTheDocument()
+    // 本人のアカウントでは、メールアドレスを全文で出す(家族のメンバーの一覧には出さない)
+    expect(screen.getByText('me@example.com')).toBeInTheDocument()
+    expect(screen.getByText('あなた').closest('li')).not.toHaveTextContent('@')
     await userEvent.click(screen.getByRole('button', { name: 'この端末でサインアウト' }))
     expect(supabase.auth.signOut).toHaveBeenCalledWith({ scope: 'local' })
   })
@@ -117,5 +118,16 @@ describe('設定画面', () => {
     expect(del.eq).toHaveBeenCalledWith('alias', 'メークイン')
     await waitFor(() => expect(refreshAliases).toHaveBeenCalled())
     aliasRows = []
+  })
+
+  it('プランは、いま使える機能(無料)と準備中の予定を分けて示し、申し込みのボタンは出さない', () => {
+    mockRpc({ get_group_invite_status: () => ({ data: [], error: null }) })
+    render(<MemoryRouter><Settings group={group} email="me@example.com" userId="u1" /></MemoryRouter>)
+    const plan = screen.getByRole('region', { name: 'プラン' })
+    expect(plan).toHaveTextContent('いまはすべての機能を無料で使えます')
+    expect(plan).toHaveTextContent('今後の予定(準備中・まだ使えません)')
+    expect(plan).toHaveTextContent('現在、有料プランのお申し込みはできません')
+    expect(within(plan).queryAllByRole('button')).toHaveLength(0)
+    expect(within(plan).queryAllByRole('link')).toHaveLength(0)
   })
 })
