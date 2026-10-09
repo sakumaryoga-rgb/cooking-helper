@@ -87,6 +87,35 @@ begin
   assert (select title from recipes where id = current_setting('test.r')::uuid) = 'ふわとろオムレツ';
 end $$;
 
+-- 2つの家に所属する人でも、選んでいない家のレシピは変えられず、選んでいない家の食材は材料にできない
+reset role;
+insert into group_members (group_id, user_id)
+select group_id, '00000000-0000-4000-8000-0000000cc001' from ingredients where id = current_setting('test.t_pork')::uuid;
+set role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-4000-8000-0000000cc001', false);
+-- T家を選んでいる状態で S家のレシピを更新 → 権限なし
+select set_config('request.headers', json_build_object('x-cookdoor-group', (select group_id from ingredients where id = current_setting('test.t_pork')::uuid))::text, false);
+do $$
+begin
+  assert pg_temp.err(format('select update_recipe(%L, %L, null, null, null, null, %L)', current_setting('test.r'), '別の家から',
+    jsonb_build_array(jsonb_build_object('ingredient_id', current_setting('test.egg'), 'required_quantity', 1)))) = '権限がありません';
+end $$;
+-- S家を選んでいても、T家の食材は材料にできない
+select set_config('request.headers', json_build_object('x-cookdoor-group', (select group_id from recipes where id = current_setting('test.r')::uuid))::text, false);
+do $$
+begin
+  assert pg_temp.err(format('select update_recipe(%L, %L, null, null, null, null, %L)', current_setting('test.r'), '混ぜる',
+    jsonb_build_array(jsonb_build_object('ingredient_id', current_setting('test.t_pork'), 'required_quantity', 1)))) = 'この家にない食材は材料にできません';
+end $$;
+reset role;
+do $$
+begin
+  assert (select title from recipes where id = current_setting('test.r')::uuid) = 'ふわとろオムレツ', '不正な更新は残らない';
+  assert (select count(*) from recipe_ingredients where recipe_id = current_setting('test.r')::uuid) = 2;
+end $$;
+set role authenticated;
+select set_config('request.headers', '', false);
+
 -- 調理と取り消しは、カスタマイズ後の材料で動く
 set role authenticated;
 select set_config('request.jwt.claim.sub', '00000000-0000-4000-8000-0000000cc001', false);
