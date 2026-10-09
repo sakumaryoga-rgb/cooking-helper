@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Building2, Castle, House, HouseHeart, HousePlus, KeyRound, Sparkles, Tent, Warehouse } from 'lucide-react'
+import { Building2, Castle, House, HouseHeart, HousePlus, KeyRound, Settings2, Sparkles, Tent, Warehouse } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 
@@ -54,7 +54,7 @@ function HouseCard({ group, current, onSelect }) {
 }
 
 // 家の切り替え・新しい家を建てる・招待された家に入る
-export function HouseSwitcher({ groups, currentId, onSelect, onCreate, onJoin, busy, message }) {
+export function HouseSwitcher({ groups, currentId, onSelect, onManage, onCreate, onJoin, busy, message }) {
   const [mode, setMode] = useState(null) // null | 'create' | 'join'
   const [value, setValue] = useState('')
   const ordered = [...groups].sort((a, b) => (a.id === currentId ? -1 : b.id === currentId ? 1 : 0))
@@ -81,8 +81,18 @@ export function HouseSwitcher({ groups, currentId, onSelect, onCreate, onJoin, b
 
       <ul className="grid grid-cols-2 gap-3 pt-2 sm:grid-cols-3">
         {ordered.map((g) => (
-          <li key={g.id} className="flex">
+          <li key={g.id} className="relative flex">
             <HouseCard group={g} current={g.id === currentId} onSelect={onSelect} />
+            {onManage && (
+              <button
+                type="button"
+                onClick={() => onManage(g.id)}
+                aria-label={`${g.name}の管理`}
+                className="absolute right-1.5 top-1.5 rounded-full bg-background/80 p-1.5 text-muted-foreground shadow-sm hover:text-foreground"
+              >
+                <Settings2 className="size-3.5" />
+              </button>
+            )}
           </li>
         ))}
         <li className="flex">

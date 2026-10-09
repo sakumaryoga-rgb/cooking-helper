@@ -10,7 +10,7 @@ export function useGroup(session) {
   const [loading, setLoading] = useState(true)
 
   const refresh = useCallback(
-    async (preferId = null) => {
+    async (preferId = null, { silent = false } = {}) => {
       if (!userId) {
         setActiveGroupId(null)
         setGroups([])
@@ -18,7 +18,7 @@ export function useGroup(session) {
         setLoading(false)
         return
       }
-      setLoading(true)
+      if (!silent) setLoading(true)
       const { data, error } = await supabase
         .from('group_members')
         .select('group_id, joined_at, groups(id, name)')
@@ -43,6 +43,17 @@ export function useGroup(session) {
   useEffect(() => {
     refresh()
   }, [refresh])
+
+  // アプリに戻ったときに所属を確かめ直す(ほかの端末で脱退した・管理者に退出させられた・家が削除された場合に、
+  // その家の画面を出したままにしない)。画面は読み込み中にしない
+  useEffect(() => {
+    if (!userId) return undefined
+    function onVisible() {
+      if (document.visibilityState === 'visible') refresh(null, { silent: true })
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
+  }, [refresh, userId])
 
   const selectGroup = useCallback(
     (id) => {

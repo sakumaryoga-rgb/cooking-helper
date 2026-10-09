@@ -35,9 +35,10 @@ describe('設定画面', () => {
         <Settings group={group} groups={groups} onSelectGroup={onSelectGroup} onGroupsChanged={onGroupsChanged} email="me@example.com" userId="u1" />
       </MemoryRouter>
     )
-    expect(screen.getByRole('button', { name: /テスト家/ })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: /テスト家.*在宅中/ })).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByText('いまここ')).toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: /シェアハウス/ }))
+    expect(screen.getByRole('button', { name: 'シェアハウスの管理' })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: /シェアハウス.*この家に入る/ }))
     expect(onSelectGroup).toHaveBeenCalledWith('g2')
     await userEvent.click(screen.getByRole('button', { name: '新しい家を建てる' }))
     await userEvent.type(screen.getByLabelText('新しい家の名前'), '実家')
