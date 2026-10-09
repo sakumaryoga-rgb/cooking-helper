@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { describeShortfalls, getRecipeStatus, sortRecipesByMakeability } from './matching'
+import { buildCookPlan, describeShortfalls, getRecipeStatus, sortRecipesByMakeability } from './matching'
 
 const stock = (items) => new Map(items.map((i) => [i.id, i]))
 const line = (ingredient_id, required_quantity, name = ingredient_id, unit = '個') => ({
@@ -26,8 +26,8 @@ describe('getRecipeStatus', () => {
     const status = getRecipeStatus(recipe, stock([{ id: 'potato', name: 'じゃがいも', unit: '個', quantity: 1 }]))
     expect(status).toMatchObject({ makeable: false, level: 'almost', shortfallCount: 2 })
     expect(status.shortfalls).toEqual([
-      { ingredientId: 'potato', name: 'じゃがいも', unit: '個', requiredQuantity: 2, currentQuantity: 1, missingQuantity: 1 },
-      { ingredientId: 'carrot', name: 'にんじん', unit: '本', requiredQuantity: 1.5, currentQuantity: 0, missingQuantity: 1.5 },
+      { ingredientId: 'potato', name: 'じゃがいも', unit: '個', requiredQuantity: 2, currentQuantity: 1, missingQuantity: 1, amountText: null },
+      { ingredientId: 'carrot', name: 'にんじん', unit: '本', requiredQuantity: 1.5, currentQuantity: 0, missingQuantity: 1.5, amountText: null },
     ])
     expect(describeShortfalls(status.shortfalls)).toBe('じゃがいも あと1個、にんじん あと1.5本')
   })
@@ -135,5 +135,45 @@ describe('代替食材', () => {
       ['breast', 80, 'もも'],
       ['egg', 2, null],
     ])
+  })
+
+  describe('数で分からない分量・確認待ちの材料', () => {
+    const fridge = stock([
+      { id: 'pork', name: '豚こま切れ肉', unit: 'g', quantity: 300 },
+      { id: 'salt', name: '塩', unit: 'g', quantity: 0, is_staple: true },
+    ])
+    const ri = (ingredient_id, required_quantity, amount_text, extra = {}) => ({ ingredient_id, required_quantity, amount_text, ingredient: { id: ingredient_id, name: ingredient_id, unit: 'g' }, ...extra })
+
+    it('在庫があっても、数で分からない分量は「作れる」と断定しない(分量を確認)', () => {
+      const status = getRecipeStatus({ recipe_ingredients: [ri('pork', null, '1パック')] }, fridge)
+      expect(status).toMatchObject({ level: 'check', makeable: false, uncertainCount: 1, shortfallCount: 0 })
+    })
+
+    it('家庭で覚えた換算(1パック = 200g)があれば、数に直して判定する', () => {
+      const conversions = new Map([['pork:パック', 200]])
+      expect(getRecipeStatus({ recipe_ingredients: [ri('pork', null, '1パック')] }, fridge, { conversions })).toMatchObject({ level: 'makeable' })
+      expect(getRecipeStatus({ recipe_ingredients: [ri('pork', null, '2パック')] }, fridge, { conversions })).toMatchObject({ level: 'almost' })
+    })
+
+    it('少々・適量は在庫(常備品を含む)があれば足りているとみなす', () => {
+      expect(getRecipeStatus({ recipe_ingredients: [ri('salt', null, '少々')] }, fridge)).toMatchObject({ level: 'makeable' })
+    })
+
+    it('在庫がなければ、数が分からなくても不足にする(足りない量は書かない)', () => {
+      const status = getRecipeStatus({ recipe_ingredients: [ri('beef', null, '1パック')] }, fridge)
+      expect(status).toMatchObject({ level: 'almost', shortfalls: [{ missingQuantity: null, amountText: '1パック' }] })
+      expect(describeShortfalls(status.shortfalls)).toBe('beef(在庫なし・1パック)')
+    })
+
+    it('確認待ちの材料(どの食材か未確定)があれば「作れる」と断定しない', () => {
+      const status = getRecipeStatus({ recipe_ingredients: [ri('pork', 100, null), { ingredient_id: null, source_name: '豆腐', required_quantity: null, amount_text: '1/2丁' }] }, fridge)
+      expect(status).toMatchObject({ level: 'check', pendingCount: 1 })
+    })
+
+    it('調理の確定画面では、数が分からない分量・確認待ちの材料を在庫から引かない(量を入れたときだけ)', () => {
+      const status = getRecipeStatus({ recipe_ingredients: [ri('pork', null, '1パック'), { ingredient_id: null, source_name: '豆腐', amount_text: '1/2丁' }] }, fridge)
+      const plan = buildCookPlan(status)
+      expect(plan).toEqual([expect.objectContaining({ ingredientId: 'pork', quantity: '', include: false, unknown: true, amountText: '1パック' })])
+    })
   })
 })

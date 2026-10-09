@@ -14,6 +14,7 @@ const FILTERS = [
   { id: 'all', label: 'すべて', emoji: '📖', match: () => true },
   { id: 'makeable', label: '作れる', emoji: '✨', match: (s) => s.level === 'makeable' },
   { id: 'substitutable', label: '代替で作れる', emoji: '🪄', match: (s) => s.level === 'substitutable' },
+  { id: 'check', label: '要確認', emoji: '🔍', match: (s) => s.level === 'check' },
   { id: 'short', label: '不足あり', emoji: '🛒', match: (s) => s.level === 'almost' || s.level === 'short' },
 ]
 

@@ -4,6 +4,9 @@ import { ArrowLeft, Trash2 } from 'lucide-react'
 import { supabase } from '@/supabaseClient'
 import { useIngredients } from '@/hooks/useIngredients'
 import { useRecipes } from '@/hooks/useRecipes'
+import { useIngredientCatalog } from '@/hooks/useIngredientCatalog'
+import { useIngredientAliases } from '@/hooks/useIngredientAliases'
+import { buildNameIndex, matchIngredientName } from '@/lib/ingredientName'
 import { RecipeItemsEditor, keyOf } from '@/components/RecipeItemsEditor'
 import { RecipeExtrasFields, normalizeExtras } from '@/components/RecipeExtrasFields'
 import { Button } from '@/components/ui/button'
@@ -24,31 +27,47 @@ export function RecipeEdit({ groupId }) {
   const { id } = useParams()
   const { recipes, loading } = useRecipes(groupId)
   const { ingredients } = useIngredients(groupId)
+  const { catalog } = useIngredientCatalog()
+  const { aliases } = useIngredientAliases()
   const recipe = recipes.find((r) => r.id === id)
   if (loading) return <p className="text-sm text-muted-foreground">読み込み中...</p>
   if (!recipe) return <p className="text-sm text-muted-foreground">レシピが見つかりません</p>
-  return <RecipeEditForm key={recipe.id} recipe={recipe} groupId={groupId} ingredients={ingredients} />
+  return <RecipeEditForm key={recipe.id} recipe={recipe} groupId={groupId} ingredients={ingredients} catalog={catalog} aliases={aliases} />
 }
 
-function RecipeEditForm({ recipe, groupId, ingredients }) {
+function RecipeEditForm({ recipe, groupId, ingredients, catalog = [], aliases = [] }) {
   const navigate = useNavigate()
   const [title, setTitle] = useState(recipe.title)
-  const [items, setItems] = useState(() =>
-    (recipe.recipe_ingredients ?? []).map((ri) => {
-      const ingredient = ingredients.find((i) => i.id === ri.ingredient_id) ?? ri.ingredient ?? { id: ri.ingredient_id, name: '(不明な食材)', unit: '' }
-      return {
+  const [items, setItems] = useState(() => {
+    const index = buildNameIndex({ ingredients, catalog, aliases })
+    return (recipe.recipe_ingredients ?? []).map((ri) => {
+      const common = {
         key: keyOf(),
-        kind: 'existing',
-        ingredient,
-        name: ingredient.name,
-        unit: ingredient.unit,
-        requiredQuantity: ri.required_quantity,
+        requiredQuantity: ri.required_quantity ?? '',
+        amountText: ri.amount_text ?? '',
+        note: ri.note ?? null,
         rawText: ri.raw_text ?? undefined,
         include: true,
-        needsCheck: false,
+        needsCheck: ri.required_quantity == null && Boolean(ri.amount_text),
       }
+      if (!ri.ingredient_id) {
+        // 確認待ちの材料: 候補を出す(このまま保存しても確認待ちのまま)
+        const match = matchIngredientName(ri.source_name, index)
+        return {
+          ...common,
+          kind: 'new',
+          name: ri.source_name,
+          sourceName: ri.source_name,
+          unit: '',
+          candidates: match.status === 'auto' ? [match.option] : match.candidates,
+          needsChoice: true,
+          parsed: { name: ri.source_name, amountText: ri.amount_text ?? '' },
+        }
+      }
+      const ingredient = ingredients.find((i) => i.id === ri.ingredient_id) ?? ri.ingredient ?? { id: ri.ingredient_id, name: '(不明な食材)', unit: '' }
+      return { ...common, kind: 'existing', ingredient, name: ingredient.name, unit: ingredient.unit }
     })
-  )
+  })
   const [extras, setExtras] = useState({
     icon: recipe.icon ?? '',
     servings: recipe.servings ? String(recipe.servings) : '',

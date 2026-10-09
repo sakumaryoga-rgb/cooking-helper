@@ -54,37 +54,47 @@ export async function ensureIngredient(supabase, groupId, row, fridge) {
 }
 
 // items: 画面で確認した材料(resolveIngredient の結果、または手動で選んだ食材)
-const CHOICE_MESSAGE = 'どの食材か選んでいない材料があります。材料の一覧で選んでください'
-const QUANTITY_MESSAGE = '分量が入っていない材料があります。材料の一覧で分量を入れるか、保存しない材料のチェックを外してください'
-
-// 保存の前に、ユーザーの判断が必要な材料が残っていないか確かめる
-function pendingDecision(items) {
-  if (items.some((i) => i.include && i.needsChoice)) return CHOICE_MESSAGE
-  if (items.some((i) => i.include && !(Number(i.requiredQuantity) > 0))) return QUANTITY_MESSAGE
-  return null
+// 材料の行を、recipe_ingredients の行にする(新しいレシピ・カスタマイズで共通)。
+// - 食材が決まった行: 冷蔵庫の行を用意して(なければ在庫0で作る)、同じ食材の行は1つにまとめる
+// - 数が分からない分量(1パック・少々): required_quantity は空、元の表記を amount_text に残す(推測で換算しない)
+// - 確認待ちの行(どの食材か未確定): ingredient_id は空、元の食材名を source_name に残す(あとで詳細画面で選ぶ)
+async function toIngredientRows(supabase, groupId, items, fridge) {
+  const rows = mergeResolved(items)
+  const byIngredient = new Map()
+  const pending = []
+  for (const row of rows) {
+    const qty = Number(row.requiredQuantity) > 0 ? Number(row.requiredQuantity) : null
+    const base = {
+      required_quantity: qty,
+      raw_text: row.rawText ? String(row.rawText).slice(0, 200) : null,
+      amount_text: row.amountText ? String(row.amountText).slice(0, 60) : null,
+      note: row.note ? String(row.note).slice(0, 60) : null,
+    }
+    if (row.needsChoice) {
+      pending.push({ ...base, ingredient_id: null, source_name: String(row.sourceName || row.name).slice(0, 80) })
+      continue
+    }
+    const id = await ensureIngredient(supabase, groupId, row, fridge)
+    const prev = byIngredient.get(id)
+    if (prev) {
+      prev.required_quantity = prev.required_quantity != null && qty != null ? Math.round((prev.required_quantity + qty) * 100) / 100 : null
+      prev.raw_text = [prev.raw_text, base.raw_text].filter(Boolean).join(' / ').slice(0, 200) || null
+      prev.amount_text = [prev.amount_text, base.amount_text].filter(Boolean).join(' + ').slice(0, 60) || null
+      prev.note = [...new Set([prev.note, base.note].filter(Boolean))].join('・').slice(0, 60) || null
+    } else {
+      byIngredient.set(id, { ...base, ingredient_id: id, source_name: null })
+    }
+  }
+  return [...byIngredient.values(), ...pending]
 }
 
 export async function saveRecipe({ supabase, groupId, userId, title, url, sourceKey, sourceSite, servings, items, fridge, extras = {} }) {
-  const pending = pendingDecision(items)
-  if (pending) return { error: pending }
-  const rows = mergeResolved(items)
   if (!title.trim()) return { error: 'タイトルを入力してください' }
-  if (rows.length === 0) return { error: '材料を1つ以上、必要な分量を入力して追加してください' }
+  if (!items.some((i) => i.include)) return { error: '材料を1つ以上追加してください' }
 
-  // 同じ食材に向かう行を、冷蔵庫の行 ID でもう一度まとめる
-  const byIngredient = new Map()
+  let ingredientRows
   try {
-    for (const row of rows) {
-      const id = await ensureIngredient(supabase, groupId, row, fridge)
-      const prev = byIngredient.get(id)
-      const raw = row.rawText ? [row.rawText] : []
-      if (prev) {
-        prev.required_quantity = Math.round((prev.required_quantity + row.requiredQuantity) * 100) / 100
-        prev.raw.push(...raw)
-      } else {
-        byIngredient.set(id, { ingredient_id: id, required_quantity: row.requiredQuantity, raw })
-      }
-    }
+    ingredientRows = await toIngredientRows(supabase, groupId, items, fridge)
   } catch (e) {
     return { error: e.message }
   }
@@ -109,12 +119,7 @@ export async function saveRecipe({ supabase, groupId, userId, title, url, source
     return { error: recipeError.code === '23505' ? DUPLICATE_MESSAGE : 'レシピの保存に失敗しました' }
   }
 
-  const ingredientRows = [...byIngredient.values()].map(({ raw, ...r }) => ({
-    ...r,
-    recipe_id: recipe.id,
-    raw_text: raw.length ? raw.join(' / ').slice(0, 200) : null,
-  }))
-  const { error: riError } = await supabase.from('recipe_ingredients').insert(ingredientRows)
+  const { error: riError } = await supabase.from('recipe_ingredients').insert(ingredientRows.map((r) => ({ ...r, recipe_id: recipe.id })))
   if (riError) {
     // 材料なしのレシピを残さない
     await supabase.from('recipes').delete().eq('id', recipe.id)
@@ -155,17 +160,11 @@ export async function findDuplicate(supabase, groupId, sourceKey) {
 // 保存したレシピのカスタマイズ。新しい食材は先に冷蔵庫の行(在庫0)を用意し、
 // レシピと材料の差し替えは update_recipe(migration 023)が1つのトランザクションで行う
 export async function updateRecipe({ supabase, groupId, recipeId, title, items, fridge, extras }) {
-  const pending = pendingDecision(items)
-  if (pending) return { error: pending }
-  const rows = mergeResolved(items)
   if (!title.trim()) return { error: '料理名を入力してください' }
-  if (rows.length === 0) return { error: '材料を1つ以上、必要な分量を入力して追加してください' }
-  const pItems = []
+  if (!items.some((i) => i.include)) return { error: '材料を1つ以上追加してください' }
+  let pItems
   try {
-    for (const row of rows) {
-      const id = await ensureIngredient(supabase, groupId, row, fridge)
-      pItems.push({ ingredient_id: id, required_quantity: row.requiredQuantity, raw_text: row.rawText ?? null })
-    }
+    pItems = await toIngredientRows(supabase, groupId, items, fridge)
   } catch (e) {
     return { error: e.message }
   }

@@ -5,7 +5,7 @@ import { useIngredientCatalog } from '@/hooks/useIngredientCatalog'
 import { useIngredientAliases } from '@/hooks/useIngredientAliases'
 import { formatQuantity } from '@/lib/format'
 import { CATEGORIES, CATEGORY_ICONS } from '@/lib/ingredientCategory'
-import { buildNameIndex, findCandidates, matchIngredientName, nameKey, searchKeywords } from '@/lib/ingredientName'
+import { buildNameIndex, matchIngredientName, nameKey, searchKeywords } from '@/lib/ingredientName'
 import {
   Dialog,
   DialogContent,
@@ -277,9 +277,9 @@ export function IngredientPicker({ open, onOpenChange, groupId, ingredients, onS
       handleUseSimilar(match.option)
       return
     }
-    const found = match.candidates.length ? match.candidates : findCandidates(trimmedSearch, nameIndex)
-    if (found.length > 0) {
-      setSimilar(found)
+    // 部分一致などで決めきれないときだけ確かめる。別の食材(干ししいたけ など)や似た食材がないときは、そのまま登録する
+    if (match.status === 'choose' && match.candidates.length > 0) {
+      setSimilar(match.candidates)
       return
     }
     handleCreate()

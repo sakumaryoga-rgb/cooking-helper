@@ -69,16 +69,22 @@ describe('食材を選ぶ画面', () => {
     expect(supabase.from).not.toHaveBeenCalled()
   })
 
-  it('状態の違う食材(冷凍じゃがいも)は、同じ食材か確認する(勝手に決めない)', async () => {
+  it('冷凍じゃがいも(状態は属性)は、冷蔵庫のじゃがいもを使う', async () => {
     const onSelect = renderPicker()
     await userEvent.click(screen.getByRole('button', { name: 'リストにない食材を追加' }))
     await userEvent.type(screen.getByLabelText('食材名'), '冷凍じゃがいも')
     await userEvent.click(screen.getByRole('button', { name: '追加して選択' }))
+    expect(onSelect).toHaveBeenCalledWith(fridge[0])
+  })
+
+  it('名前の一部だけが同じ食材(じゃがいもスープ)は、同じ食材か確認する(勝手に決めない)', async () => {
+    const onSelect = renderPicker()
+    await userEvent.click(screen.getByRole('button', { name: 'リストにない食材を追加' }))
+    await userEvent.type(screen.getByLabelText('食材名'), 'じゃがいもスープ')
+    await userEvent.click(screen.getByRole('button', { name: '追加して選択' }))
     expect(screen.getByText('似ている食材があります。同じ食材ですか?')).toBeInTheDocument()
     expect(onSelect).not.toHaveBeenCalled()
-    expect(screen.getByRole('button', { name: '別の食材として「冷凍じゃがいも」を登録する' })).toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: '「じゃがいも」を使う' }))
-    expect(onSelect).toHaveBeenCalledWith(fridge[0])
+    expect(screen.getByRole('button', { name: '別の食材として「じゃがいもスープ」を登録する' })).toBeInTheDocument()
   })
 
   it('検索は別名からも見つかる(人参 → にんじん)', async () => {

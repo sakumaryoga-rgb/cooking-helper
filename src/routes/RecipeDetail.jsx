@@ -6,6 +6,12 @@ import { useRecipes } from '@/hooks/useRecipes'
 import { useIngredientCatalog } from '@/hooks/useIngredientCatalog'
 import { useSubstitutions } from '@/hooks/useSubstitutions'
 import { useCookLogs } from '@/hooks/useCookLogs'
+import { useIngredientAliases } from '@/hooks/useIngredientAliases'
+import { useUnitConversions } from '@/hooks/useUnitConversions'
+import { buildNameIndex, matchIngredientName } from '@/lib/ingredientName'
+import { parseAmount } from '@/lib/recipeImport/ingredientLine'
+import { quantityInUnit } from '@/lib/recipeImport/match'
+import { ensureIngredient, learnAliases } from '@/lib/recipeImport/save'
 import { buildCookPlan, describeShortfalls, getRecipeStatus, scaleRecipe } from '@/lib/matching'
 import { formatQuantity } from '@/lib/format'
 import { supabase } from '@/supabaseClient'
@@ -22,7 +28,11 @@ const UNDO_TOAST_MS = 8000
 export function RecipeDetail({ groupId }) {
   const { id } = useParams()
   const { ingredients, refresh: refreshIngredients } = useIngredients(groupId)
-  const { recipes, loading } = useRecipes(groupId)
+  const { recipes, loading, refresh: refreshRecipes } = useRecipes(groupId)
+  const { aliases } = useIngredientAliases()
+  const { conversions, remember } = useUnitConversions(groupId)
+  const [resolvingId, setResolvingId] = useState(null)
+  const [resolveError, setResolveError] = useState('')
   const { catalog } = useIngredientCatalog()
   const { rules: substitutions, disableRule } = useSubstitutions(groupId)
   const { logs, refresh: refreshLogs } = useCookLogs(id)
@@ -50,7 +60,39 @@ export function RecipeDetail({ groupId }) {
   const baseServings = recipe?.servings ?? null
   const factor = baseServings && servings ? servings / baseServings : 1
   const scaled = useMemo(() => scaleRecipe(recipe, factor), [recipe, factor])
-  const status = scaled ? getRecipeStatus(scaled, ingredientsById, { substitutions, catalogById, choices }) : null
+  const status = scaled ? getRecipeStatus(scaled, ingredientsById, { substitutions, catalogById, choices, conversions }) : null
+  const nameIndex = useMemo(() => buildNameIndex({ ingredients, catalog, aliases }), [ingredients, catalog, aliases])
+
+  // 確認待ちの材料(どの食材か未確定)を1タップで決める。候補・新しい食材を選んだら行を更新し、表記を家の別名として覚える
+  async function resolvePending(ri, option) {
+    setResolvingId(ri.id)
+    setResolveError('')
+    try {
+      const target =
+        option.kind === 'existing'
+          ? option.ingredient
+          : { id: await ensureIngredient(supabase, groupId, option.kind === 'catalog' ? option : { kind: 'new', name: ri.source_name, unit: parseAmount(ri.amount_text ?? '').unit || '個' }, ingredients), unit: option.unit }
+      const parsed = parseAmount(ri.amount_text ?? '')
+      const qty = ri.required_quantity ?? quantityInUnit(parsed, target.unit ?? option.unit)
+      const duplicate = (recipe.recipe_ingredients ?? []).some((x) => x.ingredient_id === target.id)
+      const { error } = duplicate
+        ? // すでに同じ食材の材料がある: 確認待ちの行をまとめて消す
+          await supabase.from('recipe_ingredients').delete().eq('id', ri.id)
+        : await supabase
+            .from('recipe_ingredients')
+            .update({ ingredient_id: target.id, source_name: null, required_quantity: qty ?? null })
+            .eq('id', ri.id)
+      if (error) throw error
+      const catalogId = option.kind === 'existing' ? option.ingredient.catalog_id : option.kind === 'catalog' ? option.catalogItem.id : null
+      if (catalogId) await learnAliases(supabase, groupId, [{ include: true, name: option.name, learnAlias: { alias: ri.source_name, catalogId } }])
+      await refreshIngredients()
+      await refreshRecipes?.()
+    } catch {
+      setResolveError('材料を更新できませんでした。選んでいる家のレシピか確かめてください')
+    } finally {
+      setResolvingId(null)
+    }
+  }
 
   // 塩・しょうゆなどを常備品にすると、在庫の数量に関係なく「ある」とみなす(家庭ごと)
   async function toggleStaple(ingredient) {
@@ -79,9 +121,11 @@ export function RecipeDetail({ groupId }) {
     if (saving) return
     setSaving(true)
     setCookError('')
+    // 量が入っている行だけを在庫から引く(数が分からない分量は、入れたときだけ)
     const items = plan
       .filter((row) => row.include && Number(row.quantity) > 0)
       .map((row) => ({ ingredient_id: row.ingredientId, quantity: Number(row.quantity), substitute_for: row.substituteFor }))
+    const toRemember = plan.filter((row) => row.unknown && row.remember && row.include && Number(row.quantity) > 0)
     const { data: logId, error } = await supabase.rpc('cook_recipe_v2', { p_recipe_id: recipe.id, p_items: items, p_request_id: requestId })
     setSaving(false)
     if (error) {
@@ -89,6 +133,12 @@ export function RecipeDetail({ groupId }) {
       return
     }
     setCookOpen(false)
+    // 「1パック = 200g として覚える」を選んだ材料の換算を、この家で覚える
+    for (const row of toRemember) {
+      const a = parseAmount(row.amountText ?? '')
+      const base = Number(a.quantity) * (factor || 1)
+      if (a.unit && base > 0) await remember(row.ingredientId, a.unit, Math.round((Number(row.quantity) / base) * 100) / 100)
+    }
     refreshIngredients()
     refreshLogs()
     if (logId) {
@@ -157,9 +207,50 @@ export function RecipeDetail({ groupId }) {
       {(status.level === 'almost' || status.level === 'short') && (
         <p className="text-sm text-destructive">不足: {describeShortfalls(status.shortfalls, 5)}</p>
       )}
+      {status.level === 'check' && (
+        <p className="text-sm text-violet-800 dark:text-violet-300">
+          {status.pendingCount > 0 && `どの食材か決まっていない材料が${status.pendingCount}品あります。`}
+          {status.uncertainCount > 0 && `分量を数で比べられない材料が${status.uncertainCount}品あります(在庫はあります)。`}
+        </p>
+      )}
+      {resolveError && <p className="text-sm text-destructive">{resolveError}</p>}
 
       <ul className="flex flex-col divide-y divide-border rounded-lg border bg-card">
         {scaled.recipe_ingredients.map((ri) => {
+          if (!ri.ingredient_id) {
+            // 確認待ち(どの食材か未確定): 候補を1タップで選ぶ
+            const match = matchIngredientName(ri.source_name, nameIndex, { notes: ri.note ? ri.note.split('・') : [] })
+            const options = match.status === 'auto' ? [match.option] : match.candidates
+            return (
+              <li key={ri.id} className="flex flex-col gap-1.5 bg-violet-50/60 px-3 py-2.5 dark:bg-violet-950/30">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-sm">
+                    <span className="mr-1 rounded-full bg-violet-100 px-1.5 py-px text-[10px] font-semibold text-violet-800 dark:bg-violet-950 dark:text-violet-300">確認待ち</span>
+                    {ri.source_name}
+                  </span>
+                  <span className="text-xs text-muted-foreground">{ri.amount_text}</span>
+                </div>
+                <p className="text-xs text-muted-foreground">どの食材ですか?(選ぶと次から自動で決まります)</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {options.map((option) => (
+                    <Button
+                      key={option.kind + (option.ingredient?.id ?? option.catalogItem?.id)}
+                      size="sm"
+                      variant="outline"
+                      className="h-7 rounded-full text-xs"
+                      disabled={resolvingId === ri.id}
+                      onClick={() => resolvePending(ri, option)}
+                    >
+                      {option.name}
+                    </Button>
+                  ))}
+                  <Button size="sm" variant="ghost" className="h-7 rounded-full text-xs" disabled={resolvingId === ri.id} onClick={() => resolvePending(ri, { kind: 'new', name: ri.source_name })}>
+                    新しい食材「{ri.source_name}」
+                  </Button>
+                </div>
+              </li>
+            )
+          }
           const current = ingredientsById.get(ri.ingredient_id)
           const staple = Boolean(current?.is_staple)
           const line = status.lines.find((l) => l.ingredientId === ri.ingredient_id)
@@ -177,6 +268,14 @@ export function RecipeDetail({ groupId }) {
                 <span className={`text-xs text-right ${enough ? 'text-muted-foreground' : 'text-destructive'}`}>
                   {staple ? (
                     '常備品'
+                  ) : line?.amountUnknown || line?.vague ? (
+                    // 数で分からない分量(1パック・少々): 元の表記のまま。在庫と比べられない
+                    <>
+                      {ri.amount_text || '分量不明'}
+                      {line.amountUnknown && <span className="ml-1 text-violet-700 dark:text-violet-400">・分量を確認</span>}
+                      {' '}/ 在庫 {formatQuantity(current?.quantity ?? 0)}
+                      {unit}
+                    </>
                   ) : (
                     <>
                       必要 {formatQuantity(ri.required_quantity)}
@@ -227,6 +326,7 @@ export function RecipeDetail({ groupId }) {
                   {staple ? '常備品から外す' : '常備品にする(在庫を数えない)'}
                 </button>
               )}
+              {ri.note && <p className="text-xs text-muted-foreground">状態: {ri.note}</p>}
               {ri.raw_text && <p className="text-xs text-muted-foreground">元の表記: {ri.raw_text}</p>}
             </li>
           )
@@ -333,12 +433,26 @@ export function RecipeDetail({ groupId }) {
                     step="any"
                     className="w-20 h-8"
                     value={row.quantity}
-                    onChange={(e) => updatePlan(row.key, { quantity: e.target.value })}
+                    onChange={(e) => updatePlan(row.key, row.unknown ? { quantity: e.target.value, include: Number(e.target.value) > 0 } : { quantity: e.target.value })}
                     aria-label={`${row.name}の使用量`}
                   />
                   <span className="text-xs text-muted-foreground w-8">{row.unit}</span>
                 </div>
                 {row.substituteFor && <p className="pl-6 text-xs text-amber-700 dark:text-amber-400">{row.substituteFor}の代わり</p>}
+                {row.unknown && (
+                  <div className="flex flex-col gap-1 pl-6 text-xs text-muted-foreground">
+                    <p>
+                      レシピの分量は「{row.amountText || '分量不明'}」です。使った量を入れたときだけ在庫から引きます
+                    </p>
+                    {Number(row.quantity) > 0 && parseAmount(row.amountText ?? '').quantity != null && parseAmount(row.amountText ?? '').unit && (
+                      <label className="flex items-center gap-1.5">
+                        <input type="checkbox" className="size-3.5" checked={Boolean(row.remember)} onChange={(e) => updatePlan(row.key, { remember: e.target.checked })} />
+                        次から「{row.amountText}」を {row.quantity}
+                        {row.unit} として覚える
+                      </label>
+                    )}
+                  </div>
+                )}
               </div>
             ))}
             {status.shortfalls.length > 0 && (

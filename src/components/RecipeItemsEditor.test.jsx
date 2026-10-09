@@ -61,11 +61,11 @@ describe('取り込んだ材料の付け替え', () => {
         ]}
       />
     )
-    expect(screen.getByText('「じゃが芋」はどの食材ですか?')).toBeInTheDocument()
-    expect(screen.getByRole('status')).toHaveTextContent('どの食材か選んでいない材料が 1 件あります')
+    expect(screen.getByText(/「じゃが芋」はどの食材ですか\?/)).toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent('確認待ち 1 件(このまま保存して、あとでレシピの画面で選べます)')
     await userEvent.click(screen.getByRole('button', { name: /^じゃがいも/ }))
     expect(latest[0]).toMatchObject({ kind: 'existing', ingredient: potato, requiredQuantity: 2, needsChoice: false, learnAlias: { alias: 'じゃが芋', catalogId: 'c-potato' } })
-    expect(screen.queryByText('「じゃが芋」はどの食材ですか?')).not.toBeInTheDocument()
+    expect(screen.queryByText(/「じゃが芋」はどの食材ですか\?/)).not.toBeInTheDocument()
   })
 
   it('新しい食材として登録することも選べる', async () => {
