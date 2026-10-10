@@ -148,3 +148,17 @@ body {
 @utility bottom-nav {
   bottom: calc(3.75rem + env(safe-area-inset-bottom, 0px));
 }
+/* オンボーディングの家の扉が少し開く */
+@keyframes door-open {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0.4) skewY(-6deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .animate-\[door-open_1\.2s_ease-out_0\.3s_both\] {
+    animation: none;
+  }
+}
