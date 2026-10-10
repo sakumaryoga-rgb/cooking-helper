@@ -155,6 +155,7 @@ export function IngredientPicker({ open, onOpenChange, groupId, ingredients, onS
   const [error, setError] = useState(null)
   const popupRef = useRef(null)
   const sectionRefs = useRef(new Map())
+  const listRef = useRef(null)
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [deletingCatalog, setDeletingCatalog] = useState(false)
   // 「リストにない食材を追加」で、似た食材が見つかったとき(使うか、新しく登録するかを選んでもらう)
@@ -383,8 +384,13 @@ export function IngredientPicker({ open, onOpenChange, groupId, ingredients, onS
   }
 
   // カテゴリの札を押すと、その見出しまで一覧をスクロールする(開閉の手間をなくす)
+  // 一覧(listRef)だけを動かす。scrollIntoView は外側の要素まで動かすことがあるため使わない
   function jumpTo(category) {
-    sectionRefs.current.get(category)?.scrollIntoView({ block: 'start', behavior: 'smooth' })
+    const list = listRef.current
+    const section = sectionRefs.current.get(category)
+    if (!list || !section) return
+    const top = section.getBoundingClientRect().top - list.getBoundingClientRect().top + list.scrollTop
+    list.scrollTop = top
   }
 
   return (
@@ -435,7 +441,7 @@ export function IngredientPicker({ open, onOpenChange, groupId, ingredients, onS
               )}
             </div>
             {/* 一覧のスクロールはここ1か所だけ(入れ子のスクロールをなくす) */}
-            <CommandList className="max-h-none min-h-0 flex-1 touch-pan-y overscroll-contain px-3 pb-24 pt-1">
+            <CommandList ref={listRef} className="max-h-none min-h-0 flex-1 touch-pan-y overscroll-contain px-3 pb-24 pt-1">
               <CommandEmpty>該当する食材が見つかりません</CommandEmpty>
               {!catalogLoading &&
                 catalogGroups.map(({ category, items }) => (
