@@ -157,8 +157,19 @@ body {
     transform: scaleX(0.4) skewY(-6deg);
   }
 }
+/* ログイン画面で家のまわりの食材が浮かぶ */
+@keyframes float {
+  0%,
+  100% {
+    transform: translateY(0) rotate(-6deg);
+  }
+  50% {
+    transform: translateY(-8px) rotate(6deg);
+  }
+}
 @media (prefers-reduced-motion: reduce) {
-  .animate-\[door-open_1\.2s_ease-out_0\.3s_both\] {
+  [class*='animate-[door-open'],
+  [class*='animate-[float'] {
     animation: none;
   }
 }
