@@ -15,6 +15,7 @@ import { formatQuantity } from '@/lib/format'
 import { snapToStock } from '@/lib/quantity'
 import { getBatchExpiry, getExpiryInfo, getExpiryState, describeExpiry, formatMonthDay, EXPIRY_KIND_LABEL, formatExpiryLabel } from '@/lib/shelfLife'
 import { StockDialog } from '@/components/StockDialog'
+import { BatchStockDialog } from '@/components/BatchStockDialog'
 import { categoryLook } from '@/lib/foodLook'
 
 // g/ml のような細かい単位はまとめて増減、個数系は1ずつ増減する
@@ -73,6 +74,8 @@ export function Fridge({ groupId }) {
   // 「追加」から開いたときだけ、常備品にする選択肢を出す
   const [stockOffer, setStockOffer] = useState(false)
   const [bulkConfirm, setBulkConfirm] = useState(false)
+  // 追加でまとめて選んだ食材(2品以上)
+  const [batchTargets, setBatchTargets] = useState(null)
   // 「追加」で選んだ食材は、在庫0でも通常の一覧に出す(このあと「＋」で増やすため)
   const [pinnedIds, setPinnedIds] = useState(() => new Set())
   const { batches } = useIngredientBatches(groupId)
@@ -128,6 +131,17 @@ export function Fridge({ groupId }) {
     if (error) console.error('常備品の切り替えに失敗しました', error)
     setBulkConfirm(false)
     refresh()
+  }
+
+  // 追加で複数選んだとき。1品ならこれまでどおりのダイアログ、2品以上はまとめて入れるダイアログ
+  function handlePickedMany(list) {
+    if (list.length === 1) {
+      handlePicked(list[0])
+      return
+    }
+    setPinnedIds((prev) => new Set([...prev, ...list.map((i) => i.id)]))
+    setPickerOpen(false)
+    setBatchTargets(list)
   }
 
   function handlePicked(ingredient) {
@@ -441,7 +455,19 @@ export function Fridge({ groupId }) {
         groupId={groupId}
         ingredients={ingredients}
         onSelect={handlePicked}
+        multiple
+        onSelectMany={handlePickedMany}
       />
+
+      {batchTargets && (
+        <BatchStockDialog
+          ingredients={batchTargets}
+          datedToday={dateAsPurchaseDate}
+          isStapleCategory={(i) => STAPLE_CATEGORIES.has(categoryOf(i))}
+          onClose={() => setBatchTargets(null)}
+          onSaved={refresh}
+        />
+      )}
     </div>
   )
 }
