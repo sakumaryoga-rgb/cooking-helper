@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react'
-import { Infinity as InfinityIcon, Plus, Refrigerator } from 'lucide-react'
+import { Check, Infinity as InfinityIcon, Plus, Refrigerator } from 'lucide-react'
 import { supabase } from '@/supabaseClient'
 import { useIngredientCatalog } from '@/hooks/useIngredientCatalog'
 import { useIngredientAliases } from '@/hooks/useIngredientAliases'
@@ -53,7 +53,7 @@ function groupByCategory(items) {
 
 // マスタ食材の一覧行。長押しするとカタログからの完全削除を確認する
 // (通常のタップ選択とは別ジェスチャーなので、長押し発火後の後続クリックは握りつぶす)
-function CatalogItemRow({ item, disabled, onSelect, onRequestDelete, keywords, stock, staple }) {
+function CatalogItemRow({ item, disabled, onSelect, onRequestDelete, keywords, stock, staple, selected }) {
   const timerRef = useRef(null)
   const longPressFiredRef = useRef(false)
   const startPosRef = useRef({ x: 0, y: 0 })
@@ -111,10 +111,16 @@ function CatalogItemRow({ item, disabled, onSelect, onRequestDelete, keywords, s
       onPointerCancel={handlePointerUp}
       onClickCapture={handleClickCapture}
       // メモのように素早く選べるタイル。最初の項目が選択色にならないよう、選択中の色は付けない
-      className={`flex min-h-16 flex-col items-start gap-1 rounded-2xl! border bg-card p-2 text-left shadow-xs transition-transform active:scale-95 data-selected:bg-card [&>svg:last-child]:hidden ${
-        stock || staple ? 'border-emerald-200 dark:border-emerald-900' : ''
+      aria-pressed={selected}
+      className={`relative flex min-h-16 flex-col items-start gap-1 rounded-2xl! border bg-card p-2 text-left shadow-xs transition-transform active:scale-95 data-selected:bg-card [&>svg:last-child]:hidden ${
+        selected ? 'border-2 border-primary bg-primary/15! data-selected:bg-primary/15' : stock || staple ? 'border-emerald-200 dark:border-emerald-900' : ''
       }`}
     >
+      {selected && (
+        <span className="absolute -top-1.5 -right-1.5 flex size-5 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm" aria-hidden="true">
+          <Check className="size-3" strokeWidth={3} />
+        </span>
+      )}
       <span className="line-clamp-2 text-[13px] font-semibold leading-tight">{item.name}</span>
       <span className="mt-auto flex w-full items-center justify-between gap-1 text-[10px]">
         <span className="text-muted-foreground">{item.unit}</span>
@@ -136,7 +142,8 @@ function CatalogItemRow({ item, disabled, onSelect, onRequestDelete, keywords, s
 // 例外的に自由入力(単位は手動選択)で追加できる。
 // 選択(または新規作成)された食材オブジェクトを onSelect(ingredient) で返すだけで、
 // 「その用途での数量」はここでは扱わず呼び出し側に任せる。
-export function IngredientPicker({ open, onOpenChange, groupId, ingredients, onSelect, excludeIds = [], title = '食材を選ぶ' }) {
+// multiple のときは、タップで複数を選び「決定」で onSelectMany(ingredients) を返す
+export function IngredientPicker({ open, onOpenChange, groupId, ingredients, onSelect, onSelectMany, multiple = false, excludeIds = [], title = '食材を選ぶ' }) {
   const { catalog: rawCatalog, loading: catalogLoading } = useIngredientCatalog()
   const { aliases } = useIngredientAliases()
   // 同じ名前の品目が共通と家庭専用の両方にあれば、家庭専用を使う
@@ -156,6 +163,8 @@ export function IngredientPicker({ open, onOpenChange, groupId, ingredients, onS
   const popupRef = useRef(null)
   const sectionRefs = useRef(new Map())
   const listRef = useRef(null)
+  // 複数選択中の食材(タイルの ID → { item, row })
+  const [picked, setPicked] = useState(() => new Map())
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [deletingCatalog, setDeletingCatalog] = useState(false)
   // 「リストにない食材を追加」で、似た食材が見つかったとき(使うか、新しく登録するかを選んでもらう)
@@ -190,6 +199,7 @@ export function IngredientPicker({ open, onOpenChange, groupId, ingredients, onS
     setNewCategory(CATEGORIES[0])
     setSimilar(null)
     setError(null)
+    setPicked(new Map())
   }
 
   function handleOpenChange(next) {
@@ -200,16 +210,55 @@ export function IngredientPicker({ open, onOpenChange, groupId, ingredients, onS
     onOpenChange(next)
   }
 
-  function handleSelectExisting(ingredient) {
-    onSelect(ingredient)
+  // 選び終わった食材の行を返す。複数選択のときは選択中に加えて一覧に戻る
+  function finish(row) {
+    if (multiple) {
+      setPicked((prev) => new Map(prev).set(row.catalog_id ?? `row:${row.id}`, { item: null, row }))
+      setCreating(false)
+      setSimilar(null)
+      setSearch('')
+      return
+    }
+    onSelect(row)
     handleOpenChange(false)
   }
 
-  // カテゴリの一覧から選んだとき: 冷蔵庫にすでにあればその行、なければ在庫0で作る
+  function handleSelectExisting(ingredient) {
+    finish(ingredient)
+  }
+
+  // カテゴリの一覧から選んだとき: 冷蔵庫にすでにあればその行、なければ在庫0で作る。
+  // 複数選択のときはタップで選択/解除するだけ(冷蔵庫の行は「決定」で作る)
   function handlePick(item) {
     const existing = item.fridgeRow ?? fridgeByCatalog.get(item.id)
+    if (multiple) {
+      setPicked((prev) => {
+        const next = new Map(prev)
+        if (next.has(item.id)) next.delete(item.id)
+        else next.set(item.id, { item, row: existing ?? null })
+        return next
+      })
+      return
+    }
     if (existing) handleSelectExisting(existing)
     else handleSelectCatalog(item)
+  }
+
+  async function confirmMany() {
+    setSaving(true)
+    setError(null)
+    const rows = []
+    for (const { item, row } of picked.values()) {
+      const resolved = row ?? (await insertFromCatalog(item))
+      if (!resolved) {
+        setSaving(false)
+        return
+      }
+      rows.push(resolved)
+    }
+    setSaving(false)
+    onSelectMany(rows)
+    handleOpenChange(false)
   }
 
   async function handleConfirmCatalogDelete() {
@@ -226,6 +275,13 @@ export function IngredientPicker({ open, onOpenChange, groupId, ingredients, onS
   async function handleSelectCatalog(catalogItem) {
     setCatalogSavingId(catalogItem.id)
     setError(null)
+    const row = await insertFromCatalog(catalogItem)
+    setCatalogSavingId(null)
+    if (row) finish(row)
+  }
+
+  // マスタの品目から冷蔵庫の行(在庫0)を作って返す。失敗したら null
+  async function insertFromCatalog(catalogItem) {
     const { data, error: insertError } = await supabase
       .from('ingredients')
       .insert({
@@ -237,7 +293,6 @@ export function IngredientPicker({ open, onOpenChange, groupId, ingredients, onS
       })
       .select()
       .single()
-    setCatalogSavingId(null)
 
     if (insertError) {
       if (insertError.code === '23505') {
@@ -249,17 +304,12 @@ export function IngredientPicker({ open, onOpenChange, groupId, ingredients, onS
           .eq('group_id', groupId)
           .eq('name', catalogItem.name)
           .maybeSingle()
-        if (existing) {
-          onSelect(existing)
-          handleOpenChange(false)
-          return
-        }
+        if (existing) return existing
       }
       setError('追加に失敗しました。もう一度お試しください。')
-      return
+      return null
     }
-    onSelect(data)
-    handleOpenChange(false)
+    return data
   }
 
   // 入力した名前を照合する: 同じ食材が登録済み(名前・別名が一致)ならそれを使い、
@@ -371,16 +421,14 @@ export function IngredientPicker({ open, onOpenChange, groupId, ingredients, onS
           .eq('name', catalogItem.name)
           .maybeSingle()
         if (existing) {
-          onSelect(existing)
-          handleOpenChange(false)
+          finish(existing)
           return
         }
       }
       setError('追加に失敗しました。同じ名前の食材が既にあるかもしれません。')
       return
     }
-    onSelect(data)
-    handleOpenChange(false)
+    finish(data)
   }
 
   // カテゴリの札を押すと、その見出しまで一覧をスクロールする(開閉の手間をなくす)
@@ -416,7 +464,7 @@ export function IngredientPicker({ open, onOpenChange, groupId, ingredients, onS
             {title}
           </SheetTitle>
           <SheetDescription className="mt-1 text-xs text-muted-foreground">
-            タップするだけで選べます。単位は自動で決まります
+            {multiple ? 'タップしていくつでも選べます。単位は自動で決まります' : 'タップするだけで選べます。単位は自動で決まります'}
           </SheetDescription>
         </div>
 
@@ -479,6 +527,7 @@ export function IngredientPicker({ open, onOpenChange, groupId, ingredients, onS
                             keywords={item.fridgeRow ? [nameKey(item.name)] : searchKeywords(item, nameIndex)}
                             stock={qty}
                             staple={Boolean(row?.is_staple)}
+                            selected={multiple ? picked.has(item.id) : undefined}
                           />
                         )
                       })}
@@ -490,6 +539,12 @@ export function IngredientPicker({ open, onOpenChange, groupId, ingredients, onS
             {error && <p className="shrink-0 px-4 py-2 text-sm text-destructive">{error}</p>}
 
             <div className="shrink-0 border-t bg-background px-3 pt-2 pb-safe">
+              {multiple && picked.size > 0 && (
+                <Button type="button" size="lg" className="mb-2 w-full rounded-2xl" onClick={confirmMany} disabled={saving}>
+                  <Check />
+                  {saving ? '入れています...' : `${picked.size}品を決定`}
+                </Button>
+              )}
               <button
                 type="button"
                 className="mb-2 flex w-full items-center justify-center gap-2 rounded-2xl border-2 border-dashed px-4 py-2.5 text-sm font-medium text-muted-foreground hover:border-primary hover:text-foreground"

@@ -269,3 +269,44 @@ describe('追加で既存の食材を選び直したとき(重複登録しない
     expect(supabase.rpc).not.toHaveBeenCalled()
   })
 })
+
+describe('複数の食材をまとめて入れる', () => {
+  const SEASONING = [{ id: 'c-soy', name: '醤油', category: '調味料・油' }]
+  let inIds
+
+  beforeEach(() => {
+    supabase.rpc.mockReset()
+    supabase.rpc.mockResolvedValue({ data: [{ new_quantity: 1, deleted: false }], error: null })
+    inIds = vi.fn().mockResolvedValue({ error: null })
+    supabase.from.mockReturnValue({ update: vi.fn(() => ({ in: inIds, eq: vi.fn() })) })
+  })
+
+  it('個は1、g は空欄、調味料は常備品で始まり、1回で全部入る', async () => {
+    const list = [
+      { id: 'p', name: 'じゃがいも', unit: '個', quantity: 0 },
+      { id: 'm', name: '豚こま', unit: 'g', quantity: 0 },
+      { id: 's', name: '醤油', unit: 'ml', quantity: 0, catalog_id: 'c-soy' },
+    ]
+    setup(list, SEASONING)
+    await act(async () => pickerProps.onSelectMany(list))
+    expect(await screen.findByRole('dialog', { name: '3品を冷蔵庫に入れる' })).toBeInTheDocument()
+    expect(screen.getByLabelText('じゃがいもの量')).toHaveValue('1')
+    expect(screen.getByLabelText('豚こまの量')).toHaveValue('')
+    expect(screen.getByRole('radio', { name: '醤油を常備品にする' })).toHaveAttribute('aria-checked', 'true')
+    await userEvent.type(screen.getByLabelText('豚こまの量'), '200')
+    await userEvent.clear(screen.getByLabelText('じゃがいもの量'))
+    await userEvent.type(screen.getByLabelText('じゃがいもの量'), '1/2')
+    await userEvent.click(screen.getByRole('button', { name: '冷蔵庫に入れる' }))
+    expect(inIds).toHaveBeenCalledWith('id', ['s'])
+    expect(supabase.rpc).toHaveBeenCalledWith('adjust_stock', expect.objectContaining({ p_ingredient_id: 'p', p_delta: 0.5 }))
+    expect(supabase.rpc).toHaveBeenCalledWith('adjust_stock', expect.objectContaining({ p_ingredient_id: 'm', p_delta: 200 }))
+    expect(supabase.rpc).toHaveBeenCalledTimes(2)
+  })
+
+  it('1品だけ選んだときは、これまでどおりのダイアログ', async () => {
+    const one = { id: 'p', name: 'じゃがいも', unit: '個', quantity: 0 }
+    setup([one])
+    await act(async () => pickerProps.onSelectMany([one]))
+    expect(await screen.findByRole('dialog', { name: 'じゃがいも を冷蔵庫に入れる' })).toBeInTheDocument()
+  })
+})
