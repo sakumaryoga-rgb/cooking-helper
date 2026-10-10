@@ -31,6 +31,38 @@ function setup(ingredients, catalog = []) {
   return render(<MemoryRouter><Fridge groupId="g1" /></MemoryRouter>)
 }
 
+
+// 片付け(safeDiscard)用の DB の模型: 消す直前の行の状態と、レシピでの使用数を返し、delete の条件を記録する
+function mockDb({ row = { quantity: 0, is_staple: false }, recipeCount = 0 } = {}) {
+  const deleted = []
+  const updates = []
+  supabase.from.mockImplementation((table) => {
+    if (table === 'recipe_ingredients') return { select: () => ({ eq: async () => ({ count: recipeCount, error: null }) }) }
+    return {
+      select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: row, error: null }) }) }),
+      delete: () => {
+        const conds = {}
+        const chain = {
+          eq: (k, v) => {
+            conds[k] = v
+            if (Object.keys(conds).length === 3) {
+              deleted.push(conds)
+              return Promise.resolve({ error: null })
+            }
+            return chain
+          },
+        }
+        return chain
+      },
+      update: (patch) => ({
+        eq: async (k, v) => (updates.push({ patch, [k]: v }), { error: null }),
+        in: async (k, v) => (updates.push({ patch, [k]: v }), { error: null }),
+      }),
+    }
+  })
+  return { deleted, updates }
+}
+
 describe('Fridge の数量変更', () => {
   beforeEach(() => {
     removeIngredient.mockReset()
@@ -92,13 +124,33 @@ describe('Fridge の数量変更', () => {
     expect(screen.getByText('しょうゆ')).toBeInTheDocument()
   })
 
-  it('追加で選んで、量を決めずに閉じた在庫0の食材は冷蔵庫に出さず片付ける', async () => {
+  it('追加で選んで、量を決めずに閉じた在庫0の食材は冷蔵庫に出さず片付ける(在庫0を条件に消す)', async () => {
+    const db = mockDb()
     setup([{ id: 'b', name: 'しょうゆ', unit: 'ml', quantity: 0 }])
     await act(async () => pickerProps.onSelect({ id: 'b', name: 'しょうゆ', unit: 'ml', quantity: 0 }))
     expect(await screen.findByRole('dialog', { name: 'しょうゆ を冷蔵庫に入れる' })).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'キャンセル' }))
     expect(screen.queryByText('しょうゆ')).not.toBeInTheDocument()
-    expect(removeIngredient).toHaveBeenCalledWith('b')
+    await waitFor(() => expect(db.deleted).toEqual([{ id: 'b', quantity: 0, is_staple: false }]))
+    expect(removeIngredient).not.toHaveBeenCalled()
+  })
+
+  it('閉じる前に別の端末が在庫を入れていたら消さない', async () => {
+    const db = mockDb({ row: { quantity: 2, is_staple: false } })
+    setup([{ id: 'b', name: 'しょうゆ', unit: 'ml', quantity: 0 }])
+    await act(async () => pickerProps.onSelect({ id: 'b', name: 'しょうゆ', unit: 'ml', quantity: 0 }))
+    await userEvent.click(await screen.findByRole('button', { name: 'キャンセル' }))
+    await new Promise((r) => setTimeout(r, 0))
+    expect(db.deleted).toEqual([])
+  })
+
+  it('レシピで使っている食材は、選んで閉じても消さない', async () => {
+    const db = mockDb({ recipeCount: 1 })
+    setup([{ id: 'b', name: 'しょうゆ', unit: 'ml', quantity: 0 }])
+    await act(async () => pickerProps.onSelect({ id: 'b', name: 'しょうゆ', unit: 'ml', quantity: 0 }))
+    await userEvent.click(await screen.findByRole('button', { name: 'キャンセル' }))
+    await new Promise((r) => setTimeout(r, 0))
+    expect(db.deleted).toEqual([])
   })
 
   it('追加で選んで在庫を入れた食材は片付けない', async () => {
@@ -213,6 +265,7 @@ describe('常備品と分数の在庫', () => {
 
   it('常備品は別の棚に出て＋－がなく、「常備品から外す」で外すと在庫0なら片付ける', async () => {
     removeIngredient.mockReset()
+    const db = mockDb()
     setup([
       { id: 's', name: '塩', unit: 'g', quantity: 0, is_staple: true },
       { id: 'e', name: '卵', unit: '個', quantity: 2 },
@@ -223,17 +276,21 @@ describe('常備品と分数の在庫', () => {
     await userEvent.click(screen.getByRole('button', { name: /塩/ }))
     expect(screen.queryByRole('button', { name: /数を記録する/ })).not.toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: /常備品から外す/ }))
-    expect(update).toHaveBeenCalledWith({ is_staple: false })
-    expect(eq).toHaveBeenCalledWith('id', 's')
-    expect(removeIngredient).toHaveBeenCalledWith('s')
+    expect(db.updates).toEqual([{ patch: { is_staple: false }, id: 's' }])
+    await waitFor(() => expect(db.deleted).toEqual([{ id: 's', quantity: 0, is_staple: false }]))
+    expect(removeIngredient).not.toHaveBeenCalled()
   })
 
-  it('在庫が残っている常備品は、外しても片付けない', async () => {
+  it('在庫が残っている常備品は、外しても数量とロットを触らない', async () => {
     removeIngredient.mockReset()
+    const db = mockDb({ row: { quantity: 300, is_staple: false } })
     setup([{ id: 's', name: '醤油', unit: 'ml', quantity: 300, is_staple: true }])
     await userEvent.click(screen.getByRole('button', { name: /醤油/ }))
     await userEvent.click(screen.getByRole('button', { name: /常備品から外す/ }))
-    expect(update).toHaveBeenCalledWith({ is_staple: false })
+    expect(db.updates).toEqual([{ patch: { is_staple: false }, id: 's' }])
+    await new Promise((r) => setTimeout(r, 0))
+    expect(db.deleted).toEqual([])
+    expect(supabase.rpc).not.toHaveBeenCalled()
     expect(removeIngredient).not.toHaveBeenCalled()
   })
 
@@ -327,6 +384,7 @@ describe('複数の食材をまとめて入れる', () => {
 
   it('量を空欄のままにした食材は、閉じたときに片付ける', async () => {
     removeIngredient.mockReset()
+    const db = mockDb()
     const list = [
       { id: 'p', name: 'じゃがいも', unit: '個', quantity: 0 },
       { id: 'm', name: '豚こま', unit: 'g', quantity: 0 },
@@ -335,8 +393,7 @@ describe('複数の食材をまとめて入れる', () => {
     await act(async () => pickerProps.onSelectMany(list))
     await userEvent.click(await screen.findByRole('button', { name: '冷蔵庫に入れる' }))
     expect(supabase.rpc).toHaveBeenCalledWith('adjust_stock', expect.objectContaining({ p_ingredient_id: 'p' }))
-    expect(removeIngredient).toHaveBeenCalledWith('m')
-    expect(removeIngredient).not.toHaveBeenCalledWith('p')
+    await waitFor(() => expect(db.deleted).toEqual([{ id: 'm', quantity: 0, is_staple: false }]))
   })
 
   it('1品だけ選んだときは、これまでどおりのダイアログ', async () => {

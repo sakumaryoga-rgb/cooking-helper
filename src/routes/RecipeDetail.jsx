@@ -23,6 +23,8 @@ import { dishLook } from '@/lib/foodLook'
 import { savedUsageMismatches } from '@/lib/recipeSteps'
 import { QuantityInput } from '@/components/QuantityInput'
 import { snapToStock } from '@/lib/quantity'
+import { useIngredientBatches } from '@/hooks/useIngredientBatches'
+import { usableIngredientsById } from '@/lib/shelfLife'
 
 // 確定のあとに「取り消す」を出しておく時間
 const UNDO_TOAST_MS = 8000
@@ -34,6 +36,7 @@ export function RecipeDetail({ groupId }) {
   // 追加・取り込みの直後(RecipeNew から)は「保存しました」と一覧への導線を出す
   const [savedNotice, setSavedNotice] = useState(() => location.state?.saved === 'created')
   const { ingredients, refresh: refreshIngredients } = useIngredients(groupId)
+  const { batches } = useIngredientBatches(groupId)
   const { recipes, loading, refresh: refreshRecipes } = useRecipes(groupId)
   const { aliases } = useIngredientAliases()
   const { conversions, remember } = useUnitConversions(groupId)
@@ -66,7 +69,9 @@ export function RecipeDetail({ groupId }) {
   const baseServings = recipe?.servings ?? null
   const factor = baseServings && servings ? servings / baseServings : 1
   const scaled = useMemo(() => scaleRecipe(recipe, factor), [recipe, factor])
-  const status = scaled ? getRecipeStatus(scaled, ingredientsById, { substitutions, catalogById, choices, conversions }) : null
+  // 「作れる」の判定は、消費期限が切れたロットを除いた在庫で行う(引く量の計算は実際の在庫のまま)
+  const usableById = useMemo(() => usableIngredientsById(ingredients, batches, catalogById), [ingredients, batches, catalogById])
+  const status = scaled ? getRecipeStatus(scaled, usableById, { substitutions, catalogById, choices, conversions }) : null
   const nameIndex = useMemo(() => buildNameIndex({ ingredients, catalog, aliases }), [ingredients, catalog, aliases])
 
   // 確認待ちの材料(どの食材か未確定)を1タップで決める。候補・新しい食材を選んだら行を更新し、表記を家の別名として覚える

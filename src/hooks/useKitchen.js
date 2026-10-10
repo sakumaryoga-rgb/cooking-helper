@@ -6,7 +6,7 @@ import { useSubstitutions } from '@/hooks/useSubstitutions'
 import { useUnitConversions } from '@/hooks/useUnitConversions'
 import { useIngredientBatches } from '@/hooks/useIngredientBatches'
 import { sortRecipesByMakeability } from '@/lib/matching'
-import { getExpiryInfo } from '@/lib/shelfLife'
+import { getExpiryInfo, usableIngredientsById } from '@/lib/shelfLife'
 
 // ホーム・レシピ一覧で使う、在庫とレシピの判定(冷蔵庫の在庫が変わるとその場で更新される)
 export function useKitchen(groupId) {
@@ -34,9 +34,11 @@ export function useKitchen(groupId) {
     }
     return map
   }, [batches, ingredients, catalogById])
+  // 「作れる」の判定は、消費期限が切れたロットを除いた在庫で行う
+  const usableById = useMemo(() => usableIngredientsById(ingredients, batches, catalogById), [ingredients, batches, catalogById])
   const sorted = useMemo(
-    () => sortRecipesByMakeability(recipes, ingredientsById, { substitutions, catalogById, conversions, expiryById }),
-    [recipes, ingredientsById, substitutions, catalogById, conversions, expiryById]
+    () => sortRecipesByMakeability(recipes, usableById, { substitutions, catalogById, conversions, expiryById }),
+    [recipes, usableById, substitutions, catalogById, conversions, expiryById]
   )
 
   return {

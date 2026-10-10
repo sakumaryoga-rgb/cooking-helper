@@ -18,6 +18,7 @@ vi.mock('@/supabaseClient', () => ({
   },
 }))
 vi.mock('@/hooks/useIngredients', () => ({ useIngredients: vi.fn() }))
+vi.mock('@/hooks/useIngredientBatches', () => ({ useIngredientBatches: () => ({ batches: [] }) }))
 vi.mock('@/hooks/useRecipes', () => ({ useRecipes: vi.fn() }))
 vi.mock('@/hooks/useIngredientAliases', () => ({ useIngredientAliases: () => ({ aliases: [] }) }))
 const remember = vi.fn().mockResolvedValue(true)

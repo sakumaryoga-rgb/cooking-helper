@@ -70,3 +70,31 @@ export function describeExpiry(info) {
   if (!info) return '期限未設定'
   return `${EXPIRY_KIND_LABEL[info.kind]} ${formatMonthDay(info.expiryDate)}・${formatExpiryLabel(info.daysLeft)}`
 }
+
+// 消費期限が切れたロットを除いた、使える在庫の数量(レシピの「作れる」の判定に使う)。
+// 賞味期限切れ・推定期限切れのロットは使える在庫に含める
+export function usableQuantity(ingredient, batchesForIngredient, catalogById) {
+  const total = Number(ingredient.quantity) || 0
+  let expired = 0
+  for (const batch of batchesForIngredient ?? []) {
+    if (!(Number(batch.quantity) > 0)) continue
+    const info = getBatchExpiry(batch, ingredient, catalogById)
+    if (info?.kind === 'use_by' && info.daysLeft < 0) expired += Number(batch.quantity)
+  }
+  return Math.max(0, Math.round((total - expired) * 1e6) / 1e6)
+}
+
+// 判定用の在庫: 消費期限切れのロットの分を引いた食材の Map
+export function usableIngredientsById(ingredients, batches, catalogById) {
+  const byIngredient = new Map()
+  for (const b of batches ?? []) {
+    if (!byIngredient.has(b.ingredient_id)) byIngredient.set(b.ingredient_id, [])
+    byIngredient.get(b.ingredient_id).push(b)
+  }
+  return new Map(
+    ingredients.map((i) => {
+      const lots = byIngredient.get(i.id)
+      return [i.id, lots ? { ...i, quantity: usableQuantity(i, lots, catalogById) } : i]
+    })
+  )
+}

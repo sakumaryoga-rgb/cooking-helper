@@ -209,7 +209,7 @@ export function expiringUses(status, expiryById) {
   const consider = (ingredientId, name) => {
     const e = ingredientId ? expiryById.get(ingredientId) : null
     if (!e || e.daysLeft > EXPIRING_DAYS || (e.kind === 'use_by' && e.daysLeft < 0)) return
-    if (!seen.has(ingredientId)) seen.set(ingredientId, { ingredientId, name, daysLeft: e.daysLeft })
+    if (!seen.has(ingredientId)) seen.set(ingredientId, { ingredientId, name, daysLeft: e.daysLeft, kind: e.kind })
   }
   for (const line of status.lines) {
     if (line.pending || line.staple) continue
@@ -221,8 +221,10 @@ export function expiringUses(status, expiryById) {
 
 // 「にんじん(あと1日)・牛乳(本日まで)」のような短い説明
 export function describeExpiring(expiring, limit = 2) {
-  const label = (d) => (d < 0 ? '期限切れ' : d === 0 ? '本日まで' : `あと${d}日`)
-  const parts = expiring.slice(0, limit).map((e) => `${e.name}(${label(e.daysLeft)})`)
+  // 期限切れは種類で区別する(消費期限切れはそもそも勧めない)
+  const label = (e) =>
+    e.daysLeft < 0 ? (e.kind === 'best_before' ? '賞味期限切れ' : '推定の期限切れ') : e.daysLeft === 0 ? '本日まで' : `あと${e.daysLeft}日`
+  const parts = expiring.slice(0, limit).map((e) => `${e.name}(${label(e)})`)
   if (expiring.length > limit) parts.push(`ほか${expiring.length - limit}品`)
   return parts.join('・')
 }

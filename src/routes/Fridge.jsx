@@ -124,8 +124,8 @@ export function Fridge({ groupId }) {
   // 数を記録している調味料(まとめて常備品にできるもの)
   const countedSeasonings = ingredients.filter((i) => !i.is_staple && Number(i.quantity) > 0 && STAPLE_CATEGORIES.has(categoryOf(i)))
 
-  // 常備品から外す。在庫を数えていない(0)なら、－で0になったときと同じく冷蔵庫から片付ける
-  // (レシピで使う食材は行を残す)。在庫が残っていれば、数を記録する食材として一覧に戻る
+  // 常備品から外す。在庫を数えていない(0)なら冷蔵庫から片付ける(safeDiscard: レシピで使う食材は残す)。
+  // 在庫が残っていれば、数量もロットもそのままで、数を記録する食材として一覧に戻る
   async function unstaple(ingredient) {
     const { error } = await supabase.from('ingredients').update({ is_staple: false }).eq('id', ingredient.id)
     if (error) {
@@ -133,7 +133,7 @@ export function Fridge({ groupId }) {
       return
     }
     setExpandedId(null)
-    if (!(Number(ingredient.quantity) > 0)) await removeIngredient(ingredient.id)
+    if (!(Number(ingredient.quantity) > 0)) await safeDiscard(ingredient.id)
     refresh()
   }
 
@@ -144,12 +144,25 @@ export function Fridge({ groupId }) {
     refresh()
   }
 
-  // 追加で選んだまま、量も常備品も決めずに閉じた食材は冷蔵庫に残さない。
-  // 選んだ時点で在庫0の行ができているため、「－」で0になったときと同じく片付ける
-  // (レシピで使う食材は行を残し、それ以外は行ごと消す。remove_ingredient)
+  // 追加で選んだまま、量も常備品も決めずに閉じた食材は冷蔵庫に残さない(選んだ時点で在庫0の行ができるため)。
+  // 別の端末がその間に在庫を入れていることもあるので、消す直前の状態で確かめる:
+  // いまも在庫0で常備品でなく、どのレシピでも使っていない行だけを、在庫0を条件に消す
+  async function safeDiscard(id) {
+    const { data: row } = await supabase.from('ingredients').select('quantity, is_staple').eq('id', id).maybeSingle()
+    if (!row || Number(row.quantity) > 0 || row.is_staple) return
+    const { count, error: countError } = await supabase
+      .from('recipe_ingredients')
+      .select('ingredient_id', { count: 'exact', head: true })
+      .eq('ingredient_id', id)
+    if (countError || count == null || count > 0) return
+    const { error } = await supabase.from('ingredients').delete().eq('id', id).eq('quantity', 0).eq('is_staple', false)
+    if (error) console.error('使わなかった食材を片付けられませんでした', error)
+    refresh()
+  }
+
   function discardUnused(list) {
     for (const i of list) {
-      if (!(Number(i.quantity) > 0) && !i.is_staple) removeIngredient(i.id)
+      if (!(Number(i.quantity) > 0) && !i.is_staple) safeDiscard(i.id)
     }
   }
 
