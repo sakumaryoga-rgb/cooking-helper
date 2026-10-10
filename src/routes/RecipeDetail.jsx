@@ -17,11 +17,12 @@ import { formatQuantity } from '@/lib/format'
 import { supabase } from '@/supabaseClient'
 import { setBusy } from '@/lib/swUpdate'
 import { Button, buttonVariants } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { MakeableBadge } from '@/components/MakeableBadge'
 import { dishLook } from '@/lib/foodLook'
 import { savedUsageMismatches } from '@/lib/recipeSteps'
+import { QuantityInput } from '@/components/QuantityInput'
+import { snapToStock } from '@/lib/quantity'
 
 // 確定のあとに「取り消す」を出しておく時間
 const UNDO_TOAST_MS = 8000
@@ -129,7 +130,8 @@ export function RecipeDetail({ groupId }) {
     // 量が入っている行だけを在庫から引く(数が分からない分量は、入れたときだけ)
     const items = plan
       .filter((row) => row.include && Number(row.quantity) > 0)
-      .map((row) => ({ ingredient_id: row.ingredientId, quantity: Number(row.quantity), substitute_for: row.substituteFor }))
+      // 1/3 を3回使ったときなどに在庫へ 0.000001 のような端数を残さない
+      .map((row) => ({ ingredient_id: row.ingredientId, quantity: snapToStock(row.quantity, ingredientsById.get(row.ingredientId)?.quantity), substitute_for: row.substituteFor }))
     const toRemember = plan.filter((row) => row.unknown && row.remember && row.include && Number(row.quantity) > 0)
     const { data: logId, error } = await supabase.rpc('cook_recipe_v2', { p_recipe_id: recipe.id, p_items: items, p_request_id: requestId })
     setSaving(false)
@@ -527,18 +529,16 @@ export function RecipeDetail({ groupId }) {
                     aria-label={`${row.name}を使う`}
                   />
                   <span className="flex-1 text-sm">{row.name}</span>
-                  <Input
-                    type="number"
-                    min="0"
-                    step="any"
+                  <QuantityInput
                     className="w-20 h-8"
                     value={row.quantity}
-                    onChange={(e) => updatePlan(row.key, row.unknown ? { quantity: e.target.value, include: Number(e.target.value) > 0 } : { quantity: e.target.value })}
+                    onChange={(v) => updatePlan(row.key, row.unknown ? { quantity: v, include: Number(v) > 0 } : { quantity: v })}
                     aria-label={`${row.name}の使用量`}
                   />
                   <span className="text-xs text-muted-foreground w-8">{row.unit}</span>
                 </div>
                 {row.substituteFor && <p className="pl-6 text-xs text-amber-700 dark:text-amber-400">{row.substituteFor}の代わり</p>}
+                {row.staple && <p className="pl-6 text-xs text-violet-700 dark:text-violet-400">常備品なので在庫から引きません(引くときはチェック)</p>}
                 {row.converted && (
                   <p className="pl-6 text-xs text-violet-700 dark:text-violet-400">
                     レシピの「{row.amountText}」を、覚えた「1{row.converted.unit} = {row.converted.per}

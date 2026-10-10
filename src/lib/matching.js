@@ -234,7 +234,9 @@ export function buildCookPlan(status) {
         name: line.name,
         unit: line.unit,
         quantity: round(originalQuantity),
-        include: true,
+        // 常備品は数えないので、最初は在庫から引かない(引きたいときはチェックを入れる)
+        include: !line.staple,
+        staple: line.staple,
         substituteFor: null,
         converted: line.converted,
         amountText: line.amountText,

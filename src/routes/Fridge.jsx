@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Plus, Minus, Search, CalendarPlus, ChevronDown } from 'lucide-react'
+import { Plus, Minus, Search, CalendarPlus, ChevronDown, Infinity as InfinityIcon, Hash } from 'lucide-react'
 import { useIngredients } from '@/hooks/useIngredients'
 import { useIngredientBatches } from '@/hooks/useIngredientBatches'
 import { useIngredientCatalog } from '@/hooks/useIngredientCatalog'
@@ -12,6 +12,7 @@ import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { supabase } from '@/supabaseClient'
 import { formatQuantity } from '@/lib/format'
+import { snapToStock } from '@/lib/quantity'
 import { getBatchExpiry, getExpiryInfo, getExpiryState, describeExpiry, formatMonthDay, EXPIRY_KIND_LABEL, formatExpiryLabel } from '@/lib/shelfLife'
 import { StockDialog } from '@/components/StockDialog'
 import { categoryLook } from '@/lib/foodLook'
@@ -21,6 +22,9 @@ const STEP_BY_UNIT = { g: 10, ml: 10 }
 function stepFor(unit) {
   return STEP_BY_UNIT[unit] ?? 1
 }
+
+// 冷蔵庫に新しく入れるとき、最初から「常備品(数えない)」を選んでおくカテゴリ
+const STAPLE_CATEGORIES = new Set(['調味料・油'])
 
 const STATE_CLASS = {
   expired: 'text-destructive font-medium',
@@ -59,13 +63,16 @@ function FridgeDoor({ children }) {
 }
 
 export function Fridge({ groupId }) {
-  const { ingredients, loading, removeIngredient, dropLocal } = useIngredients(groupId)
+  const { ingredients, loading, refresh, removeIngredient, dropLocal } = useIngredients(groupId)
   const [showEmpty, setShowEmpty] = useState(false)
   const [expandedId, setExpandedId] = useState(null)
   // 絞り込み(設計書 4 章): 'all' / 'expiring'(期限が3日以内・期限切れ)/ カテゴリ名
   const [searchParams] = useSearchParams()
   const [filter, setFilter] = useState(() => (searchParams.get('filter') === 'expiring' ? 'expiring' : 'all'))
   const [stockTarget, setStockTarget] = useState(null)
+  // 「追加」から開いたときだけ、常備品にする選択肢を出す
+  const [stockOffer, setStockOffer] = useState(false)
+  const [bulkConfirm, setBulkConfirm] = useState(false)
   // 「追加」で選んだ食材は、在庫0でも通常の一覧に出す(このあと「＋」で増やすため)
   const [pinnedIds, setPinnedIds] = useState(() => new Set())
   const { batches } = useIngredientBatches(groupId)
@@ -107,14 +114,27 @@ export function Fridge({ groupId }) {
     filter === 'all' ? true : filter === 'expiring' ? r.expiry && r.expiry.daysLeft <= 3 : categoryOf(r.ingredient) === filter
   )
   const searching = query.trim() !== '' || filter !== 'all'
-  const visible = (r) => Number(r.ingredient.quantity) > 0 || r.ingredient.is_staple || pinnedIds.has(r.ingredient.id)
-  const inStock = searching ? filtered : filtered.filter(visible)
-  const emptyRows = searching ? [] : filtered.filter((r) => !visible(r))
+  const visible = (r) => Number(r.ingredient.quantity) > 0 || pinnedIds.has(r.ingredient.id)
+  // 常備品は数を数えないので、冷蔵庫の一覧とは別の棚にまとめる
+  const staples = filtered.filter((r) => r.ingredient.is_staple)
+  const counted = filtered.filter((r) => !r.ingredient.is_staple)
+  const inStock = searching ? counted : counted.filter(visible)
+  const emptyRows = searching ? [] : counted.filter((r) => !visible(r))
+  // 数を記録している調味料(まとめて常備品にできるもの)
+  const countedSeasonings = ingredients.filter((i) => !i.is_staple && Number(i.quantity) > 0 && STAPLE_CATEGORIES.has(categoryOf(i)))
+
+  async function setStaple(ids, value) {
+    const { error } = await supabase.from('ingredients').update({ is_staple: value }).in('id', ids)
+    if (error) console.error('常備品の切り替えに失敗しました', error)
+    setBulkConfirm(false)
+    refresh()
+  }
 
   function handlePicked(ingredient) {
     setPinnedIds((prev) => new Set(prev).add(ingredient.id))
     setPickerOpen(false)
-    // 追加した食材は、そのまま量と期限を入れられるようにする
+    // 追加した食材は、そのまま量と期限を入れられるようにする(調味料などは常備品も選べる)
+    setStockOffer(!ingredient.is_staple)
     setStockTarget(ingredient)
   }
 
@@ -137,7 +157,6 @@ export function Fridge({ groupId }) {
             >
               <p className="text-sm font-medium truncate flex items-center gap-1">
                 {ingredient.name}
-                {ingredient.is_staple && <span className="rounded-full bg-violet-100 px-1.5 py-px text-[10px] font-medium text-violet-700 dark:bg-violet-950 dark:text-violet-300">常備品</span>}
                 <ChevronDown className={`size-3 shrink-0 text-muted-foreground transition-transform ${expandedId === ingredient.id ? 'rotate-180' : ''}`} />
               </p>
               <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
@@ -154,7 +173,10 @@ export function Fridge({ groupId }) {
                 size="icon"
                 variant="ghost"
                 className="size-8 rounded-full"
-                onClick={() => setStockTarget(ingredient)}
+                onClick={() => {
+                  setStockOffer(false)
+                  setStockTarget(ingredient)
+                }}
                 aria-label="期限を入れて増やす"
               >
                 <CalendarPlus className="size-3.5" />
@@ -212,11 +234,23 @@ export function Fridge({ groupId }) {
             {ingredient.unit}・ロットの記録なし
           </li>
         )}
+        <li className="pt-1">
+          <button
+            type="button"
+            className="inline-flex items-center gap-1 rounded-full bg-violet-100 px-2.5 py-1 font-medium text-violet-700 dark:bg-violet-950 dark:text-violet-300"
+            onClick={() => setStaple([ingredient.id], true)}
+          >
+            <InfinityIcon className="size-3.5" />
+            常備品にする(数えない)
+          </button>
+        </li>
       </ul>
     )
   }
 
-  async function adjustQuantity(ingredient, delta) {
+  async function adjustQuantity(ingredient, rawDelta) {
+    // 1/3 を3回減らしたときなどに 0.000001 のような端数を残さない
+    const delta = rawDelta < 0 ? -snapToStock(-rawDelta, ingredient.quantity) : rawDelta
     // 在庫の増減・ロットの記録・在庫0時の自動削除を1トランザクションで行う
     // (以前はクライアント側で複数回に分けて処理しており、連打や複数端末からの
     // 同時操作で更新が失われることがあった)
@@ -308,6 +342,69 @@ export function Fridge({ groupId }) {
           ) : (
             <p className="py-6 text-center text-sm text-muted-foreground">在庫のある食材はありません。</p>
           )}
+          {(staples.length > 0 || (!searching && countedSeasonings.length > 0)) && (
+            <section className="flex flex-col gap-2 rounded-3xl border-2 border-violet-200 bg-violet-50/60 p-3 dark:border-violet-900 dark:bg-violet-950/30" aria-label="常備品">
+              <div className="flex items-center justify-between gap-2">
+                <h2 className="flex items-center gap-1.5 text-sm font-semibold">
+                  <InfinityIcon className="size-4 text-violet-600" />
+                  常備品
+                  <span className="rounded-full bg-card px-2 py-0.5 text-xs font-medium text-muted-foreground">{staples.length}</span>
+                </h2>
+                <span className="text-[11px] text-muted-foreground">数えずに「ある」とみなします</span>
+              </div>
+              {staples.length > 0 && (
+                <ul className="flex flex-wrap gap-1.5">
+                  {staples.map(({ ingredient }) => (
+                    <li key={ingredient.id}>
+                      <button
+                        type="button"
+                        className={`inline-flex items-center gap-1 rounded-full border bg-card px-2.5 py-1 text-xs font-medium ${expandedId === ingredient.id ? 'border-violet-400' : ''}`}
+                        onClick={() => setExpandedId((cur) => (cur === ingredient.id ? null : ingredient.id))}
+                        aria-expanded={expandedId === ingredient.id}
+                      >
+                        <span aria-hidden="true">{categoryLook(categoryOf(ingredient), ingredient.name).emoji}</span>
+                        {ingredient.name}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {(() => {
+                const open = staples.find((r) => r.ingredient.id === expandedId)?.ingredient
+                return open ? (
+                  <div className="flex items-center justify-between gap-2 rounded-xl bg-card px-3 py-2 text-xs">
+                    <span>{open.name}は常備品です</span>
+                    <Button size="sm" variant="outline" className="h-7 rounded-full text-xs" onClick={() => setStaple([open.id], false)}>
+                      <Hash className="size-3.5" />
+                      数を記録する
+                    </Button>
+                  </div>
+                ) : null
+              })()}
+              {!searching && countedSeasonings.length > 0 && (
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-card px-3 py-2 text-xs">
+                  <span className="text-muted-foreground">
+                    数を記録している調味料が{countedSeasonings.length}品あります
+                  </span>
+                  {bulkConfirm ? (
+                    <span className="flex gap-1.5">
+                      <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setBulkConfirm(false)}>
+                        やめる
+                      </Button>
+                      <Button size="sm" className="h-7 rounded-full text-xs" onClick={() => setStaple(countedSeasonings.map((i) => i.id), true)}>
+                        {countedSeasonings.map((i) => i.name).slice(0, 3).join('・')}
+                        {countedSeasonings.length > 3 ? 'など' : ''}を常備品に
+                      </Button>
+                    </span>
+                  ) : (
+                    <Button size="sm" variant="outline" className="h-7 rounded-full text-xs" onClick={() => setBulkConfirm(true)}>
+                      まとめて常備品にする
+                    </Button>
+                  )}
+                </div>
+              )}
+            </section>
+          )}
           {emptyRows.length > 0 && (
             <div className="flex flex-col gap-2">
               <Button variant="ghost" size="sm" className="self-start" onClick={() => setShowEmpty((v) => !v)}>
@@ -325,6 +422,9 @@ export function Fridge({ groupId }) {
         ingredient={stockTarget}
         defaultQuantity={stockTarget ? stepFor(stockTarget.unit) : 1}
         datedToday={dateAsPurchaseDate}
+        offerStaple={stockOffer}
+        stapleDefault={Boolean(stockTarget) && STAPLE_CATEGORIES.has(categoryOf(stockTarget))}
+        onSaved={refresh}
         onClose={() => setStockTarget(null)}
       />
 

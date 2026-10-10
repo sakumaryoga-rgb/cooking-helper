@@ -214,3 +214,26 @@ describe('代替食材', () => {
     })
   })
 })
+
+describe('分数の分量と常備品', () => {
+  it('レシピの じゃがいも 1/2 は、在庫 0.5 で作れる', async () => {
+    const { parseQuantity } = await import('./quantity')
+    const recipe = { id: 'r', recipe_ingredients: [line('potato', parseQuantity('1/2'), 'じゃがいも')] }
+    expect(getRecipeStatus(recipe, stock([{ id: 'potato', quantity: parseQuantity('0.5') }])).makeable).toBe(true)
+    expect(getRecipeStatus(recipe, stock([{ id: 'potato', quantity: parseQuantity('½') }])).makeable).toBe(true)
+  })
+
+  it('1/3 を3つ分のレシピは、在庫 1 で作れる', async () => {
+    const { parseQuantity } = await import('./quantity')
+    const recipe = { id: 'r', recipe_ingredients: [line('cabbage', parseQuantity('1/3') * 3, 'キャベツ')] }
+    expect(getRecipeStatus(recipe, stock([{ id: 'cabbage', quantity: 1 }])).makeable).toBe(true)
+  })
+
+  it('「作った」で常備品は最初から在庫から引かない', () => {
+    const recipe = { id: 'r', recipe_ingredients: [line('salt', 2, '塩', 'g'), line('egg', 1, '卵')] }
+    const status = getRecipeStatus(recipe, stock([{ id: 'salt', quantity: 0, is_staple: true }, { id: 'egg', quantity: 3 }]))
+    const plan = buildCookPlan(status)
+    expect(plan.find((r) => r.ingredientId === 'salt')).toMatchObject({ include: false, staple: true })
+    expect(plan.find((r) => r.ingredientId === 'egg')).toMatchObject({ include: true })
+  })
+})

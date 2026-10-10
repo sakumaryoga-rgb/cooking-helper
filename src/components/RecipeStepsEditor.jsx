@@ -1,8 +1,8 @@
 import { ArrowDown, ArrowUp, Plus, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { emptyStep, usageMismatches } from '@/lib/recipeSteps'
+import { QuantityInput } from '@/components/QuantityInput'
 
 // 作り方(オリジナルレシピ)。手順ごとに、そのレシピの材料から使うものと量を選べる(どちらも任意)。
 // 手順の量は目安で、在庫はレシピの材料の分量で引く(手順の量では引かない)
@@ -65,15 +65,11 @@ export function RecipeStepsEditor({ steps, setSteps, items }) {
                 return (
                   <div key={u.itemKey} className="flex items-center gap-2 rounded-xl bg-muted/60 px-2 py-1">
                     <span className="min-w-0 flex-1 truncate text-sm">{item.name}</span>
-                    <Input
-                      type="number"
-                      min="0"
-                      step="any"
-                      inputMode="decimal"
+                    <QuantityInput
                       className="h-7 w-20 bg-background"
                       value={u.quantity}
                       placeholder="量"
-                      onChange={(e) => setUse(step, u.itemKey, e.target.value)}
+                      onChange={(v) => setUse(step, u.itemKey, v)}
                       aria-label={`手順${i + 1}の${item.name}の量`}
                     />
                     <span className="w-8 text-xs text-muted-foreground">{item.unit}</span>

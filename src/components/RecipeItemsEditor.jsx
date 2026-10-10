@@ -3,8 +3,8 @@ import { ArrowLeftRight, Plus, X } from 'lucide-react'
 import { IngredientPicker } from '@/components/IngredientPicker'
 import { applyChoice } from '@/lib/recipeImport/match'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { QuantityInput } from '@/components/QuantityInput'
 
 let nextKey = 0
 export const keyOf = () => `item-${nextKey++}`
@@ -75,15 +75,12 @@ export function RecipeItemsEditor({ groupId, ingredients, items, setItems, empty
                   {item.name}
                   {item.kind === 'new' && !item.needsChoice && <span className="ml-1 text-xs text-muted-foreground">(新しい食材)</span>}
                 </span>
-                <Input
-                  type="number"
-                  min="0"
-                  step="any"
+                <QuantityInput
                   className="w-20 h-8"
-                  // 数で分からない分量は空のまま保存できる(元の表記を表示)
+                  // 数で分からない分量は空のまま保存できる(元の表記を表示)。1/2 や ½ も入れられる
                   placeholder={item.amountText || ''}
                   value={item.requiredQuantity}
-                  onChange={(e) => updateItem(item.key, { requiredQuantity: e.target.value, needsCheck: false })}
+                  onChange={(v) => updateItem(item.key, { requiredQuantity: v, needsCheck: false })}
                   aria-label={`${item.name}の分量`}
                 />
                 <span className="text-xs text-muted-foreground w-10">{item.unit}</span>
