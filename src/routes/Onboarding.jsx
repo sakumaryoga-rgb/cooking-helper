@@ -62,6 +62,15 @@ export function Onboarding({ onGroupChanged, notice }) {
   const [inviteInput, setInviteInput] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(notice?.kind === 'error' ? notice.text : '')
+  // 招待の自動参加は画面を開いた後に失敗することもある。そのときも「招待で入る」に切り替えて理由を出す
+  const [seenNotice, setSeenNotice] = useState(notice)
+  if (notice !== seenNotice) {
+    setSeenNotice(notice)
+    if (notice?.kind === 'error') {
+      setMode('join')
+      setError(notice.text)
+    }
+  }
 
   function choose(next) {
     setMode(next)

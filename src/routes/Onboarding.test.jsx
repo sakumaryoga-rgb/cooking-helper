@@ -73,3 +73,22 @@ describe('家を建てる', () => {
     expect(changed).toHaveBeenCalledWith('g9')
   })
 })
+
+describe('招待の自動参加があとから失敗したとき', () => {
+  it('「招待で入る」に切り替えて理由を出す(家を建てる側に残さない)', () => {
+    const { rerender } = render(
+      <MemoryRouter>
+        <Onboarding onGroupChanged={vi.fn()} notice={null} />
+      </MemoryRouter>
+    )
+    expect(screen.getByLabelText('家の名前')).toBeInTheDocument()
+    rerender(
+      <MemoryRouter>
+        <Onboarding onGroupChanged={vi.fn()} notice={{ kind: 'error', text: '招待リンクが無効か、期限が切れています。' }} />
+      </MemoryRouter>
+    )
+    expect(screen.getByLabelText('招待リンク')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^招待で入る.*家族から/ })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByText('招待リンクが無効か、期限が切れています。')).toBeInTheDocument()
+  })
+})
