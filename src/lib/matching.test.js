@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildCookPlan, convertAmount, describeNotSubtracted, describeShortfalls, getRecipeStatus, scaleRecipe, sortRecipesByMakeability } from './matching'
+import { buildCookPlan, convertAmount, describeExpiring, describeNotSubtracted, describeShortfalls, getRecipeStatus, scaleRecipe, sortRecipesByMakeability } from './matching'
 
 const stock = (items) => new Map(items.map((i) => [i.id, i]))
 const line = (ingredient_id, required_quantity, name = ingredient_id, unit = '個') => ({
@@ -235,5 +235,43 @@ describe('分数の分量と常備品', () => {
     const plan = buildCookPlan(status)
     expect(plan.find((r) => r.ingredientId === 'salt')).toMatchObject({ include: false, staple: true })
     expect(plan.find((r) => r.ingredientId === 'egg')).toMatchObject({ include: true })
+  })
+})
+
+describe('期限が近い食材を使うレシピを優先', () => {
+  const recipeA = { id: 'a', recipe_ingredients: [line('egg', 1, '卵')] }
+  const recipeB = { id: 'b', recipe_ingredients: [line('carrot', 1, 'にんじん')] }
+  const recipeC = { id: 'c', recipe_ingredients: [line('milk', 1, '牛乳'), line('salt', 1, '塩', 'g')] }
+  const fridgeStock = stock([
+    { id: 'egg', name: '卵', quantity: 6 },
+    { id: 'carrot', name: 'にんじん', quantity: 2 },
+    { id: 'milk', name: '牛乳', quantity: 1 },
+    { id: 'salt', name: '塩', quantity: 0, is_staple: true },
+  ])
+
+  it('同じ「作れる」の中で、期限の近い食材を使うレシピが先に来る', () => {
+    const expiryById = new Map([
+      ['carrot', { daysLeft: 1, kind: 'estimated' }],
+      ['milk', { daysLeft: 0, kind: 'use_by' }],
+      ['egg', { daysLeft: 10, kind: 'best_before' }],
+    ])
+    const sorted = sortRecipesByMakeability([recipeA, recipeB, recipeC], fridgeStock, { expiryById })
+    expect(sorted.map((s) => s.recipe.id)).toEqual(['c', 'b', 'a'])
+    expect(sorted[0].status.expiring).toEqual([{ ingredientId: 'milk', name: '牛乳', daysLeft: 0 }])
+    expect(sorted[2].status.expiring).toEqual([])
+    expect(describeExpiring(sorted[1].status.expiring)).toBe('にんじん(あと1日)')
+  })
+
+  it('作れないレシピは、期限が近くても作れるレシピより後', () => {
+    const recipeShort = { id: 's', recipe_ingredients: [line('carrot', 5, 'にんじん')] }
+    const sorted = sortRecipesByMakeability([recipeShort, recipeA], fridgeStock, { expiryById: new Map([['carrot', { daysLeft: 0, kind: 'estimated' }]]) })
+    expect(sorted.map((s) => s.recipe.id)).toEqual(['a', 's'])
+  })
+
+  it('消費期限が切れた食材は勧めない(賞味期限切れは含める)', () => {
+    const useBy = sortRecipesByMakeability([recipeC], fridgeStock, { expiryById: new Map([['milk', { daysLeft: -1, kind: 'use_by' }]]) })
+    expect(useBy[0].status.expiring).toEqual([])
+    const best = sortRecipesByMakeability([recipeC], fridgeStock, { expiryById: new Map([['milk', { daysLeft: -1, kind: 'best_before' }]]) })
+    expect(describeExpiring(best[0].status.expiring)).toBe('牛乳(期限切れ)')
   })
 })

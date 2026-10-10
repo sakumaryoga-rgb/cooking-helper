@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { BookOpen, Plus, Refrigerator } from 'lucide-react'
 import { useKitchen } from '@/hooks/useKitchen'
 import { useIngredientBatches } from '@/hooks/useIngredientBatches'
-import { describeSubstitutes } from '@/lib/matching'
+import { describeExpiring, describeSubstitutes } from '@/lib/matching'
 import { describeExpiry, getExpiryInfo, getExpiryState } from '@/lib/shelfLife'
 import { categoryLook, dishLook, greeting } from '@/lib/foodLook'
 import { MakeableBadge } from '@/components/MakeableBadge'
@@ -59,6 +59,10 @@ export function Home({ groupId }) {
 
   const makeable = sorted.filter((s) => s.status.level === 'makeable')
   const substitutable = sorted.filter((s) => s.status.level === 'substitutable')
+  // 期限が近い食材を使って、今の在庫で作れるレシピ(期限の近い順)
+  const useSoon = sorted
+    .filter((s) => (s.status.level === 'makeable' || s.status.level === 'substitutable') && s.status.expiring?.length > 0)
+    .sort((a, b) => a.status.expiring[0].daysLeft - b.status.expiring[0].daysLeft)
 
   const expiring = useMemo(() => {
     const byIngredient = new Map()
@@ -102,6 +106,13 @@ export function Home({ groupId }) {
           </div>
         </div>
       </section>
+
+      {useSoon.length > 0 && (
+        <section className="flex flex-col gap-2">
+          <SectionTitle emoji="⏰" title="期限が近い食材を使い切る" count={useSoon.length} />
+          <DishCards items={useSoon} detail={(status) => describeExpiring(status.expiring)} />
+        </section>
+      )}
 
       <section className="flex flex-col gap-2">
         <SectionTitle emoji="✨" title="今すぐ作れる" count={makeable.length} />

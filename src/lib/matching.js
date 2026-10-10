@@ -177,15 +177,54 @@ export function getRecipeStatus(recipe, ingredientsById, { substitutions = [], c
 const LEVEL_ORDER = { makeable: 0, substitutable: 1, check: 2, almost: 3, short: 4, empty: 5 }
 
 // 作れる → 代替で作れる → あと少し → 不足が多い → 材料未登録 の順。同じ段階では不足の品数が少なく、揃っている割合が高い順
-export function sortRecipesByMakeability(recipes, ingredientsById, options) {
+// 同じ段階の中では、期限が近い食材(EXPIRING_DAYS 日以内)を使うレシピを先にする(期限の近い順、使う品数の多い順)。
+// options.expiryById: Map<ingredientId, { daysLeft, kind }>(在庫のある食材の、いちばん近い期限)
+export function sortRecipesByMakeability(recipes, ingredientsById, options = {}) {
+  const expiryById = options.expiryById ?? new Map()
   return recipes
-    .map((recipe) => ({ recipe, status: getRecipeStatus(recipe, ingredientsById, options) }))
+    .map((recipe) => {
+      const status = getRecipeStatus(recipe, ingredientsById, options)
+      return { recipe, status: { ...status, expiring: expiringUses(status, expiryById) } }
+    })
     .sort(
       (a, b) =>
         LEVEL_ORDER[a.status.level] - LEVEL_ORDER[b.status.level] ||
+        soonest(a.status.expiring) - soonest(b.status.expiring) ||
+        b.status.expiring.length - a.status.expiring.length ||
         a.status.shortfallCount - b.status.shortfallCount ||
         b.status.readiness - a.status.readiness
     )
+}
+
+export const EXPIRING_DAYS = 3
+
+function soonest(expiring) {
+  return expiring.length > 0 ? expiring[0].daysLeft : Infinity
+}
+
+// このレシピで在庫から使う食材(代替を含む)のうち、期限が近いもの。期限の近い順。
+// 常備品と、消費期限が切れたもの(食べないほうがよい)は含めない
+export function expiringUses(status, expiryById) {
+  const seen = new Map()
+  const consider = (ingredientId, name) => {
+    const e = ingredientId ? expiryById.get(ingredientId) : null
+    if (!e || e.daysLeft > EXPIRING_DAYS || (e.kind === 'use_by' && e.daysLeft < 0)) return
+    if (!seen.has(ingredientId)) seen.set(ingredientId, { ingredientId, name, daysLeft: e.daysLeft })
+  }
+  for (const line of status.lines) {
+    if (line.pending || line.staple) continue
+    if (line.currentQuantity > 0) consider(line.ingredientId, line.name)
+    for (const sub of line.substitutes) consider(sub.ingredientId, sub.name)
+  }
+  return [...seen.values()].sort((a, b) => a.daysLeft - b.daysLeft)
+}
+
+// 「にんじん(あと1日)・牛乳(本日まで)」のような短い説明
+export function describeExpiring(expiring, limit = 2) {
+  const label = (d) => (d < 0 ? '期限切れ' : d === 0 ? '本日まで' : `あと${d}日`)
+  const parts = expiring.slice(0, limit).map((e) => `${e.name}(${label(e.daysLeft)})`)
+  if (expiring.length > limit) parts.push(`ほか${expiring.length - limit}品`)
+  return parts.join('・')
 }
 
 // 「にんじん あと1本、玉ねぎ あと0.5個」のような短い説明
