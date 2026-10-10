@@ -1,12 +1,56 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { BookOpen, HousePlus, KeyRound, Refrigerator, Users } from 'lucide-react'
 import { parseInviteToken } from '@/lib/invite'
 import { supabase } from '@/supabaseClient'
 import { BrandMark } from '@/components/BrandMark'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
+
+// 入口の家のイラスト。屋根はトマト、扉はブランドの黄色。開いた扉からフライパンがのぞく
+function HouseArt() {
+  return (
+    <svg viewBox="0 0 160 120" className="h-32 w-auto drop-shadow-sm" aria-hidden="true">
+      <ellipse cx="80" cy="112" rx="62" ry="6" fill="#3b2a1c" opacity="0.08" />
+      <rect x="104" y="22" width="12" height="26" rx="2" fill="#c9b8a6" />
+      <path d="M80 10 L144 58 L16 58 Z" fill="#e53d26" stroke="#3b2a1c" strokeWidth="3" strokeLinejoin="round" />
+      <rect x="28" y="56" width="104" height="54" rx="4" fill="#fffdf7" stroke="#3b2a1c" strokeWidth="3" />
+      <rect x="40" y="68" width="22" height="20" rx="3" fill="#fed712" opacity="0.35" stroke="#3b2a1c" strokeWidth="2.5" />
+      <path d="M51 68 V88 M40 78 H62" stroke="#3b2a1c" strokeWidth="2" />
+      <rect x="86" y="66" width="30" height="44" rx="3" fill="#3b2a1c" />
+      <circle cx="101" cy="92" r="6" fill="#f2eae3" />
+      <rect x="106" y="90" width="8" height="3" rx="1.5" fill="#f2eae3" />
+      <g className="origin-[86px_88px] animate-[door-open_1.2s_ease-out_0.3s_both]">
+        <rect x="86" y="66" width="30" height="44" rx="3" fill="#fed712" stroke="#3b2a1c" strokeWidth="3" />
+        <circle cx="110" cy="89" r="2.6" fill="#3b2a1c" />
+      </g>
+    </svg>
+  )
+}
+
+const FEATURES = [
+  { Icon: Refrigerator, label: '冷蔵庫を記録' },
+  { Icon: BookOpen, label: '作れるレシピ' },
+  { Icon: Users, label: '家族と共有' },
+]
+
+function ChoiceCard({ active, Icon, title, sub, onClick }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={`flex flex-1 flex-col items-center gap-1.5 rounded-2xl border-2 px-3 py-4 text-center transition-all ${
+        active ? 'border-[#3b2a1c] bg-primary text-primary-foreground shadow-[0_3px_0_#3b2a1c]' : 'border-border bg-card hover:-translate-y-0.5 hover:border-[#3b2a1c]/40'
+      }`}
+    >
+      <Icon className="size-7" strokeWidth={2.2} />
+      <span className="text-sm font-bold">{title}</span>
+      <span className={`text-[11px] leading-tight ${active ? 'opacity-80' : 'text-muted-foreground'}`}>{sub}</span>
+    </button>
+  )
+}
 
 export function Onboarding({ onGroupChanged, notice }) {
   const navigate = useNavigate()
@@ -18,6 +62,20 @@ export function Onboarding({ onGroupChanged, notice }) {
   const [inviteInput, setInviteInput] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(notice?.kind === 'error' ? notice.text : '')
+  // 招待の自動参加は画面を開いた後に失敗することもある。そのときも「招待で入る」に切り替えて理由を出す
+  const [seenNotice, setSeenNotice] = useState(notice)
+  if (notice !== seenNotice) {
+    setSeenNotice(notice)
+    if (notice?.kind === 'error') {
+      setMode('join')
+      setError(notice.text)
+    }
+  }
+
+  function choose(next) {
+    setMode(next)
+    setError('')
+  }
 
   async function handleCreate(e) {
     e.preventDefault()
@@ -49,7 +107,7 @@ export function Onboarding({ onGroupChanged, notice }) {
       return
     }
     if (!data?.id) {
-      setError('招待リンクが無効か、期限が切れています。グループのメンバーに新しい招待リンクを発行してもらってください')
+      setError('招待リンクが無効か、期限が切れています。家族に新しい招待リンクを発行してもらってください')
       return
     }
     await onGroupChanged(data.id)
@@ -57,56 +115,64 @@ export function Onboarding({ onGroupChanged, notice }) {
   }
 
   return (
-    <div className="min-h-svh flex items-center justify-center px-4">
-      <Card className="w-full max-w-sm">
-        <CardHeader>
-          <BrandMark size="sm" className="mb-2 text-sm" />
-          <CardTitle>グループを作成 / 参加</CardTitle>
-          <CardDescription>COOKDOOR で冷蔵庫とレシピを共有する世帯・グループを設定します</CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-4">
-          <p className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
-            家族から招待リンクをもらっている場合は、家を作らずに、その招待リンクをもう一度開くか「招待リンクで参加」に貼り付けてください。
-            ログインのメールを別のアプリやブラウザで開くと、招待が引き継がれないことがあります。
-          </p>
-          <div className="flex gap-2">
-            <Button
-              type="button"
-              variant={mode === 'create' ? 'default' : 'outline'}
-              className="flex-1"
-              onClick={() => setMode('create')}
-            >
-              新しく作成
-            </Button>
-            <Button
-              type="button"
-              variant={mode === 'join' ? 'default' : 'outline'}
-              className="flex-1"
-              onClick={() => setMode('join')}
-            >
-              招待リンクで参加
-            </Button>
-          </div>
+    <div className="min-h-svh bg-[radial-gradient(circle_at_50%_0%,#fff3b0_0%,transparent_60%)] px-4 pt-safe pb-safe">
+      <div className="mx-auto flex w-full max-w-sm flex-col gap-5 py-8">
+        <BrandMark size="sm" className="self-center text-sm" />
 
+        <section className="flex flex-col items-center gap-3 text-center">
+          <HouseArt />
+          <h1 className="text-2xl font-bold tracking-tight">ようこそ、COOKDOOR へ</h1>
+          <p className="text-sm text-muted-foreground">
+            まずは、冷蔵庫とレシピをしまっておく
+            <br />
+            「家」を用意しましょう
+          </p>
+          <ul className="flex flex-wrap justify-center gap-2 pt-1">
+            {FEATURES.map(({ Icon, label }) => (
+              <li key={label} className="inline-flex items-center gap-1 rounded-full bg-card px-2.5 py-1 text-xs font-medium shadow-sm ring-1 ring-border">
+                <Icon className="size-3.5" />
+                {label}
+              </li>
+            ))}
+          </ul>
+        </section>
+
+        <div className="flex gap-3" role="group" aria-label="はじめ方">
+          <ChoiceCard active={mode === 'create'} Icon={HousePlus} title="家を建てる" sub="はじめて使う" onClick={() => choose('create')} />
+          <ChoiceCard active={mode === 'join'} Icon={KeyRound} title="招待で入る" sub="家族から招待された" onClick={() => choose('join')} />
+        </div>
+
+        <div className="rounded-3xl border-2 border-[#3b2a1c] bg-card p-4 shadow-[0_4px_0_#3b2a1c]">
           {mode === 'create' ? (
-            <form onSubmit={handleCreate} className="flex flex-col gap-4">
+            <form onSubmit={handleCreate} className="flex flex-col gap-3">
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="group-name">グループ名</Label>
+                <Label htmlFor="group-name">家の名前</Label>
                 <Input
                   id="group-name"
                   required
+                  maxLength={40}
                   value={groupName}
                   onChange={(e) => setGroupName(e.target.value)}
-                  placeholder="例: 山田家"
+                  placeholder="例: 山田家、実家"
+                  autoComplete="off"
                 />
+                <p className="text-[11px] text-muted-foreground">あとから変更したり、家族を招待したりできます</p>
               </div>
               {error && <p className="text-destructive text-sm">{error}</p>}
-              <Button type="submit" disabled={saving}>
-                {saving ? '作成中...' : 'グループを作成'}
+              <Button type="submit" size="lg" disabled={saving || !groupName.trim()}>
+                <HousePlus />
+                {saving ? '建てています...' : 'この名前で家を建てる'}
               </Button>
+              <p className="text-center text-[11px] text-muted-foreground">
+                家族から招待リンクをもらっている場合は、家を建てずに
+                <button type="button" className="font-semibold text-foreground underline underline-offset-2" onClick={() => choose('join')}>
+                  招待で入る
+                </button>
+                を選んでください
+              </p>
             </form>
           ) : (
-            <form onSubmit={handleJoin} className="flex flex-col gap-4">
+            <form onSubmit={handleJoin} className="flex flex-col gap-3">
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="invite-link">招待リンク</Label>
                 <Input
@@ -114,18 +180,22 @@ export function Onboarding({ onGroupChanged, notice }) {
                   required
                   value={inviteInput}
                   onChange={(e) => setInviteInput(e.target.value)}
-                  placeholder="https://cookdoor.app/onboarding#invite=..."
+                  placeholder="もらった招待リンクを貼り付け"
                   autoComplete="off"
                 />
               </div>
               {error && <p className="text-destructive text-sm">{error}</p>}
-              <Button type="submit" disabled={saving}>
-                {saving ? '参加中...' : 'グループに参加'}
+              <Button type="submit" size="lg" disabled={saving}>
+                <KeyRound />
+                {saving ? '入っています...' : '家に入る'}
               </Button>
+              <p className="rounded-xl bg-muted px-3 py-2 text-[11px] text-muted-foreground">
+                招待リンクをもう一度開いても入れます。ログインのメールを別のアプリやブラウザで開くと、招待が引き継がれないことがあります。
+              </p>
             </form>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </div>
     </div>
   )
 }
