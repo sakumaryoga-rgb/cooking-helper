@@ -211,7 +211,8 @@ describe('常備品と分数の在庫', () => {
     expect(supabase.rpc).toHaveBeenCalledWith('adjust_stock', expect.objectContaining({ p_delta: 2.25 }))
   })
 
-  it('常備品は別の棚に出て＋－がなく、「数を記録する」で戻せる', async () => {
+  it('常備品は別の棚に出て＋－がなく、「常備品から外す」で外すと在庫0なら片付ける', async () => {
+    removeIngredient.mockReset()
     setup([
       { id: 's', name: '塩', unit: 'g', quantity: 0, is_staple: true },
       { id: 'e', name: '卵', unit: '個', quantity: 2 },
@@ -220,10 +221,22 @@ describe('常備品と分数の在庫', () => {
     expect(shelf).toHaveTextContent('塩')
     expect(screen.getAllByRole('button', { name: '減らす' })).toHaveLength(1)
     await userEvent.click(screen.getByRole('button', { name: /塩/ }))
-    await userEvent.click(screen.getByRole('button', { name: /数を記録する/ }))
+    expect(screen.queryByRole('button', { name: /数を記録する/ })).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: /常備品から外す/ }))
     expect(update).toHaveBeenCalledWith({ is_staple: false })
-    expect(inIds).toHaveBeenCalledWith('id', ['s'])
+    expect(eq).toHaveBeenCalledWith('id', 's')
+    expect(removeIngredient).toHaveBeenCalledWith('s')
   })
+
+  it('在庫が残っている常備品は、外しても片付けない', async () => {
+    removeIngredient.mockReset()
+    setup([{ id: 's', name: '醤油', unit: 'ml', quantity: 300, is_staple: true }])
+    await userEvent.click(screen.getByRole('button', { name: /醤油/ }))
+    await userEvent.click(screen.getByRole('button', { name: /常備品から外す/ }))
+    expect(update).toHaveBeenCalledWith({ is_staple: false })
+    expect(removeIngredient).not.toHaveBeenCalled()
+  })
+
 
   it('数を記録している調味料を、確認してからまとめて常備品にできる', async () => {
     setup(

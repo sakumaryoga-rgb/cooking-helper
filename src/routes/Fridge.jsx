@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Plus, Minus, Search, CalendarPlus, ChevronDown, Infinity as InfinityIcon, Hash } from 'lucide-react'
+import { Plus, Minus, Search, CalendarPlus, ChevronDown, Infinity as InfinityIcon, X } from 'lucide-react'
 import { useIngredients } from '@/hooks/useIngredients'
 import { useIngredientBatches } from '@/hooks/useIngredientBatches'
 import { useIngredientCatalog } from '@/hooks/useIngredientCatalog'
@@ -123,6 +123,19 @@ export function Fridge({ groupId }) {
   const emptyRows = searching ? [] : counted.filter((r) => !visible(r))
   // 数を記録している調味料(まとめて常備品にできるもの)
   const countedSeasonings = ingredients.filter((i) => !i.is_staple && Number(i.quantity) > 0 && STAPLE_CATEGORIES.has(categoryOf(i)))
+
+  // 常備品から外す。在庫を数えていない(0)なら、－で0になったときと同じく冷蔵庫から片付ける
+  // (レシピで使う食材は行を残す)。在庫が残っていれば、数を記録する食材として一覧に戻る
+  async function unstaple(ingredient) {
+    const { error } = await supabase.from('ingredients').update({ is_staple: false }).eq('id', ingredient.id)
+    if (error) {
+      console.error('常備品から外せませんでした', error)
+      return
+    }
+    setExpandedId(null)
+    if (!(Number(ingredient.quantity) > 0)) await removeIngredient(ingredient.id)
+    refresh()
+  }
 
   async function setStaple(ids, value) {
     const { error } = await supabase.from('ingredients').update({ is_staple: value }).in('id', ids)
@@ -386,9 +399,9 @@ export function Fridge({ groupId }) {
                 return open ? (
                   <div className="flex items-center justify-between gap-2 rounded-xl bg-card px-3 py-2 text-xs">
                     <span>{open.name}は常備品です</span>
-                    <Button size="sm" variant="outline" className="h-7 rounded-full text-xs" onClick={() => setStaple([open.id], false)}>
-                      <Hash className="size-3.5" />
-                      数を記録する
+                    <Button size="sm" variant="outline" className="h-7 rounded-full text-xs" onClick={() => unstaple(open)}>
+                      <X className="size-3.5" />
+                      常備品から外す
                     </Button>
                   </div>
                 ) : null
