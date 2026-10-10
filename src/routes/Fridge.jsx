@@ -133,8 +133,13 @@ export function Fridge({ groupId }) {
   function handlePicked(ingredient) {
     setPinnedIds((prev) => new Set(prev).add(ingredient.id))
     setPickerOpen(false)
+    // すでに常備品の食材は登録済みなので、常備品の棚で開いて見せるだけにする(重複して登録しない)
+    if (ingredient.is_staple) {
+      setExpandedId(ingredient.id)
+      return
+    }
     // 追加した食材は、そのまま量と期限を入れられるようにする(調味料などは常備品も選べる)
-    setStockOffer(!ingredient.is_staple)
+    setStockOffer(true)
     setStockTarget(ingredient)
   }
 
@@ -423,7 +428,8 @@ export function Fridge({ groupId }) {
         defaultQuantity={stockTarget ? stepFor(stockTarget.unit) : 1}
         datedToday={dateAsPurchaseDate}
         offerStaple={stockOffer}
-        stapleDefault={Boolean(stockTarget) && STAPLE_CATEGORIES.has(categoryOf(stockTarget))}
+        // 調味料・油は常備品を初期選択にする。ただし在庫を数えている食材を選び直したときは数を記録するのまま
+        stapleDefault={Boolean(stockTarget) && !(Number(stockTarget.quantity) > 0) && STAPLE_CATEGORIES.has(categoryOf(stockTarget))}
         onSaved={refresh}
         onClose={() => setStockTarget(null)}
       />

@@ -7,7 +7,7 @@ import { Switch } from '@/components/ui/switch'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { supabase } from '@/supabaseClient'
 import { QuantityInput } from '@/components/QuantityInput'
-import { parseQuantity } from '@/lib/quantity'
+import { formatQuantity, parseQuantity } from '@/lib/quantity'
 
 const KINDS = [
   { id: 'none', label: '期限なし' },
@@ -112,6 +112,12 @@ export function StockDialog({ ingredient, defaultQuantity, datedToday, offerStap
                 </button>
               ))}
             </div>
+          )}
+          {staple && Number(ingredient?.quantity) > 0 && (
+            <p className="rounded-xl bg-muted px-3 py-2 text-xs text-muted-foreground">
+              いまの在庫({formatQuantity(ingredient.quantity)}
+              {ingredient.unit})は消さずに残します。数を記録するに戻すと、その量から再開します
+            </p>
           )}
           {!staple && (
           <>

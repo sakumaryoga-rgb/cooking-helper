@@ -236,3 +236,36 @@ describe('常備品と分数の在庫', () => {
     expect(supabase.rpc).toHaveBeenCalledWith('adjust_stock', expect.objectContaining({ p_delta: -1.000001 }))
   })
 })
+
+describe('追加で既存の食材を選び直したとき(重複登録しない)', () => {
+  const SEASONING = [{ id: 'c-soy', name: '醤油', category: '調味料・油' }]
+  let update
+  let eq
+
+  beforeEach(() => {
+    supabase.rpc.mockReset()
+    eq = vi.fn().mockResolvedValue({ error: null })
+    update = vi.fn(() => ({ eq, in: vi.fn().mockResolvedValue({ error: null }) }))
+    supabase.from.mockReturnValue({ update })
+  })
+
+  it('すでに常備品なら、ダイアログを開かずに常備品の棚で見せる', async () => {
+    setup([{ id: 's', name: '塩', unit: 'g', quantity: 0, is_staple: true }])
+    await act(async () => pickerProps.onSelect({ id: 's', name: '塩', unit: 'g', quantity: 0, is_staple: true }))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(screen.getByText('塩は常備品です')).toBeInTheDocument()
+    expect(update).not.toHaveBeenCalled()
+  })
+
+  it('在庫を数えている調味料は「数を記録する」のまま。常備品にしても在庫は消さない', async () => {
+    const soy = { id: 's', name: '醤油', unit: 'ml', quantity: 500, catalog_id: 'c-soy' }
+    setup([soy], SEASONING)
+    await act(async () => pickerProps.onSelect(soy))
+    expect(await screen.findByRole('radio', { name: /数を記録する/ })).toHaveAttribute('aria-checked', 'true')
+    await userEvent.click(screen.getByRole('radio', { name: /常備品にする/ }))
+    expect(screen.getByText(/いまの在庫\(500ml\)は消さずに残します/)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '常備品にする' }))
+    expect(update).toHaveBeenCalledWith({ is_staple: true })
+    expect(supabase.rpc).not.toHaveBeenCalled()
+  })
+})
