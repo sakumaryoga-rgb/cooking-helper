@@ -435,6 +435,7 @@ export function Fridge({ groupId }) {
       />
 
       <IngredientPicker
+        title="冷蔵庫に入れる"
         open={pickerOpen}
         onOpenChange={setPickerOpen}
         groupId={groupId}

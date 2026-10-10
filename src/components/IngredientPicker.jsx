@@ -1,18 +1,12 @@
 import { useMemo, useRef, useState } from 'react'
-import { ChevronDown, Plus } from 'lucide-react'
+import { Infinity as InfinityIcon, Plus, Refrigerator } from 'lucide-react'
 import { supabase } from '@/supabaseClient'
 import { useIngredientCatalog } from '@/hooks/useIngredientCatalog'
 import { useIngredientAliases } from '@/hooks/useIngredientAliases'
 import { formatQuantity } from '@/lib/format'
 import { CATEGORIES, CATEGORY_ICONS } from '@/lib/ingredientCategory'
 import { buildNameIndex, matchIngredientName, nameKey, searchKeywords } from '@/lib/ingredientName'
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from '@/components/ui/dialog'
+import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet'
 import {
   AlertDialog,
   AlertDialogContent,
@@ -59,7 +53,7 @@ function groupByCategory(items) {
 
 // マスタ食材の一覧行。長押しするとカタログからの完全削除を確認する
 // (通常のタップ選択とは別ジェスチャーなので、長押し発火後の後続クリックは握りつぶす)
-function CatalogItemRow({ item, category, isSearching, disabled, onSelect, onRequestDelete, keywords, stock }) {
+function CatalogItemRow({ item, disabled, onSelect, onRequestDelete, keywords, stock, staple }) {
   const timerRef = useRef(null)
   const longPressFiredRef = useRef(false)
   const startPosRef = useRef({ x: 0, y: 0 })
@@ -116,15 +110,23 @@ function CatalogItemRow({ item, category, isSearching, disabled, onSelect, onReq
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerUp}
       onClickCapture={handleClickCapture}
+      // メモのように素早く選べるタイル。最初の項目が選択色にならないよう、選択中の色は付けない
+      className={`flex min-h-16 flex-col items-start gap-1 rounded-2xl! border bg-card p-2 text-left shadow-xs transition-transform active:scale-95 data-selected:bg-card [&>svg:last-child]:hidden ${
+        stock || staple ? 'border-emerald-200 dark:border-emerald-900' : ''
+      }`}
     >
-      {isSearching && <span className="text-base leading-none">{CATEGORY_ICONS[category] ?? '🍽️'}</span>}
-      <span className="flex-1">{item.name}</span>
-      {stock ? (
-        <span className="rounded-full bg-emerald-50 px-1.5 py-px text-[10px] text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
-          冷蔵庫に {stock}
-        </span>
-      ) : null}
-      <span className="text-muted-foreground text-xs">{item.unit}</span>
+      <span className="line-clamp-2 text-[13px] font-semibold leading-tight">{item.name}</span>
+      <span className="mt-auto flex w-full items-center justify-between gap-1 text-[10px]">
+        <span className="text-muted-foreground">{item.unit}</span>
+        {staple ? (
+          <span className="inline-flex items-center gap-0.5 rounded-full bg-violet-100 px-1.5 py-px font-medium text-violet-700 dark:bg-violet-950 dark:text-violet-300">
+            <InfinityIcon className="size-2.5" />
+            常備
+          </span>
+        ) : stock ? (
+          <span className="rounded-full bg-emerald-50 px-1.5 py-px font-medium text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">冷蔵庫に {stock}</span>
+        ) : null}
+      </span>
     </CommandItem>
   )
 }
@@ -134,7 +136,7 @@ function CatalogItemRow({ item, category, isSearching, disabled, onSelect, onReq
 // 例外的に自由入力(単位は手動選択)で追加できる。
 // 選択(または新規作成)された食材オブジェクトを onSelect(ingredient) で返すだけで、
 // 「その用途での数量」はここでは扱わず呼び出し側に任せる。
-export function IngredientPicker({ open, onOpenChange, groupId, ingredients, onSelect, excludeIds = [] }) {
+export function IngredientPicker({ open, onOpenChange, groupId, ingredients, onSelect, excludeIds = [], title = '食材を選ぶ' }) {
   const { catalog: rawCatalog, loading: catalogLoading } = useIngredientCatalog()
   const { aliases } = useIngredientAliases()
   // 同じ名前の品目が共通と家庭専用の両方にあれば、家庭専用を使う
@@ -151,7 +153,9 @@ export function IngredientPicker({ open, onOpenChange, groupId, ingredients, onS
   const [saving, setSaving] = useState(false)
   const [catalogSavingId, setCatalogSavingId] = useState(null)
   const [error, setError] = useState(null)
-  const [openCategories, setOpenCategories] = useState(() => new Set())
+  const popupRef = useRef(null)
+  const sectionRefs = useRef(new Map())
+  const listRef = useRef(null)
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [deletingCatalog, setDeletingCatalog] = useState(false)
   // 「リストにない食材を追加」で、似た食材が見つかったとき(使うか、新しく登録するかを選んでもらう)
@@ -186,16 +190,6 @@ export function IngredientPicker({ open, onOpenChange, groupId, ingredients, onS
     setNewCategory(CATEGORIES[0])
     setSimilar(null)
     setError(null)
-    setOpenCategories(new Set())
-  }
-
-  function toggleCategory(category) {
-    setOpenCategories((prev) => {
-      const next = new Set(prev)
-      if (next.has(category)) next.delete(category)
-      else next.add(category)
-      return next
-    })
   }
 
   function handleOpenChange(next) {
@@ -389,84 +383,125 @@ export function IngredientPicker({ open, onOpenChange, groupId, ingredients, onS
     handleOpenChange(false)
   }
 
+  // カテゴリの札を押すと、その見出しまで一覧をスクロールする(開閉の手間をなくす)
+  // 一覧(listRef)だけを動かす。scrollIntoView は外側の要素まで動かすことがあるため使わない
+  function jumpTo(category) {
+    const list = listRef.current
+    const section = sectionRefs.current.get(category)
+    if (!list || !section) return
+    const top = section.getBoundingClientRect().top - list.getBoundingClientRect().top + list.scrollTop
+    list.scrollTop = top
+  }
+
   return (
     <>
-      <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="p-0 gap-0 overflow-hidden">
-        <DialogHeader className="px-4 pt-4 pb-2">
-          <DialogTitle>食材を選択</DialogTitle>
-          <DialogDescription>食材を選ぶと単位は自動で設定されます(長押しでマスタから完全削除)</DialogDescription>
-        </DialogHeader>
+      <Sheet open={open} onOpenChange={handleOpenChange}>
+      <SheetContent
+        side="bottom"
+        // 開いたときに検索欄へフォーカスしない(iPhone で、どこかを一度タップするまで一覧がスクロールできなくなるため)
+        initialFocus={popupRef}
+        ref={popupRef}
+        tabIndex={-1}
+        className="mx-auto h-[88svh] data-[side=bottom]:h-[88svh] max-w-lg gap-0 overflow-hidden rounded-t-3xl border-2 border-b-0 border-sky-200 p-0 outline-none dark:border-sky-900"
+      >
+        {/* 冷蔵庫の扉の取っ手 */}
+        <div className="flex shrink-0 items-center justify-center bg-sky-50 pt-2 pb-1 dark:bg-sky-950" aria-hidden="true">
+          <span className="h-1.5 w-12 rounded-full bg-sky-200 dark:bg-sky-800" />
+        </div>
+        <div className="shrink-0 bg-sky-50 px-4 pb-3 dark:bg-sky-950">
+          <SheetTitle className="flex items-center gap-2 pr-8 text-lg font-bold">
+            <span className="flex size-8 items-center justify-center rounded-xl bg-primary text-primary-foreground" aria-hidden="true">
+              <Refrigerator className="size-4.5" strokeWidth={2.2} />
+            </span>
+            {title}
+          </SheetTitle>
+          <SheetDescription className="mt-1 text-xs text-muted-foreground">
+            タップするだけで選べます。単位は自動で決まります
+          </SheetDescription>
+        </div>
 
         {!creating ? (
-          <>
-            <Command shouldFilter>
+          <Command shouldFilter className="min-h-0 flex-1 rounded-none! bg-background p-0">
+            <div className="shrink-0 border-b bg-background px-3 pt-3 pb-2">
               <CommandInput placeholder="食材名で検索..." value={search} onValueChange={setSearch} />
-              <CommandList>
-                <CommandEmpty>該当する食材が見つかりません</CommandEmpty>
+              {!isSearching && (
+                <div className="-mx-3 mt-2 flex gap-1.5 overflow-x-auto px-3 pb-0.5" aria-label="カテゴリへ移動">
+                  {catalogGroups.map(({ category }) => (
+                    <button
+                      key={category}
+                      type="button"
+                      className="flex shrink-0 items-center gap-1 rounded-full border bg-card px-2.5 py-1 text-xs font-medium shadow-xs active:scale-95"
+                      onClick={() => jumpTo(category)}
+                    >
+                      <span aria-hidden="true">{CATEGORY_ICONS[category] ?? '🍽️'}</span>
+                      {category}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            {/* 一覧のスクロールはここ1か所だけ(入れ子のスクロールをなくす) */}
+            <CommandList ref={listRef} className="max-h-none min-h-0 flex-1 touch-pan-y overscroll-contain px-3 pb-24 pt-1">
+              <CommandEmpty>該当する食材が見つかりません</CommandEmpty>
+              {!catalogLoading &&
+                catalogGroups.map(({ category, items }) => (
+                  <section
+                    key={category}
+                    ref={(el) => {
+                      if (el) sectionRefs.current.set(category, el)
+                      else sectionRefs.current.delete(category)
+                    }}
+                    className="scroll-mt-1"
+                  >
+                    <CommandGroup
+                      heading={
+                        <span className="flex items-center gap-1.5">
+                          <span className="text-base leading-none" aria-hidden="true">
+                            {CATEGORY_ICONS[category] ?? '🍽️'}
+                          </span>
+                          {category}
+                        </span>
+                      }
+                      className="p-0 pt-2 **:[[cmdk-group-items]]:grid **:[[cmdk-group-items]]:grid-cols-3 **:[[cmdk-group-items]]:gap-1.5 **:[[cmdk-group-heading]]:px-0.5"
+                    >
+                      {items.map((item) => {
+                        const row = item.fridgeRow ?? fridgeByCatalog.get(item.id)
+                        const qty = row && Number(row.quantity) > 0 ? `${formatQuantity(row.quantity)}${row.unit}` : null
+                        return (
+                          <CatalogItemRow
+                            key={item.id}
+                            item={item}
+                            category={category}
+                            // レシピで使っている材料は、もう一度は選べない
+                            disabled={catalogSavingId === item.id || (row ? excludeIds.includes(row.id) : false)}
+                            onSelect={handlePick}
+                            onRequestDelete={item.group_id && !item.fridgeRow ? setDeleteTarget : null}
+                            keywords={item.fridgeRow ? [nameKey(item.name)] : searchKeywords(item, nameIndex)}
+                            stock={qty}
+                            staple={Boolean(row?.is_staple)}
+                          />
+                        )
+                      })}
+                    </CommandGroup>
+                  </section>
+                ))}
+            </CommandList>
 
-                {!catalogLoading &&
-                  catalogGroups.map(({ category, items }) => {
-                    const expanded = isSearching || openCategories.has(category)
-                    return (
-                      <div key={category}>
-                        {!isSearching && (
-                          <button
-                            type="button"
-                            className="flex items-center gap-2 w-full px-4 py-2 text-xs font-medium text-muted-foreground hover:bg-accent/60"
-                            onClick={() => toggleCategory(category)}
-                          >
-                            <span className="text-base leading-none">
-                              {CATEGORY_ICONS[category] ?? '🍽️'}
-                            </span>
-                            <span className="flex-1 text-left">{category}</span>
-                            <span className="text-muted-foreground">{items.length}</span>
-                            <ChevronDown
-                              className={`size-3.5 transition-transform ${expanded ? 'rotate-180' : ''}`}
-                            />
-                          </button>
-                        )}
-                        {expanded && (
-                          <CommandGroup heading={isSearching ? category : undefined}>
-                            {items.map((item) => {
-                              const row = item.fridgeRow ?? fridgeByCatalog.get(item.id)
-                              const qty = row && Number(row.quantity) > 0 ? `${formatQuantity(row.quantity)}${row.unit}` : null
-                              return (
-                                <CatalogItemRow
-                                  key={item.id}
-                                  item={item}
-                                  category={category}
-                                  isSearching={isSearching}
-                                  // レシピで使っている材料は、もう一度は選べない
-                                  disabled={catalogSavingId === item.id || (row ? excludeIds.includes(row.id) : false)}
-                                  onSelect={handlePick}
-                                  onRequestDelete={item.group_id && !item.fridgeRow ? setDeleteTarget : null}
-                                  keywords={item.fridgeRow ? [nameKey(item.name)] : searchKeywords(item, nameIndex)}
-                                  stock={qty}
-                                />
-                              )
-                            })}
-                          </CommandGroup>
-                        )}
-                      </div>
-                    )
-                  })}
-              </CommandList>
-            </Command>
+            {error && <p className="shrink-0 px-4 py-2 text-sm text-destructive">{error}</p>}
 
-            {error && <p className="text-destructive text-sm px-4 py-2">{error}</p>}
-
-            <button
-              type="button"
-              className="flex items-center gap-2 w-full px-4 py-2.5 text-sm text-muted-foreground hover:bg-accent border-t"
-              onClick={() => setCreating(true)}
-            >
-              <Plus className="size-4" />
-              リストにない食材を追加
-            </button>
-          </>
+            <div className="shrink-0 border-t bg-background px-3 pt-2 pb-safe">
+              <button
+                type="button"
+                className="mb-2 flex w-full items-center justify-center gap-2 rounded-2xl border-2 border-dashed px-4 py-2.5 text-sm font-medium text-muted-foreground hover:border-primary hover:text-foreground"
+                onClick={() => setCreating(true)}
+              >
+                <Plus className="size-4" />
+                リストにない食材を追加
+              </button>
+            </div>
+          </Command>
         ) : (
-          <div className="p-4 flex flex-col gap-4">
+          <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto overscroll-contain p-4 pb-safe">
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="new-ingredient-name">食材名</Label>
               <Input
@@ -535,8 +570,8 @@ export function IngredientPicker({ open, onOpenChange, groupId, ingredients, onS
             </div>
           </div>
         )}
-      </DialogContent>
-      </Dialog>
+      </SheetContent>
+      </Sheet>
 
       <AlertDialog open={!!deleteTarget} onOpenChange={(next) => !next && setDeleteTarget(null)}>
         <AlertDialogContent>
