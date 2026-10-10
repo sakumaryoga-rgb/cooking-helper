@@ -163,6 +163,7 @@ export function RecipeItemsEditor({ groupId, ingredients, items, setItems, empty
       )}
 
       <IngredientPicker
+        title="材料を選ぶ"
         open={pickerOpen}
         onOpenChange={(open) => {
           setPickerOpen(open)
