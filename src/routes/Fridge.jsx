@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { Plus, Minus, Search, CalendarPlus, ChevronDown, Infinity as InfinityIcon, Hash } from 'lucide-react'
 import { useIngredients } from '@/hooks/useIngredients'
@@ -8,8 +8,6 @@ import { IngredientPicker } from '@/components/IngredientPicker'
 import { SwipeToDelete } from '@/components/SwipeToDelete'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Switch } from '@/components/ui/switch'
 import { supabase } from '@/supabaseClient'
 import { formatQuantity } from '@/lib/format'
 import { snapToStock } from '@/lib/quantity'
@@ -76,13 +74,13 @@ export function Fridge({ groupId }) {
   const [bulkConfirm, setBulkConfirm] = useState(false)
   // 追加でまとめて選んだ食材(2品以上)
   const [batchTargets, setBatchTargets] = useState(null)
+  // 追加のダイアログで保存した食材の ID(保存せずに閉じた食材を片付けるため)
+  const savedIds = useRef(new Set())
   // 「追加」で選んだ食材は、在庫0でも通常の一覧に出す(このあと「＋」で増やすため)
-  const [pinnedIds, setPinnedIds] = useState(() => new Set())
   const { batches } = useIngredientBatches(groupId)
   const { catalog } = useIngredientCatalog()
   const [pickerOpen, setPickerOpen] = useState(false)
   const [query, setQuery] = useState('')
-  const [dateAsPurchaseDate, setDateAsPurchaseDate] = useState(true)
 
   const catalogById = useMemo(() => new Map(catalog.map((c) => [c.id, c])), [catalog])
 
@@ -117,7 +115,7 @@ export function Fridge({ groupId }) {
     filter === 'all' ? true : filter === 'expiring' ? r.expiry && r.expiry.daysLeft <= 3 : categoryOf(r.ingredient) === filter
   )
   const searching = query.trim() !== '' || filter !== 'all'
-  const visible = (r) => Number(r.ingredient.quantity) > 0 || pinnedIds.has(r.ingredient.id)
+  const visible = (r) => Number(r.ingredient.quantity) > 0
   // 常備品は数を数えないので、冷蔵庫の一覧とは別の棚にまとめる
   const staples = filtered.filter((r) => r.ingredient.is_staple)
   const counted = filtered.filter((r) => !r.ingredient.is_staple)
@@ -133,19 +131,26 @@ export function Fridge({ groupId }) {
     refresh()
   }
 
+  // 追加で選んだまま、量も常備品も決めずに閉じた食材は冷蔵庫に残さない。
+  // 選んだ時点で在庫0の行ができているため、「－」で0になったときと同じく片付ける
+  // (レシピで使う食材は行を残し、それ以外は行ごと消す。remove_ingredient)
+  function discardUnused(list) {
+    for (const i of list) {
+      if (!(Number(i.quantity) > 0) && !i.is_staple) removeIngredient(i.id)
+    }
+  }
+
   // 追加で複数選んだとき。1品ならこれまでどおりのダイアログ、2品以上はまとめて入れるダイアログ
   function handlePickedMany(list) {
     if (list.length === 1) {
       handlePicked(list[0])
       return
     }
-    setPinnedIds((prev) => new Set([...prev, ...list.map((i) => i.id)]))
     setPickerOpen(false)
     setBatchTargets(list)
   }
 
   function handlePicked(ingredient) {
-    setPinnedIds((prev) => new Set(prev).add(ingredient.id))
     setPickerOpen(false)
     // すでに常備品の食材は登録済みなので、常備品の棚で開いて見せるだけにする(重複して登録しない)
     if (ingredient.is_staple) {
@@ -276,7 +281,8 @@ export function Fridge({ groupId }) {
     const { data, error } = await supabase.rpc('adjust_stock', {
       p_ingredient_id: ingredient.id,
       p_delta: delta,
-      p_dated_today: dateAsPurchaseDate,
+      // ＋で増やした分は今日買ったものとして記録する(期限の目安に使う)
+      p_dated_today: true,
       p_best_before: null,
       p_use_by: null,
     })
@@ -333,19 +339,6 @@ export function Fridge({ groupId }) {
             {f.label}
           </button>
         ))}
-      </div>
-
-      <div className="flex items-center justify-between gap-3 rounded-2xl bg-muted/60 px-3 py-2.5">
-        <span className="text-xl" aria-hidden="true">📅</span>
-        <div className="flex flex-1 flex-col">
-          <Label htmlFor="date-as-purchase" className="text-sm">
-            追加日を購入日にする
-          </Label>
-          <p className="text-xs text-muted-foreground">
-            オンだと「+」で増やした分を今日の日付で記録し、賞味期限の目安を計算します
-          </p>
-        </div>
-        <Switch id="date-as-purchase" checked={dateAsPurchaseDate} onCheckedChange={setDateAsPurchaseDate} />
       </div>
 
       {loading ? (
@@ -440,12 +433,19 @@ export function Fridge({ groupId }) {
       <StockDialog
         ingredient={stockTarget}
         defaultQuantity={stockTarget ? stepFor(stockTarget.unit) : 1}
-        datedToday={dateAsPurchaseDate}
+        datedToday
         offerStaple={stockOffer}
         // 調味料・油は常備品を初期選択にする。ただし在庫を数えている食材を選び直したときは数を記録するのまま
         stapleDefault={Boolean(stockTarget) && !(Number(stockTarget.quantity) > 0) && STAPLE_CATEGORIES.has(categoryOf(stockTarget))}
-        onSaved={refresh}
-        onClose={() => setStockTarget(null)}
+        onSaved={() => {
+          if (stockTarget) savedIds.current.add(stockTarget.id)
+          refresh()
+        }}
+        onClose={() => {
+          if (stockOffer && stockTarget && !savedIds.current.has(stockTarget.id)) discardUnused([stockTarget])
+          savedIds.current = new Set()
+          setStockTarget(null)
+        }}
       />
 
       <IngredientPicker
@@ -462,10 +462,17 @@ export function Fridge({ groupId }) {
       {batchTargets && (
         <BatchStockDialog
           ingredients={batchTargets}
-          datedToday={dateAsPurchaseDate}
+          datedToday
           isStapleCategory={(i) => STAPLE_CATEGORIES.has(categoryOf(i))}
-          onClose={() => setBatchTargets(null)}
-          onSaved={refresh}
+          onClose={() => {
+            discardUnused(batchTargets.filter((i) => !savedIds.current.has(i.id)))
+            savedIds.current = new Set()
+            setBatchTargets(null)
+          }}
+          onSaved={(keptIds) => {
+            for (const id of keptIds) savedIds.current.add(id)
+            refresh()
+          }}
         />
       )}
     </div>

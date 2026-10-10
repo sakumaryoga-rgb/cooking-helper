@@ -63,13 +63,6 @@ describe('Fridge の数量変更', () => {
     })
   })
 
-  it('「追加日を購入日にする」をオフにすると日付なしで記録する', async () => {
-    setup([{ id: 'i2', name: '卵', unit: '個', quantity: 4 }])
-    await userEvent.click(screen.getByRole('switch'))
-    await userEvent.click(screen.getByRole('button', { name: '増やす' }))
-    expect(supabase.rpc).toHaveBeenLastCalledWith('adjust_stock', expect.objectContaining({ p_dated_today: false }))
-  })
-
   it('RPCが在庫0で削除したと返したら、一覧からも消す', async () => {
     supabase.rpc.mockResolvedValue({ data: [{ new_quantity: 0, deleted: true }], error: null })
     setup([{ id: 'i3', name: '大葉', unit: '枚', quantity: 1 }])
@@ -99,17 +92,33 @@ describe('Fridge の数量変更', () => {
     expect(screen.getByText('しょうゆ')).toBeInTheDocument()
   })
 
-  it('在庫0の食材を「追加」で選び直すと通常の一覧に出て、「＋」で再追加できる', async () => {
+  it('追加で選んで、量を決めずに閉じた在庫0の食材は冷蔵庫に出さず片付ける', async () => {
     setup([{ id: 'b', name: 'しょうゆ', unit: 'ml', quantity: 0 }])
-    expect(screen.queryByText('しょうゆ')).not.toBeInTheDocument()
     await act(async () => pickerProps.onSelect({ id: 'b', name: 'しょうゆ', unit: 'ml', quantity: 0 }))
-    // 選んだ直後に、量と期限を入れるダイアログが開く
     expect(await screen.findByRole('dialog', { name: 'しょうゆ を冷蔵庫に入れる' })).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'キャンセル' }))
-    expect(screen.getByText('しょうゆ')).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /在庫なしの食材/ })).not.toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: '増やす' }))
-    expect(supabase.rpc).toHaveBeenCalledWith('adjust_stock', expect.objectContaining({ p_ingredient_id: 'b' }))
+    expect(screen.queryByText('しょうゆ')).not.toBeInTheDocument()
+    expect(removeIngredient).toHaveBeenCalledWith('b')
+  })
+
+  it('追加で選んで在庫を入れた食材は片付けない', async () => {
+    setup([{ id: 'p', name: 'じゃがいも', unit: '個', quantity: 0 }])
+    await act(async () => pickerProps.onSelect({ id: 'p', name: 'じゃがいも', unit: '個', quantity: 0 }))
+    await userEvent.click(await screen.findByRole('button', { name: '在庫を増やす' }))
+    expect(supabase.rpc).toHaveBeenCalledWith('adjust_stock', expect.objectContaining({ p_ingredient_id: 'p', p_delta: 1, p_dated_today: true }))
+    expect(removeIngredient).not.toHaveBeenCalled()
+  })
+
+  it('在庫のある食材を選び直して閉じても片付けない', async () => {
+    setup([{ id: 'e', name: '卵', unit: '個', quantity: 4 }])
+    await act(async () => pickerProps.onSelect({ id: 'e', name: '卵', unit: '個', quantity: 4 }))
+    await userEvent.click(await screen.findByRole('button', { name: 'キャンセル' }))
+    expect(removeIngredient).not.toHaveBeenCalled()
+  })
+
+  it('「追加日を購入日にする」の切り替えはない', () => {
+    setup([{ id: 'e', name: '卵', unit: '個', quantity: 4 }])
+    expect(screen.queryByText('追加日を購入日にする')).not.toBeInTheDocument()
   })
 
   it('期限切れ・推定・未設定を区別して表示し、期限の近い順に並べ、ロットを開ける', async () => {
@@ -301,6 +310,20 @@ describe('複数の食材をまとめて入れる', () => {
     expect(supabase.rpc).toHaveBeenCalledWith('adjust_stock', expect.objectContaining({ p_ingredient_id: 'p', p_delta: 0.5 }))
     expect(supabase.rpc).toHaveBeenCalledWith('adjust_stock', expect.objectContaining({ p_ingredient_id: 'm', p_delta: 200 }))
     expect(supabase.rpc).toHaveBeenCalledTimes(2)
+  })
+
+  it('量を空欄のままにした食材は、閉じたときに片付ける', async () => {
+    removeIngredient.mockReset()
+    const list = [
+      { id: 'p', name: 'じゃがいも', unit: '個', quantity: 0 },
+      { id: 'm', name: '豚こま', unit: 'g', quantity: 0 },
+    ]
+    setup(list)
+    await act(async () => pickerProps.onSelectMany(list))
+    await userEvent.click(await screen.findByRole('button', { name: '冷蔵庫に入れる' }))
+    expect(supabase.rpc).toHaveBeenCalledWith('adjust_stock', expect.objectContaining({ p_ingredient_id: 'p' }))
+    expect(removeIngredient).toHaveBeenCalledWith('m')
+    expect(removeIngredient).not.toHaveBeenCalledWith('p')
   })
 
   it('1品だけ選んだときは、これまでどおりのダイアログ', async () => {
