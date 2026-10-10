@@ -39,10 +39,10 @@ describe('レシピURLの取り込み', () => {
     await userEvent.click(screen.getByRole('button', { name: '読み込む' }))
     expect(screen.getByLabelText('タイトル')).toHaveValue('バンバンジー')
     expect(screen.getByText(/3 件の材料を読み込みました/)).toBeInTheDocument()
-    expect(screen.getByLabelText('鶏むね肉の分量')).toHaveValue(250)
+    expect(screen.getByLabelText('鶏むね肉の分量')).toHaveValue('250')
     // 少々・適量も、元の表記のまま保存する(数は空)
     expect(screen.getByLabelText('塩を保存する')).toBeChecked()
-    expect(screen.getByLabelText('塩の分量')).toHaveValue(null)
+    expect(screen.getByLabelText('塩の分量')).toHaveValue('')
 
     await userEvent.clear(screen.getByLabelText('きゅうりの分量'))
     await userEvent.type(screen.getByLabelText('きゅうりの分量'), '2')

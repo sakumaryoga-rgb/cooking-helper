@@ -60,7 +60,7 @@ describe('レシピのカスタマイズ', () => {
     vi.mocked(updateRecipe).mockResolvedValue({ recipeId: 'r1' })
     renderEdit()
     expect(screen.getByLabelText('料理名')).toHaveValue('だし巻き卵')
-    expect(screen.getByLabelText('卵の分量')).toHaveValue(3)
+    expect(screen.getByLabelText('卵の分量')).toHaveValue('3')
     // URL から取り込んだレシピは作り方を編集しない(元のページで見る)。保存済みの作り方は消さない
     expect(screen.queryByLabelText('手順1')).not.toBeInTheDocument()
     expect(screen.getByText(/作り方は元のレシピのページで見られます/)).toBeInTheDocument()
@@ -122,7 +122,7 @@ describe('レシピのカスタマイズ', () => {
       </MemoryRouter>
     )
     expect(screen.getByLabelText('手順1')).toHaveValue('卵を溶く')
-    expect(screen.getByLabelText('手順1の卵の量')).toHaveValue(2)
+    expect(screen.getByLabelText('手順1の卵の量')).toHaveValue('2')
     await userEvent.click(screen.getByRole('button', { name: '保存する' }))
     expect(updateRecipe).toHaveBeenLastCalledWith(
       expect.objectContaining({ recipeId: 'o1', steps: [expect.objectContaining({ text: '卵を溶く', uses: [expect.objectContaining({ quantity: 2 })] })] })
