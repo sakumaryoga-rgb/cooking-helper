@@ -1,12 +1,13 @@
 import { useState } from 'react'
+import { MailCheck, Send } from 'lucide-react'
 import { takeSessionExpired } from '@/lib/sessionNotice'
 import { supabase } from '@/supabaseClient'
 import { DB_ENABLED } from '@/lib/runtimeEnv'
 import { BrandMark } from '@/components/BrandMark'
+import { FeatureChips, HouseArt } from '@/components/HouseArt'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
 
 export function Login() {
   const [email, setEmail] = useState('')
@@ -43,33 +44,52 @@ export function Login() {
     setStatus('sent')
   }
 
+  const sent = status === 'sent'
+
   return (
-    <div className="min-h-svh flex items-center justify-center px-4">
-      <Card className="w-full max-w-sm">
-        <CardHeader>
-          <CardTitle>
-            <BrandMark />
-          </CardTitle>
-          <CardDescription>メールアドレスにログイン用のリンクを送ります</CardDescription>
-          {expired && <p className="text-sm text-destructive">ログインの有効期限が切れました。もう一度ログインしてください</p>}
-          <p className="text-xs text-muted-foreground">
-            Safari、Chrome、ホーム画面に追加したアプリは、それぞれ別にログインが必要です。同じメールアドレスでログインすれば、同じ家とデータが表示されます。
+    <div className="min-h-svh bg-[radial-gradient(circle_at_50%_0%,#fff3b0_0%,transparent_60%)] px-4 pt-safe pb-safe">
+      <div className="mx-auto flex w-full max-w-sm flex-col gap-5 py-8">
+        <BrandMark size="sm" className="self-center text-sm" />
+
+        <section className="flex flex-col items-center gap-3 text-center">
+          {/* メールを送ると扉が開く */}
+          <HouseArt key={sent ? 'open' : 'closed'} open={sent} floating />
+          <h1 className="text-2xl font-bold leading-snug tracking-tight">
+            冷蔵庫の扉をあけたら、
+            <br />
+            今日のごはんが見つかる
+          </h1>
+          <p className="text-sm text-muted-foreground">
+            家にある食材から、
+            <br />
+            いま作れるレシピがすぐわかります
           </p>
-        </CardHeader>
-        <CardContent>
+          <FeatureChips />
+        </section>
+
+        <div className="rounded-3xl border-2 border-[#3b2a1c] bg-card p-4 shadow-[0_4px_0_#3b2a1c]">
+          {expired && <p className="mb-3 text-sm text-destructive">ログインの有効期限が切れました。もう一度ログインしてください</p>}
           {!DB_ENABLED ? (
             <p className="text-sm text-muted-foreground">
               プレビュー環境では本番のデータベースに接続しないため、ログインできません。
             </p>
-          ) : status === 'sent' ? (
+          ) : sent ? (
             <div className="flex flex-col gap-3 text-sm">
-              <p className="text-muted-foreground">
-                {email} 宛にログイン用のメールを送りました。メールのリンクを開くとログインできます。
-              </p>
-              <form onSubmit={handleVerify} className="flex flex-col gap-2">
+              <div className="flex items-start gap-3">
+                <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground" aria-hidden="true">
+                  <MailCheck className="size-5" strokeWidth={2.2} />
+                </span>
+                <div>
+                  <p className="font-bold">メールを送りました</p>
+                  <p className="break-all text-muted-foreground">
+                    {email} 宛にログイン用のメールを送りました。メールのリンクを開くとログインできます。
+                  </p>
+                </div>
+              </div>
+              <form onSubmit={handleVerify} className="flex flex-col gap-2 rounded-2xl bg-muted/70 p-3">
                 <Label htmlFor="otp">メールに書かれたコード(数字)を入力しても、この画面のままログインできます</Label>
                 <div className="flex gap-2">
-                  <Input id="otp" inputMode="numeric" autoComplete="one-time-code" maxLength={10} value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))} />
+                  <Input id="otp" inputMode="numeric" autoComplete="one-time-code" maxLength={10} value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))} className="bg-card text-center font-mono tracking-[0.3em]" />
                   <Button type="submit" disabled={verifying || code.length < 6}>
                     ログイン
                   </Button>
@@ -78,7 +98,7 @@ export function Login() {
               {errorMessage && <p className="text-destructive">{errorMessage}</p>}
             </div>
           ) : (
-            <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+            <form onSubmit={handleSubmit} className="flex flex-col gap-3">
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="email">メールアドレス</Label>
                 <Input
@@ -89,15 +109,21 @@ export function Login() {
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="you@example.com"
                 />
+                <p className="text-[11px] text-muted-foreground">パスワード不要。届いたメールのリンクかコードで入れます</p>
               </div>
               {status === 'error' && <p className="text-destructive text-sm">{errorMessage}</p>}
-              <Button type="submit" disabled={status === 'sending'}>
+              <Button type="submit" size="lg" disabled={status === 'sending'}>
+                <Send />
                 {status === 'sending' ? '送信中...' : 'ログインリンクを送る'}
               </Button>
             </form>
           )}
-        </CardContent>
-      </Card>
+        </div>
+
+        <p className="px-2 text-center text-[11px] leading-relaxed text-muted-foreground">
+          Safari、Chrome、ホーム画面に追加したアプリは、それぞれ別にログインが必要です。同じメールアドレスでログインすれば、同じ家とデータが表示されます。
+        </p>
+      </div>
     </div>
   )
 }

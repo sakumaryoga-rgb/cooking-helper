@@ -1,39 +1,13 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { BookOpen, HousePlus, KeyRound, Refrigerator, Users } from 'lucide-react'
+import { HousePlus, KeyRound } from 'lucide-react'
 import { parseInviteToken } from '@/lib/invite'
 import { supabase } from '@/supabaseClient'
 import { BrandMark } from '@/components/BrandMark'
+import { FeatureChips, HouseArt } from '@/components/HouseArt'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-
-// 入口の家のイラスト。屋根はトマト、扉はブランドの黄色。開いた扉からフライパンがのぞく
-function HouseArt() {
-  return (
-    <svg viewBox="0 0 160 120" className="h-32 w-auto drop-shadow-sm" aria-hidden="true">
-      <ellipse cx="80" cy="112" rx="62" ry="6" fill="#3b2a1c" opacity="0.08" />
-      <rect x="104" y="22" width="12" height="26" rx="2" fill="#c9b8a6" />
-      <path d="M80 10 L144 58 L16 58 Z" fill="#e53d26" stroke="#3b2a1c" strokeWidth="3" strokeLinejoin="round" />
-      <rect x="28" y="56" width="104" height="54" rx="4" fill="#fffdf7" stroke="#3b2a1c" strokeWidth="3" />
-      <rect x="40" y="68" width="22" height="20" rx="3" fill="#fed712" opacity="0.35" stroke="#3b2a1c" strokeWidth="2.5" />
-      <path d="M51 68 V88 M40 78 H62" stroke="#3b2a1c" strokeWidth="2" />
-      <rect x="86" y="66" width="30" height="44" rx="3" fill="#3b2a1c" />
-      <circle cx="101" cy="92" r="6" fill="#f2eae3" />
-      <rect x="106" y="90" width="8" height="3" rx="1.5" fill="#f2eae3" />
-      <g className="origin-[86px_88px] animate-[door-open_1.2s_ease-out_0.3s_both]">
-        <rect x="86" y="66" width="30" height="44" rx="3" fill="#fed712" stroke="#3b2a1c" strokeWidth="3" />
-        <circle cx="110" cy="89" r="2.6" fill="#3b2a1c" />
-      </g>
-    </svg>
-  )
-}
-
-const FEATURES = [
-  { Icon: Refrigerator, label: '冷蔵庫を記録' },
-  { Icon: BookOpen, label: '作れるレシピ' },
-  { Icon: Users, label: '家族と共有' },
-]
 
 function ChoiceCard({ active, Icon, title, sub, onClick }) {
   return (
@@ -127,14 +101,7 @@ export function Onboarding({ onGroupChanged, notice }) {
             <br />
             「家」を用意しましょう
           </p>
-          <ul className="flex flex-wrap justify-center gap-2 pt-1">
-            {FEATURES.map(({ Icon, label }) => (
-              <li key={label} className="inline-flex items-center gap-1 rounded-full bg-card px-2.5 py-1 text-xs font-medium shadow-sm ring-1 ring-border">
-                <Icon className="size-3.5" />
-                {label}
-              </li>
-            ))}
-          </ul>
+          <FeatureChips />
         </section>
 
         <div className="flex gap-3" role="group" aria-label="はじめ方">
