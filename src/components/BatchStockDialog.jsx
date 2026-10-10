@@ -18,7 +18,7 @@ function initialRows(ingredients, isStapleCategory) {
 }
 
 // 複数の食材をまとめて冷蔵庫に入れる。1行ずつ「数」か「常備品」を選び、1回の「入れる」で終わる。
-// 量が空の行は在庫を増やさない(一覧に出るので、あとから＋で増やせる)。期限は入れない(必要なら行の📅から)
+// 量が空の行は冷蔵庫に入れない。期限は入れない(必要なら行の📅から)
 export function BatchStockDialog({ ingredients, datedToday, isStapleCategory, onClose, onSaved }) {
   const [rows, setRows] = useState(() => initialRows(ingredients, isStapleCategory))
   const [saving, setSaving] = useState(false)
@@ -34,6 +34,8 @@ export function BatchStockDialog({ ingredients, datedToday, isStapleCategory, on
     const toStaple = rows.filter((r) => r.staple && !r.ingredient.is_staple).map((r) => r.ingredient.id)
     const toUnstaple = rows.filter((r) => !r.staple && r.ingredient.is_staple).map((r) => r.ingredient.id)
     const failed = []
+    // 常備品にした・量を入れた食材(それ以外は閉じたときに片付けられる)
+    const kept = rows.filter((r) => r.staple || r.ingredient.is_staple || parseQuantity(r.quantity)).map((r) => r.ingredient.id)
     if (toStaple.length > 0) {
       const { error: e } = await supabase.from('ingredients').update({ is_staple: true }).in('id', toStaple)
       if (e) failed.push('常備品')
@@ -55,7 +57,7 @@ export function BatchStockDialog({ ingredients, datedToday, isStapleCategory, on
       if (e) failed.push(r.ingredient.name)
     }
     setSaving(false)
-    onSaved?.()
+    onSaved?.(kept)
     if (failed.length > 0) {
       setError(`${failed.join('、')}を保存できませんでした。もう一度お試しください`)
       return
@@ -68,7 +70,7 @@ export function BatchStockDialog({ ingredients, datedToday, isStapleCategory, on
       <DialogContent className="max-h-[85svh] grid-rows-[auto_minmax(0,1fr)_auto]">
         <DialogHeader>
           <DialogTitle>{rows.length}品を冷蔵庫に入れる</DialogTitle>
-          <DialogDescription>数は 1/2 や 0.5 でも入れられます。空欄の食材は一覧に出るだけです</DialogDescription>
+          <DialogDescription>数は 1/2 や 0.5 でも入れられます。量が空欄の食材は入れません</DialogDescription>
         </DialogHeader>
         <ul className="-mx-1 flex flex-col divide-y overflow-y-auto overscroll-contain px-1">
           {rows.map((r) => (

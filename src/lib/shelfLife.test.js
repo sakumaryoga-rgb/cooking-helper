@@ -92,3 +92,23 @@ describe('ロットの期限(入力した期限と推定)', () => {
     expect(getExpiryState(null)).toBe('none')
   })
 })
+
+describe('使える在庫(消費期限切れのロットを除く)', () => {
+  it('消費期限切れのロットだけを除き、賞味期限切れ・期限なしは含める', async () => {
+    const { usableQuantity, usableIngredientsById } = await import('./shelfLife')
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-10-11T12:00:00'))
+    const milk = { id: 'milk', name: '牛乳', unit: 'ml', quantity: 1000 }
+    const lots = [
+      { ingredient_id: 'milk', quantity: 400, use_by: '2026-10-09' },
+      { ingredient_id: 'milk', quantity: 300, best_before: '2026-10-09' },
+      { ingredient_id: 'milk', quantity: 300, added_on: null },
+    ]
+    expect(usableQuantity(milk, lots, new Map())).toBe(600)
+    const byId = usableIngredientsById([milk, { id: 'egg', quantity: 2 }], lots, new Map())
+    expect(byId.get('milk').quantity).toBe(600)
+    expect(byId.get('egg').quantity).toBe(2)
+    expect(milk.quantity).toBe(1000)
+    vi.useRealTimers()
+  })
+})
