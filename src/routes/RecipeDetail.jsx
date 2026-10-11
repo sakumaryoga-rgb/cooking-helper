@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, Ban, BookOpen, CheckCircle2, ExternalLink, Check, ChefHat, Infinity as InfinityIcon, Minus, Pencil, Plus, X } from 'lucide-react'
 import { useIngredients } from '@/hooks/useIngredients'
@@ -200,10 +200,15 @@ export function RecipeDetail({ groupId }) {
     }
   }
 
+  // 取り消しの連打で二重に送らない(サーバーも取り消し済みの記録は戻さない)
+  const undoing = useRef(new Set())
   async function handleUndo(logId) {
+    if (undoing.current.has(logId)) return
+    undoing.current.add(logId)
     setUndoingId(logId)
     const { error } = await supabase.rpc('undo_cook', { p_cook_log_id: logId })
     setUndoingId(null)
+    undoing.current.delete(logId)
     if (error) console.error('取り消しに失敗しました', error)
     if (logId === cooked?.logId) setCooked(null)
     refreshIngredients()

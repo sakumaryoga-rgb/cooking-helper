@@ -157,14 +157,15 @@ export function Fridge({ groupId }) {
   // 別の端末がその間に在庫を入れていることもあるので、消す直前の状態で確かめる:
   // いまも在庫0で常備品でなく、どのレシピでも使っていない行だけを、在庫0を条件に消す
   async function safeDiscard(id) {
-    const { data: row } = await supabase.from('ingredients').select('quantity, is_staple').eq('id', id).maybeSingle()
-    if (!row || Number(row.quantity) > 0 || row.is_staple) return
+    const { data: row } = await supabase.from('ingredients').select('quantity, is_staple, restock_requested_at').eq('id', id).maybeSingle()
+    // 買い物リストに入っている食材は消さない(常備品から外したときなど)
+    if (!row || Number(row.quantity) > 0 || row.is_staple || row.restock_requested_at) return
     const { count, error: countError } = await supabase
       .from('recipe_ingredients')
       .select('ingredient_id', { count: 'exact', head: true })
       .eq('ingredient_id', id)
     if (countError || count == null || count > 0) return
-    const { error } = await supabase.from('ingredients').delete().eq('id', id).eq('quantity', 0).eq('is_staple', false)
+    const { error } = await supabase.from('ingredients').delete().eq('id', id).eq('quantity', 0).eq('is_staple', false).is('restock_requested_at', null)
     if (error) console.error('使わなかった食材を片付けられませんでした', error)
     refresh()
   }

@@ -45,11 +45,13 @@ function mockDb({ row = { quantity: 0, is_staple: false }, recipeCount = 0 } = {
         const chain = {
           eq: (k, v) => {
             conds[k] = v
-            if (Object.keys(conds).length === 3) {
-              deleted.push(conds)
-              return Promise.resolve({ error: null })
-            }
             return chain
+          },
+          // 最後の条件(買い物リストに入っていない)で消す
+          is: (k, v) => {
+            conds[k] = v
+            deleted.push(conds)
+            return Promise.resolve({ error: null })
           },
         }
         return chain
@@ -133,7 +135,7 @@ describe('Fridge の数量変更', () => {
     expect(await screen.findByRole('dialog', { name: 'しょうゆ を冷蔵庫に入れる' })).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'キャンセル' }))
     expect(screen.queryByText('しょうゆ')).not.toBeInTheDocument()
-    await waitFor(() => expect(db.deleted).toEqual([{ id: 'b', quantity: 0, is_staple: false }]))
+    await waitFor(() => expect(db.deleted).toEqual([{ id: 'b', quantity: 0, is_staple: false, restock_requested_at: null }]))
     expect(removeIngredient).not.toHaveBeenCalled()
   })
 
@@ -279,7 +281,7 @@ describe('常備品と分数の在庫', () => {
     expect(screen.queryByRole('button', { name: /数を記録する/ })).not.toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: /常備品から外す/ }))
     expect(db.updates).toEqual([{ patch: { is_staple: false }, id: 's' }])
-    await waitFor(() => expect(db.deleted).toEqual([{ id: 's', quantity: 0, is_staple: false }]))
+    await waitFor(() => expect(db.deleted).toEqual([{ id: 's', quantity: 0, is_staple: false, restock_requested_at: null }]))
     expect(removeIngredient).not.toHaveBeenCalled()
   })
 
@@ -395,7 +397,7 @@ describe('複数の食材をまとめて入れる', () => {
     await act(async () => pickerProps.onSelectMany(list))
     await userEvent.click(await screen.findByRole('button', { name: '冷蔵庫に入れる' }))
     expect(supabase.rpc).toHaveBeenCalledWith('adjust_stock', expect.objectContaining({ p_ingredient_id: 'p' }))
-    await waitFor(() => expect(db.deleted).toEqual([{ id: 'm', quantity: 0, is_staple: false }]))
+    await waitFor(() => expect(db.deleted).toEqual([{ id: 'm', quantity: 0, is_staple: false, restock_requested_at: null }]))
   })
 
   it('1品だけ選んだときは、これまでどおりのダイアログ', async () => {
@@ -416,5 +418,17 @@ describe('常備品がなくなったら買い物リストへ', () => {
     await userEvent.click(screen.getByRole('button', { name: /塩/ }))
     await userEvent.click(screen.getByRole('button', { name: /なくなった/ }))
     await waitFor(() => expect(db.updates).toEqual([{ patch: { restock_requested_at: expect.any(String) }, id: ['s'] }]))
+  })
+})
+
+describe('買い物リストに入っている食材は片付けない', () => {
+  it('買い物リストに入っている常備品を常備品から外しても、在庫0の片付けで消さない', async () => {
+    const db = mockDb({ row: { quantity: 0, is_staple: false, restock_requested_at: '2026-10-11T10:00:00Z' } })
+    setup([{ id: 's', name: '塩', unit: 'g', quantity: 0, is_staple: true, restock_requested_at: '2026-10-11T10:00:00Z' }])
+    await userEvent.click(screen.getByRole('button', { name: /塩/ }))
+    await userEvent.click(screen.getByRole('button', { name: /常備品から外す/ }))
+    await new Promise((r) => setTimeout(r, 0))
+    expect(db.updates).toEqual([{ patch: { is_staple: false }, id: 's' }])
+    expect(db.deleted).toEqual([])
   })
 })
