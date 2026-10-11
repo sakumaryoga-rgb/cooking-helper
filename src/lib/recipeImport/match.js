@@ -1,4 +1,4 @@
-import { buildNameIndex, displayName, matchIngredientName, nameKey as normalizeName } from '@/lib/ingredientName'
+import { buildNameIndex, displayName, isNotStocked, matchIngredientName, nameKey as normalizeName } from '@/lib/ingredientName'
 import { isHeadingLine, parseIngredientLine, splitIngredientLine } from './ingredientLine'
 import { exactFactor } from '@/lib/unitConversion'
 // 取り込んだ材料を、冷蔵庫の食材(同じグループ)→ 食材マスタ の順に名前で突き合わせ、
@@ -6,17 +6,8 @@ import { exactFactor } from '@/lib/unitConversion'
 
 const KNOWN_UNITS = ['g', 'ml', '個', '本', '枚', 'パック', '束', '玉', '尾', '切れ', '袋', '缶', '丁', '片', 'かけ', '株', '房', '節', '腹']
 
-// 在庫で管理しないもの(最初は保存しない。画面でチェックすれば保存できる)
-// (揚げ油・打ち粉のように量を決めにくく、在庫から引かないものも含む。レシピの材料としては残す)
-const NOT_STOCKED = ['水', 'お湯', '湯', '熱湯', '氷', '氷水', 'ゆで汁', '茹で汁', 'のゆで汁', 'の茹で汁', '戻し汁', 'の水', '揚げ油', '打ち粉']
-
-export function isNotStocked(name) {
-  const n = String(name ?? '').normalize('NFKC').replace(/[(（[【][^)）\]】]*[)）\]】]/g, '').trim()
-  return NOT_STOCKED.some((w) => n === w || (w.length >= 2 && n.endsWith(w)))
-}
-
 // 食材名の正規化と名寄せは lib/ingredientName に共通化(取り込み・材料の追加と編集・冷蔵庫への追加・検索で同じ処理)
-export { displayName, nameKey as normalizeName } from '@/lib/ingredientName'
+export { displayName, isNotStocked, nameKey as normalizeName } from '@/lib/ingredientName'
 
 // 解析した分量を、保存先の食材の単位に直す。直せなければ null
 export function quantityInUnit(parsed, unit) {

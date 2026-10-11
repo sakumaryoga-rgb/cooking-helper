@@ -98,25 +98,18 @@ describe('設定画面', () => {
     expect(supabase.rpc).toHaveBeenCalledWith('revoke_group_invite')
   })
 
-  it('この家で覚えた食材の別名を一覧にし、忘れられる(共通やほかの家の別名は出さない)', async () => {
+  it('覚えた食材の別名は設定から別ページで管理する(設定には件数と入口だけ)', () => {
     mockRpc({ get_group_invite_status: () => ({ data: [], error: null }) })
     aliasRows = [
       { alias: 'メークイン', catalog_id: 'c-potato', group_id: 'g1' },
       { alias: 'じゃが芋', catalog_id: 'c-potato', group_id: null },
       { alias: '男爵', catalog_id: 'c-potato', group_id: 'g-other' },
     ]
-    const del = { eq: vi.fn() }
-    del.eq.mockReturnValueOnce(del).mockResolvedValueOnce({ error: null })
-    const from = vi.spyOn(supabase, 'from')
-    from.mockImplementation((table) => (table === 'ingredient_aliases' ? { delete: () => del } : { select: () => ({ eq: () => ({ order: async () => ({ data: [] }) }) }) }))
     render(<MemoryRouter><Settings group={group} email="me@example.com" userId="u1" /></MemoryRouter>)
-    expect(screen.getByText('「メークイン」→ じゃがいも')).toBeInTheDocument()
-    expect(screen.queryByText(/じゃが芋/)).not.toBeInTheDocument()
-    expect(screen.queryByText(/男爵/)).not.toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: '「メークイン」を忘れる' }))
-    expect(del.eq).toHaveBeenCalledWith('group_id', 'g1')
-    expect(del.eq).toHaveBeenCalledWith('alias', 'メークイン')
-    await waitFor(() => expect(refreshAliases).toHaveBeenCalled())
+    const link = screen.getByRole('link', { name: /覚えた食材の別名/ })
+    expect(link).toHaveAttribute('href', '/settings/aliases')
+    expect(within(link).getByText('1件')).toBeInTheDocument()
+    expect(screen.queryByText(/メークイン/)).not.toBeInTheDocument()
     aliasRows = []
   })
 

@@ -76,6 +76,22 @@ describe('RecipeDetail', () => {
     expect(screen.getByText(/必要 200g \/ 在庫 300g/)).toBeInTheDocument()
   })
 
+  it('水・お湯は食材として数えず、在庫や不足を出さない', () => {
+    recipe.recipe_ingredients.push({ id: 'l9', ingredient_id: 'water', required_quantity: 300, ingredient: { id: 'water', name: '水', unit: 'ml' } })
+    try {
+      setup([
+        { id: 'chicken', name: '鶏もも肉', unit: 'g', quantity: 300 },
+        { id: 'egg', name: '卵', unit: '個', quantity: 4 },
+      ])
+      expect(screen.getByText('作れます')).toBeInTheDocument()
+      expect(screen.getByText('水')).toBeInTheDocument()
+      expect(screen.getByText('300ml')).toBeInTheDocument()
+      expect(screen.queryByText(/在庫 0ml/)).not.toBeInTheDocument()
+    } finally {
+      recipe.recipe_ingredients.pop()
+    }
+  })
+
   it('不足があれば不足品目数を表示する', () => {
     setup([{ id: 'chicken', name: '鶏もも肉', unit: 'g', quantity: 100 }])
     expect(screen.getByText('あと2品')).toBeInTheDocument()

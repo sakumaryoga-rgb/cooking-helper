@@ -14,9 +14,11 @@
 //   なければ、在庫があっても「作れる」と断定せず 'check' にする。在庫がなければ不足
 // - 「少々」「適量」: 在庫があれば足りているとみなす(量を量らないため)
 // - 確認待ちの材料(どの食材か未確定): 'check' にする
+// - 水・お湯など(isNotStocked)は食材として数えない(不足・確認・品数・調理の差し引きに入れない。notStocked: true の行で返す)
 
 import { parseAmount } from '@/lib/recipeImport/ingredientLine'
 import { describeEstimate, resolveConversion } from '@/lib/unitConversion'
+import { isNotStocked } from '@/lib/ingredientName'
 
 const EPSILON = 1e-6
 const VAGUE_TEXT = /適量|少々|適宜|お好み|好みで|ひとつまみ|少量|たっぷり/
@@ -47,12 +49,21 @@ function round(n) {
 
 // options.choices: Map<材料の ingredientId, ruleId | 'none'>(詳細画面で選んだ代替。'none' は代替しない)
 export function getRecipeStatus(recipe, ingredientsById, { substitutions = [], catalogById = new Map(), choices = new Map(), conversions = new Map(), commonConversions = null } = {}) {
-  const items = recipe.recipe_ingredients ?? []
+  const all = recipe.recipe_ingredients ?? []
+  const items = all.filter((req) => !isNotStocked(ingredientsById.get(req.ingredient_id)?.name ?? req.ingredient?.name ?? req.source_name))
   const remaining = new Map([...ingredientsById.values()].map((i) => [i.id, Number(i.quantity) || 0]))
   const fridge = [...ingredientsById.values()]
   let stapleCount = 0
 
   // 1. そのものの在庫を割り当てる
+  const notStockedLines = all
+    .filter((req) => !items.includes(req))
+    .map((req) => ({
+      ingredientId: req.ingredient_id,
+      name: ingredientsById.get(req.ingredient_id)?.name ?? req.ingredient?.name ?? req.source_name,
+      notStocked: true,
+      amountText: req.amount_text ?? null,
+    }))
   const lines = items.map((req) => {
     const current = ingredientsById.get(req.ingredient_id)
     const conv =
@@ -185,6 +196,7 @@ export function getRecipeStatus(recipe, ingredientsById, { substitutions = [], c
     shortfallCount: shortfalls.length,
     shortfalls,
     lines,
+    notStockedLines,
     stapleCount,
     pendingCount,
     uncertainCount,

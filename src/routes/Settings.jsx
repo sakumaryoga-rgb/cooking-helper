@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Copy, Check, Crown, Link2, LogOut, Settings2 } from 'lucide-react'
+import { Copy, Check, ChevronRight, Crown, Link2, LogOut, Settings2, Tags } from 'lucide-react'
 import { Link, useNavigate } from 'react-router-dom'
 import { HouseSwitcher } from '@/components/HouseSwitcher'
 import { memberLabel, useHouseMembers } from '@/hooks/useHouseMembers'
@@ -8,7 +8,6 @@ import { markSignOutRequested } from '@/lib/sessionNotice'
 import { parseInviteToken } from '@/lib/invite'
 import { supabase } from '@/supabaseClient'
 import { buildInviteUrl } from '@/lib/invite'
-import { useIngredientCatalog } from '@/hooks/useIngredientCatalog'
 import { useIngredientAliases } from '@/hooks/useIngredientAliases'
 import { Button } from '@/components/ui/button'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
@@ -91,21 +90,9 @@ export function Settings({ group, groups = [group], onSelectGroup, onGroupsChang
   const [busy, setBusy] = useState(false)
   const [copied, setCopied] = useState(false)
   const [error, setError] = useState('')
-  const { catalog } = useIngredientCatalog()
-  const catalogName = (id) => catalog.find((c) => c.id === id)?.name ?? '(不明)'
-  // この家で覚えた食材の別名(レシピの取り込みで付け替えたときに覚えたもの)。誤って覚えたものは消せる
-  const { aliases, refresh: refreshAliases } = useIngredientAliases()
-  const ownAliases = (aliases ?? []).filter((a) => a.group_id === group.id)
-  const [aliasError, setAliasError] = useState('')
-  async function forgetAlias(alias) {
-    setAliasError('')
-    const { error: deleteError } = await supabase.from('ingredient_aliases').delete().eq('group_id', group.id).eq('alias', alias)
-    if (deleteError) {
-      setAliasError('別名を消せませんでした')
-      return
-    }
-    await refreshAliases?.()
-  }
+  // この家で覚えた食材の別名の件数(一覧と削除は別ページ /settings/aliases)
+  const { aliases } = useIngredientAliases()
+  const ownAliasCount = (aliases ?? []).filter((a) => a.group_id === group.id).length
 
   const loadStatus = useCallback(async () => {
     const { data, error: rpcError } = await supabase.rpc('get_group_invite_status')
@@ -258,29 +245,18 @@ export function Settings({ group, groups = [group], onSelectGroup, onGroupsChang
         </CardContent>
       </Card>
 
-      {ownAliases.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">覚えた食材の別名</CardTitle>
-            <CardDescription>レシピの取り込みで選んだ表記です。この家だけで使い、次から自動でその食材になります</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <ul className="flex flex-col divide-y divide-border">
-              {ownAliases.map((a) => (
-                <li key={a.alias} className="flex items-center justify-between gap-2 py-2 text-sm">
-                  <span>
-                    「{a.alias}」→ {catalogName(a.catalog_id)}
-                  </span>
-                  <Button size="sm" variant="ghost" onClick={() => forgetAlias(a.alias)} aria-label={`「${a.alias}」を忘れる`}>
-                    忘れる
-                  </Button>
-                </li>
-              ))}
-            </ul>
-            {aliasError && <p className="text-sm text-destructive">{aliasError}</p>}
-          </CardContent>
-        </Card>
-      )}
+      <Link
+        to="/settings/aliases"
+        className="flex items-center gap-3 rounded-xl bg-card px-4 py-3 text-card-foreground ring-1 ring-foreground/10 transition-colors hover:bg-muted/50"
+      >
+        <Tags className="size-5 shrink-0 text-muted-foreground" />
+        <span className="flex min-w-0 flex-1 flex-col">
+          <span className="text-sm font-medium">覚えた食材の別名</span>
+          <span className="text-xs text-muted-foreground">レシピの取り込みで覚えた表記の確認と削除</span>
+        </span>
+        <span className="text-xs text-muted-foreground">{ownAliasCount}件</span>
+        <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+      </Link>
       <PlanCard />
 
       <Card>
