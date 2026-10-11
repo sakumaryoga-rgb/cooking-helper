@@ -11,10 +11,11 @@ import { __resetForTests, getState } from '@/lib/swUpdate'
 const updateEq = vi.fn().mockResolvedValue({ error: null })
 const update = vi.fn(() => ({ eq: updateEq }))
 const aliasInsert = vi.fn().mockResolvedValue({ error: null })
+const deleteEq = vi.fn().mockResolvedValue({ error: null })
 vi.mock('@/supabaseClient', () => ({
   supabase: {
     rpc: vi.fn(),
-    from: vi.fn((table) => (table === 'ingredient_aliases' ? { insert: aliasInsert } : { update, delete: () => ({ eq: vi.fn().mockResolvedValue({ error: null }) }) })),
+    from: vi.fn((table) => (table === 'ingredient_aliases' ? { insert: aliasInsert } : { update, delete: () => ({ eq: deleteEq }) })),
   },
 }))
 vi.mock('@/hooks/useIngredients', () => ({ useIngredients: vi.fn() }))
@@ -277,6 +278,42 @@ describe('RecipeDetail', () => {
       expect(aliasInsert).toHaveBeenCalledWith({ group_id: 'g1', catalog_id: 'c-momen', alias: '豆腐' })
     })
   
+    it('確認待ちの材料に名前が出て、新しい食材として登録するか、使わないを選べる', async () => {
+      deleteEq.mockClear()
+      setupWith([{ id: 'l9', ingredient_id: null, source_name: 'ナンプラー', required_quantity: null, amount_text: '小さじ1' }], [pork])
+      expect(screen.getByRole('button', { name: '新しい食材「ナンプラー」として登録' })).toBeInTheDocument()
+      await userEvent.click(screen.getByRole('button', { name: 'この材料は使わない' }))
+      expect(deleteEq).not.toHaveBeenCalled()
+      await userEvent.click(screen.getByRole('button', { name: 'ナンプラーをレシピから外す' }))
+      await waitFor(() => expect(deleteEq).toHaveBeenCalledWith('id', 'l9'))
+    })
+
+    it('不足している材料を「使わない」で外すと、不足から除かれる', async () => {
+      deleteEq.mockClear()
+      const egg = { id: 'egg', name: '卵', unit: '個', quantity: 3, catalog_id: null }
+      const lines = [
+        { id: 'a', ingredient_id: 'egg', required_quantity: 2, ingredient: egg },
+        { id: 'b', ingredient_id: 'pork', required_quantity: 500, ingredient: pork },
+      ]
+      const view = setupWith(lines, [egg, pork])
+      expect(screen.getByText(/不足 200/)).toBeInTheDocument()
+      const porkRow = screen.getByText('豚こま切れ肉').closest('li')
+      await userEvent.click(within(porkRow).getByRole('button', { name: 'この材料は使わない' }))
+      await userEvent.click(within(porkRow).getByRole('button', { name: '豚こま切れ肉をレシピから外す' }))
+      await waitFor(() => expect(deleteEq).toHaveBeenCalledWith('id', 'b'))
+      // 外したあとの再読み込みで、材料から消え、作れるになる
+      useRecipes.mockReturnValue({ recipes: [{ id: 'r2', title: '豚丼', url: null, recipe_ingredients: [lines[0]] }], loading: false, refresh: vi.fn() })
+      view.rerender(
+        <MemoryRouter initialEntries={['/recipes/r2']}>
+          <Routes>
+            <Route path="/recipes/:id" element={<RecipeDetail groupId="g1" />} />
+          </Routes>
+        </MemoryRouter>
+      )
+      expect(screen.queryByText(/不足 200/)).not.toBeInTheDocument()
+      expect(screen.getByText('作れます')).toBeInTheDocument()
+    })
+
     it('覚えた換算で計算した材料は、確定画面でそのことを示し、量を直せる', async () => {
       conversionMap = new Map([['pork:パック', 200]])
       setupWith([{ id: 'l1', ingredient_id: 'pork', required_quantity: null, amount_text: '1パック', ingredient: pork }], [pork])

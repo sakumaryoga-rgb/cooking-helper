@@ -105,6 +105,45 @@ export function RecipeDetail({ groupId }) {
     }
   }
 
+  // 「この材料は使わない」: レシピの材料から外す(家のレシピのカスタマイズ)。外した材料は不足にも数えない。
+  // 間違えて外さないよう、1回目で確認を出し、2回目で外す
+  const [confirmRemoveId, setConfirmRemoveId] = useState(null)
+  async function removeLine(ri) {
+    if (confirmRemoveId !== ri.id) {
+      setConfirmRemoveId(ri.id)
+      return
+    }
+    setConfirmRemoveId(null)
+    setResolvingId(ri.id)
+    setResolveError('')
+    const { error } = await supabase.from('recipe_ingredients').delete().eq('id', ri.id)
+    setResolvingId(null)
+    if (error) {
+      setResolveError('材料を外せませんでした。選んでいる家のレシピか確かめてください')
+      return
+    }
+    await refreshRecipes?.()
+  }
+
+  function removeLineControl(ri, name) {
+    const confirming = confirmRemoveId === ri.id
+    return confirming ? (
+      <span className="flex items-center gap-1.5 text-xs">
+        <span className="text-muted-foreground">このレシピから外しますか?</span>
+        <Button size="sm" variant="ghost" className="h-7 rounded-full text-xs" onClick={() => setConfirmRemoveId(null)}>
+          やめる
+        </Button>
+        <Button size="sm" variant="destructive" className="h-7 rounded-full text-xs" disabled={resolvingId === ri.id} onClick={() => removeLine(ri)} aria-label={`${name}をレシピから外す`}>
+          外す
+        </Button>
+      </span>
+    ) : (
+      <button type="button" className="text-xs text-muted-foreground underline-offset-2 hover:underline" onClick={() => removeLine(ri)}>
+        この材料は使わない
+      </button>
+    )
+  }
+
   // 塩・しょうゆなどを常備品にすると、在庫の数量に関係なく「ある」とみなす(家庭ごと)
   async function toggleStaple(ingredient) {
     const { error } = await supabase.from('ingredients').update({ is_staple: !ingredient.is_staple }).eq('id', ingredient.id)
@@ -286,9 +325,14 @@ export function RecipeDetail({ groupId }) {
                       {option.name}
                     </Button>
                   ))}
-                  <Button size="sm" variant="ghost" className="h-7 rounded-full text-xs" disabled={resolvingId === ri.id} onClick={() => resolvePending(ri, { kind: 'new', name: ri.source_name })}>
-                    新しい食材「{ri.source_name}」
-                  </Button>
+                  {ri.source_name && (
+                    <Button size="sm" variant="ghost" className="h-7 rounded-full text-xs" disabled={resolvingId === ri.id} onClick={() => resolvePending(ri, { kind: 'new', name: ri.source_name })}>
+                      新しい食材「{ri.source_name}」として登録
+                    </Button>
+                  )}
+                </div>
+                <div className="self-end">
+                  {removeLineControl(ri, ri.source_name ?? '材料')}
                 </div>
               </li>
             )
@@ -364,11 +408,14 @@ export function RecipeDetail({ groupId }) {
                   )}
                 </div>
               )}
-              {current && (
-                <button type="button" className="self-end text-xs text-muted-foreground underline-offset-2 hover:underline" onClick={() => toggleStaple(current)}>
-                  {staple ? '常備品から外す' : '常備品にする(在庫を数えない)'}
-                </button>
-              )}
+              <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1">
+                {current && (
+                  <button type="button" className="text-xs text-muted-foreground underline-offset-2 hover:underline" onClick={() => toggleStaple(current)}>
+                    {staple ? '常備品から外す' : '常備品にする(在庫を数えない)'}
+                  </button>
+                )}
+                {removeLineControl(ri, ri.ingredient?.name ?? current?.name ?? '材料')}
+              </div>
               {ri.note && <p className="text-xs text-muted-foreground">状態: {ri.note}</p>}
               {ri.raw_text && <p className="text-xs text-muted-foreground">元の表記: {ri.raw_text}</p>}
             </li>
