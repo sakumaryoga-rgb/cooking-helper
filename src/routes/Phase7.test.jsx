@@ -80,15 +80,17 @@ describe('管理画面', () => {
   })
 })
 
-describe('規約とプライバシーポリシー(ドラフト)', () => {
-  it('ドラフトと分かり、運営者情報などは推測で埋めず【未確定】のまま', () => {
+describe('規約とプライバシーポリシー(正式版)', () => {
+  it('ドラフトの表示や【未確定】がなく、運営者・管轄・施行日が入っている', () => {
     render(
       <MemoryRouter>
         <Terms />
       </MemoryRouter>
     )
-    expect(screen.getByText('公開前のドラフト')).toBeInTheDocument()
-    expect(screen.getAllByText(/【未確定】/).length).toBeGreaterThanOrEqual(4)
+    expect(screen.queryByText(/ドラフト|【未確定】/)).not.toBeInTheDocument()
+    expect(screen.getAllByText(/個人開発\(ryogasakuma\)/).length).toBeGreaterThan(0)
+    expect(screen.getByText(/運営者の所在地を管轄する日本の裁判所/)).toBeInTheDocument()
+    expect(screen.getByText(/2026年10月11日/)).toBeInTheDocument()
   })
 
   it('プライバシーポリシーは実際の収集内容(保存期間、伏せ字、外部サービス)と一致する', () => {
@@ -101,6 +103,6 @@ describe('規約とプライバシーポリシー(ドラフト)', () => {
     expect(within(page).getByText(/品質改善のための記録: 90日/)).toBeInTheDocument()
     expect(within(page).getByText(/料理の内容や入力した文字は含みません/)).toBeInTheDocument()
     expect(within(page).getByText(/受付から90日を過ぎたら削除/)).toBeInTheDocument()
-    expect(within(page).getByText(/Supabase/)).toBeInTheDocument()
+    expect(within(page).getByText(/Supabase\(データベース・ログイン。保存地域: 日本\(東京\)\)/)).toBeInTheDocument()
   })
 })

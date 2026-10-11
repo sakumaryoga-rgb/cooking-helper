@@ -101,14 +101,13 @@ function AppMain() {
         {/* 規約とポリシーは、ログイン前・同意前でも読めるようにする */}
         <Route path="/terms" element={<Terms />} />
         <Route path="/privacy" element={<Privacy />} />
-        <Route path="/login" element={session ? <Navigate to="/" replace /> : <Login />} />
+        {!consent.needsConsent && <Route path="/login" element={session ? <Navigate to="/" replace /> : <Login />} />}
 
-        {!session ? (
+        {consent.needsConsent ? (
+          // 初めて開いたとき(ログインの前でも)は、規約とポリシーへの同意から
+          <Route path="*" element={<ConsentScreen revised={consent.revised} onAgree={consent.agree} />} />
+        ) : !session ? (
           <Route path="*" element={<Navigate to="/login" replace />} />
-        ) : consent.loading ? (
-          <Route path="*" element={<FullScreenLoader />} />
-        ) : consent.needsConsent ? (
-          <Route path="*" element={<ConsentScreen revised={consent.revised} loadError={consent.loadError} onAgree={consent.agree} onRetry={consent.retry} />} />
         ) : groupLoading ? (
           <Route path="*" element={<FullScreenLoader />} />
         ) : !group ? (

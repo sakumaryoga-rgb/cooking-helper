@@ -1,58 +1,56 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
+import { ChevronRight, FileText, ShieldCheck } from 'lucide-react'
 import { BrandMark } from '@/components/BrandMark'
+import { HouseArt } from '@/components/HouseArt'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 
-// 利用規約とプライバシーポリシーへの同意。同意するまでアプリの画面には進まない(招待リンクは端末に保持されたまま)
-export function ConsentScreen({ revised, loadError, onAgree, onRetry }) {
+// 利用規約とプライバシーポリシーへの同意。初めて開いたとき(ログインの前)と、改定したときに出す。
+// 同意するまでアプリの画面には進まない(招待リンクは端末に保持されたまま)
+export function ConsentScreen({ revised, onAgree }) {
   const [checked, setChecked] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [error, setError] = useState('')
 
   async function handleAgree() {
     setSaving(true)
-    setError('')
-    const result = await onAgree()
+    await onAgree()
     setSaving(false)
-    if (result?.error) setError('同意を記録できませんでした。通信状況を確かめて、もう一度お試しください')
   }
 
+  const doc = (to, Icon, label) => (
+    <Link to={to} className="flex items-center gap-3 rounded-2xl border bg-background px-3 py-3 text-sm font-medium hover:bg-muted">
+      <span className="flex size-8 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground">
+        <Icon className="size-4" />
+      </span>
+      <span className="flex-1">{label}</span>
+      <ChevronRight className="size-4 text-muted-foreground" />
+    </Link>
+  )
+
   return (
-    <div className="min-h-svh flex items-center justify-center px-4 pt-safe pb-safe">
-      <Card className="w-full max-w-sm">
-        <CardHeader>
-          <BrandMark size="sm" className="mb-2 text-sm" />
-          <CardTitle>{revised ? '利用規約などを改定しました' : 'ご利用の前に'}</CardTitle>
-          <CardDescription>利用規約とプライバシーポリシーをお読みいただき、同意のうえでご利用ください</CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-4">
-          <div className="flex flex-col gap-1 text-sm">
-            <Link to="/terms" className="underline">
-              利用規約を読む
-            </Link>
-            <Link to="/privacy" className="underline">
-              プライバシーポリシーを読む
-            </Link>
-          </div>
-          <label className="flex items-start gap-2 text-sm">
-            <input type="checkbox" className="mt-0.5 size-4" checked={checked} onChange={(e) => setChecked(e.target.checked)} />
-            利用規約とプライバシーポリシーに同意します
+    <div className="min-h-svh bg-[radial-gradient(circle_at_50%_0%,#fff3b0_0%,transparent_60%)] px-4 pt-safe pb-safe">
+      <div className="mx-auto flex w-full max-w-sm flex-col gap-5 py-8">
+        <BrandMark size="sm" className="self-center text-sm" />
+        <section className="flex flex-col items-center gap-3 text-center">
+          <HouseArt open={false} floating />
+          <h1 className="text-2xl font-bold leading-snug tracking-tight">{revised ? '利用規約などを改定しました' : 'ようこそ、COOKDOOR へ'}</h1>
+          <p className="text-sm text-muted-foreground">
+            {revised ? '新しい内容をご確認のうえ、同意してください' : '扉を開ける前に、利用規約とプライバシーポリシーをご確認ください'}
+          </p>
+        </section>
+
+        <div className="flex flex-col gap-3 rounded-3xl border-2 border-[#3b2a1c] bg-card p-4 shadow-[0_4px_0_#3b2a1c]">
+          {doc('/terms', FileText, '利用規約を読む')}
+          {doc('/privacy', ShieldCheck, 'プライバシーポリシーを読む')}
+          <label className="flex items-start gap-2.5 rounded-2xl bg-muted/60 px-3 py-3 text-sm">
+            <input type="checkbox" className="mt-0.5 size-5 accent-[#3b2a1c]" checked={checked} onChange={(e) => setChecked(e.target.checked)} />
+            利用規約とプライバシーポリシーの内容を確認し、同意します
           </label>
-          {loadError && (
-            <div className="flex items-center justify-between gap-2 rounded-md bg-muted px-3 py-2 text-xs">
-              <span>同意の記録を確認できませんでした。同意済みの場合は、再読み込みしてください</span>
-              <Button size="sm" variant="outline" onClick={onRetry}>
-                再読み込み
-              </Button>
-            </div>
-          )}
-          {error && <p className="text-sm text-destructive">{error}</p>}
-          <Button onClick={handleAgree} disabled={!checked || saving}>
-            {saving ? '記録中...' : '同意して始める'}
+          <Button size="lg" onClick={handleAgree} disabled={!checked || saving}>
+            同意して始める
           </Button>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
     </div>
   )
 }

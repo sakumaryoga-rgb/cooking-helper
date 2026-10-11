@@ -1,81 +1,56 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, renderHook, waitFor } from '@testing-library/react'
-import { useConsent } from './useConsent'
+import { CONSENT_KEY, useConsent } from './useConsent'
 import { supabase } from '@/supabaseClient'
 import { LEGAL_VERSIONS } from '@/lib/legal'
 
 let rows = []
-let readError = null
 const insert = vi.fn()
 vi.mock('@/supabaseClient', () => ({
-  supabase: { from: vi.fn(() => ({ select: async () => ({ data: rows, error: readError }), insert: (r) => insert(r) })) },
+  supabase: { from: vi.fn(() => ({ select: async () => ({ data: rows, error: null }), insert: (r) => insert(r) })) },
 }))
+const CURRENT = `${LEGAL_VERSIONS.terms}/${LEGAL_VERSIONS.privacy}`
 
-const current = [
-  { document: 'terms', version: LEGAL_VERSIONS.terms },
-  { document: 'privacy', version: LEGAL_VERSIONS.privacy },
-]
-
-describe('規約への同意の判定', () => {
+describe('規約への同意', () => {
   beforeEach(() => {
+    localStorage.clear()
     rows = []
-    readError = null
     insert.mockReset()
     insert.mockResolvedValue({ error: null })
+    supabase.from.mockClear()
   })
 
-  it('同意画面を有効にしていなければ、誰にも出さない(公開前)', async () => {
-    const { result } = renderHook(() => useConsent('u1', { required: false }))
-    await waitFor(() => expect(result.current.loading).toBe(false))
+  it('初めて開いたとき(ログインの前)は同意を求め、同意すると端末に記録する', async () => {
+    const { result } = renderHook(() => useConsent(null))
+    expect(result.current.needsConsent).toBe(true)
+    expect(result.current.revised).toBe(false)
+    await act(() => result.current.agree())
     expect(result.current.needsConsent).toBe(false)
+    expect(localStorage.getItem(CONSENT_KEY)).toBe(CURRENT)
     expect(supabase.from).not.toHaveBeenCalled()
   })
 
-  it('今の版の両方に同意していれば出さない', async () => {
-    rows = current
-    const { result } = renderHook(() => useConsent('u1', { required: true }))
-    await waitFor(() => expect(result.current.loading).toBe(false))
+  it('ログインしたら、同意の記録をサーバーにも残す(すでにある版は入れない)', async () => {
+    localStorage.setItem(CONSENT_KEY, CURRENT)
+    rows = [{ document: 'terms', version: LEGAL_VERSIONS.terms }]
+    const { result } = renderHook(() => useConsent('u1'))
     expect(result.current.needsConsent).toBe(false)
+    await waitFor(() => expect(insert).toHaveBeenCalledTimes(1))
+    expect(insert).toHaveBeenCalledWith({ document: 'privacy', version: LEGAL_VERSIONS.privacy })
   })
 
-  it('片方だけ・古い版だけなら出し、古い版があれば「改定」として出す', async () => {
-    rows = [current[0]]
-    const a = renderHook(() => useConsent('u1', { required: true }))
-    await waitFor(() => expect(a.result.current.loading).toBe(false))
-    expect(a.result.current).toMatchObject({ needsConsent: true, revised: true })
-
-    rows = []
-    const b = renderHook(() => useConsent('u1', { required: true }))
-    await waitFor(() => expect(b.result.current.loading).toBe(false))
-    expect(b.result.current).toMatchObject({ needsConsent: true, revised: false })
+  it('前の版に同意していた人には「改定しました」として出し直す', () => {
+    localStorage.setItem(CONSENT_KEY, 'old/old')
+    const { result } = renderHook(() => useConsent('u1'))
+    expect(result.current).toMatchObject({ needsConsent: true, revised: true })
   })
 
-  it('同意が必須の環境で記録を読めないときは未同意として扱い、再試行で同意済みと分かれば進める', async () => {
+  it('サーバーに記録できなくても、利用は止めない', async () => {
+    localStorage.setItem(CONSENT_KEY, CURRENT)
     vi.spyOn(console, 'error').mockImplementation(() => {})
-    readError = { message: 'network' }
-    const { result } = renderHook(() => useConsent('u1', { required: true }))
-    await waitFor(() => expect(result.current.loading).toBe(false))
-    expect(result.current).toMatchObject({ needsConsent: true, loadError: true })
-
-    readError = null
-    rows = current
-    await act(async () => {
-      await result.current.retry()
-    })
-    expect(result.current).toMatchObject({ needsConsent: false, loadError: false })
-  })
-
-  it('同意すると両方の今の版を記録する(同意済みの重複は無視)', async () => {
-    insert.mockResolvedValueOnce({ error: { code: '23505' } })
-    const { result } = renderHook(() => useConsent('u1', { required: true }))
-    await waitFor(() => expect(result.current.loading).toBe(false))
-    rows = current
-    let res
-    await act(async () => {
-      res = await result.current.agree()
-    })
-    expect(res).toEqual({})
-    expect(insert.mock.calls.map((c) => c[0])).toEqual(current)
+    insert.mockResolvedValue({ error: { code: '500', message: 'down' } })
+    const { result } = renderHook(() => useConsent('u1'))
+    await waitFor(() => expect(insert).toHaveBeenCalled())
     expect(result.current.needsConsent).toBe(false)
   })
 })

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, BookOpen, CheckCircle2, ExternalLink, Check, ChefHat, Minus, Pencil, Plus, X } from 'lucide-react'
+import { ArrowLeft, Ban, BookOpen, CheckCircle2, ExternalLink, Check, ChefHat, Infinity as InfinityIcon, Minus, Pencil, Plus, X } from 'lucide-react'
 import { useIngredients } from '@/hooks/useIngredients'
 import { useRecipes } from '@/hooks/useRecipes'
 import { useIngredientCatalog } from '@/hooks/useIngredientCatalog'
@@ -140,7 +140,12 @@ export function RecipeDetail({ groupId }) {
         </Button>
       </span>
     ) : (
-      <button type="button" className="text-xs text-muted-foreground underline-offset-2 hover:underline" onClick={() => removeLine(ri)}>
+      <button
+        type="button"
+        className="inline-flex items-center gap-1 rounded-full border bg-background px-2.5 py-1 text-xs font-medium text-muted-foreground hover:border-destructive/50 hover:text-destructive"
+        onClick={() => removeLine(ri)}
+      >
+        <Ban className="size-3.5" />
         この材料は使わない
       </button>
     )
@@ -411,10 +416,19 @@ export function RecipeDetail({ groupId }) {
                   )}
                 </div>
               )}
-              <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1">
+              <div className="flex flex-wrap items-center justify-end gap-1.5 pt-1">
                 {current && (
-                  <button type="button" className="text-xs text-muted-foreground underline-offset-2 hover:underline" onClick={() => toggleStaple(current)}>
-                    {staple ? '常備品から外す' : '常備品にする(在庫を数えない)'}
+                  <button
+                    type="button"
+                    className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium ${
+                      staple
+                        ? 'border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-900 dark:bg-violet-950 dark:text-violet-300'
+                        : 'bg-background text-muted-foreground hover:border-violet-300 hover:text-violet-700'
+                    }`}
+                    onClick={() => toggleStaple(current)}
+                  >
+                    <InfinityIcon className="size-3.5" />
+                    {staple ? '常備品から外す' : '常備品にする'}
                   </button>
                 )}
                 {removeLineControl(ri, ri.ingredient?.name ?? current?.name ?? '材料')}
