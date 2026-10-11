@@ -16,6 +16,8 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/com
 import { APP_VERSION } from '@/lib/appVersion'
 import { APP_NAME } from '@/lib/brand'
 import { TELEMETRY_NOTICE } from '@/lib/telemetry/notice'
+import { InstallGuide } from '@/components/InstallGuide'
+import { ShareAppButton } from '@/components/ShareAppButton'
 
 function formatDate(value) {
   return new Date(value).toLocaleDateString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
@@ -323,6 +325,8 @@ export function Settings({ group, groups = [group], onSelectGroup, onGroupsChang
           )}
         </CardContent>
       </Card>
+      <InstallGuide />
+      <ShareAppButton />
       <p className="text-center text-xs text-muted-foreground">
         {APP_NAME} バージョン {APP_VERSION}
       </p>

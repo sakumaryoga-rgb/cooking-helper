@@ -7,6 +7,7 @@ import { describeExpiring, describeSubstitutes } from '@/lib/matching'
 import { describeExpiry, getExpiryInfo, getExpiryState } from '@/lib/shelfLife'
 import { categoryLook, dishLook, greeting } from '@/lib/foodLook'
 import { MakeableBadge } from '@/components/MakeableBadge'
+import { InstallGuide } from '@/components/InstallGuide'
 
 const EXPIRING_DAYS = 3
 
@@ -106,6 +107,8 @@ export function Home({ groupId }) {
           </div>
         </div>
       </section>
+
+      <InstallGuide dismissible />
 
       {useSoon.length > 0 && (
         <section className="flex flex-col gap-2">
