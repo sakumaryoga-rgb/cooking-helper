@@ -63,7 +63,6 @@ function FridgeDoor({ children }) {
 
 export function Fridge({ groupId }) {
   const { ingredients, loading, refresh, removeIngredient, dropLocal } = useIngredients(groupId)
-  const [showEmpty, setShowEmpty] = useState(false)
   const [expandedId, setExpandedId] = useState(null)
   // 絞り込み(設計書 4 章): 'all' / 'expiring'(期限が3日以内・期限切れ)/ カテゴリ名
   const [searchParams] = useSearchParams()
@@ -119,8 +118,8 @@ export function Fridge({ groupId }) {
   // 常備品は数を数えないので、冷蔵庫の一覧とは別の棚にまとめる
   const staples = filtered.filter((r) => r.ingredient.is_staple)
   const counted = filtered.filter((r) => !r.ingredient.is_staple)
-  const inStock = searching ? counted : counted.filter(visible)
-  const emptyRows = searching ? [] : counted.filter((r) => !visible(r))
+  // 在庫0の食材(レシピの材料として残っている行など)は、検索中も含めて冷蔵庫には出さない
+  const inStock = counted.filter(visible)
   // 数を記録している調味料(まとめて常備品にできるもの)
   const countedSeasonings = ingredients.filter((i) => !i.is_staple && Number(i.quantity) > 0 && STAPLE_CATEGORIES.has(categoryOf(i)))
 
@@ -442,16 +441,6 @@ export function Fridge({ groupId }) {
                 </div>
               )}
             </section>
-          )}
-          {emptyRows.length > 0 && (
-            <div className="flex flex-col gap-2">
-              <Button variant="ghost" size="sm" className="self-start" onClick={() => setShowEmpty((v) => !v)}>
-                {showEmpty ? '在庫なしの食材を隠す' : `在庫なしの食材(${emptyRows.length})を表示`}
-              </Button>
-              {showEmpty && (
-                <ul className="flex flex-col divide-y divide-border rounded-2xl border border-dashed opacity-80">{emptyRows.map(renderRow)}</ul>
-              )}
-            </div>
           )}
         </>
       )}

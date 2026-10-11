@@ -113,16 +113,18 @@ describe('Fridge の数量変更', () => {
     expect(dropLocal).not.toHaveBeenCalled()
   })
 
-  it('在庫0の食材(レシピの材料)は折りたたみ、開くと表示する', async () => {
+  it('在庫0の食材は、検索しても冷蔵庫に出さない(在庫なしの欄もない)', async () => {
     setup([
       { id: 'a', name: 'にんじん', unit: '本', quantity: 1 },
       { id: 'b', name: 'しょうゆ', unit: 'ml', quantity: 0 },
     ])
     expect(screen.getByText('にんじん')).toBeInTheDocument()
     expect(screen.queryByText('しょうゆ')).not.toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: '在庫なしの食材(1)を表示' }))
-    expect(screen.getByText('しょうゆ')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /在庫なしの食材/ })).not.toBeInTheDocument()
+    await userEvent.type(screen.getByPlaceholderText('食材を検索'), 'しょう')
+    expect(screen.queryByText('しょうゆ')).not.toBeInTheDocument()
   })
+
 
   it('追加で選んで、量を決めずに閉じた在庫0の食材は冷蔵庫に出さず片付ける(在庫0を条件に消す)', async () => {
     const db = mockDb()
