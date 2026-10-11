@@ -1,4 +1,4 @@
-import { Suspense, lazy, useCallback, useEffect } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useState } from 'react'
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { Loader2 } from 'lucide-react'
 import { useSession } from '@/hooks/useSession'
@@ -19,6 +19,8 @@ import { PreviewBanner } from '@/components/PreviewBanner'
 import { BrandMark } from '@/components/BrandMark'
 import { useTelemetry } from '@/hooks/useTelemetry'
 import { capturePendingInvite } from '@/lib/invite'
+import { OpenInBrowserGate, CONTINUE_KEY } from '@/components/OpenInBrowserGate'
+import { detectInAppBrowser } from '@/lib/inAppBrowser'
 
 // めったに開かない画面は、開いたときに読み込む(起動時に読み込む量を減らす)
 const Onboarding = lazy(() => import('@/routes/Onboarding').then((m) => ({ default: m.Onboarding })))
@@ -40,7 +42,21 @@ function FullScreenLoader() {
   )
 }
 
+// LINE・Instagram などのアプリ内ブラウザでは、まず標準のブラウザで開き直してもらう
 export default function App() {
+  const [inApp] = useState(() => detectInAppBrowser())
+  const [continued, setContinued] = useState(() => {
+    try {
+      return sessionStorage.getItem(CONTINUE_KEY) === '1'
+    } catch {
+      return false
+    }
+  })
+  if (inApp && !continued) return <OpenInBrowserGate appName={inApp} onContinue={() => setContinued(true)} />
+  return <AppMain />
+}
+
+function AppMain() {
   const { session, loading: sessionLoading } = useSession()
   const { groups, group, loading: groupLoading, refresh: refreshGroup, selectGroup } = useGroup(session)
   const location = useLocation()

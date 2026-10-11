@@ -8,6 +8,7 @@ import { FeatureChips, HouseArt } from '@/components/HouseArt'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { InstallGuide } from '@/components/InstallGuide'
 
 export function Login() {
   const [email, setEmail] = useState('')
@@ -119,6 +120,8 @@ export function Login() {
             </form>
           )}
         </div>
+
+        <InstallGuide />
 
         <p className="px-2 text-center text-[11px] leading-relaxed text-muted-foreground">
           Safari、Chrome、ホーム画面に追加したアプリは、それぞれ別にログインが必要です。同じメールアドレスでログインすれば、同じ家とデータが表示されます。

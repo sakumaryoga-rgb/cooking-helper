@@ -6,6 +6,12 @@ import { setNeedRefresh, setUpdateFn, setCheckFn } from '@/lib/swUpdate'
 import { checkMinSupportedVersion } from '@/lib/appVersion'
 import './index.css'
 import App from './App.jsx'
+import { captureInstallPrompt, cleanExternalParam, redirectOutOfLine } from '@/lib/inAppBrowser'
+
+// LINE で開かれたら、画面を出す前に外部ブラウザ(Safari / Chrome)へ送る
+const leavingLine = redirectOutOfLine()
+cleanExternalParam()
+captureInstallPrompt()
 
 const UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000
 
@@ -35,9 +41,14 @@ const updateSW = registerSW({
 setUpdateFn(updateSW)
 
 createRoot(document.getElementById('root')).render(
-  <StrictMode>
-    <BrowserRouter>
-      <App />
-    </BrowserRouter>
-  </StrictMode>
+  leavingLine ? (
+    // 外部ブラウザへ移るあいだ(LINE のまま残ったときは、外部ブラウザで開くと出るはずの案内をここに)
+    <p style={{ padding: 24, textAlign: 'center', fontFamily: 'system-ui', color: '#3b2a1c' }}>ブラウザで開いています…</p>
+  ) : (
+    <StrictMode>
+      <BrowserRouter>
+        <App />
+      </BrowserRouter>
+    </StrictMode>
+  )
 )
