@@ -1,5 +1,6 @@
 import { buildNameIndex, displayName, matchIngredientName, nameKey as normalizeName } from '@/lib/ingredientName'
 import { isHeadingLine, parseIngredientLine, splitIngredientLine } from './ingredientLine'
+import { exactFactor } from '@/lib/unitConversion'
 // 取り込んだ材料を、冷蔵庫の食材(同じグループ)→ 食材マスタ の順に名前で突き合わせ、
 // 保存先の食材と、その食材の単位での必要量を決める。決めきれないものは needsCheck にして画面で確かめてもらう。
 
@@ -23,6 +24,9 @@ export function quantityInUnit(parsed, unit) {
   if (unit === 'g' && parsed.grams != null) return parsed.grams
   if (unit === 'ml' && parsed.ml != null) return parsed.ml
   if (parsed.quantity != null && parsed.unit === unit) return parsed.quantity
+  // 計量の定義で直せる単位(合 → ml、kg → g など)。食材ごとの目安(1束 ≈ 100g)はここでは使わない
+  const factor = parsed.quantity != null && parsed.unit ? exactFactor(parsed.unit, unit) : null
+  if (factor != null) return parsed.quantity * factor
   return null
 }
 

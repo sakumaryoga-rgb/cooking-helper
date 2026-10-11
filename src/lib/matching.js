@@ -16,19 +16,29 @@
 // - 確認待ちの材料(どの食材か未確定): 'check' にする
 
 import { parseAmount } from '@/lib/recipeImport/ingredientLine'
+import { describeEstimate, resolveConversion } from '@/lib/unitConversion'
 
 const EPSILON = 1e-6
 const VAGUE_TEXT = /適量|少々|適宜|お好み|好みで|ひとつまみ|少量|たっぷり/
 
-// 数で分からない分量を、家庭で覚えた換算(1パック = 200g など)で数に直す。直せなければ null。
-// 換算は「冷蔵庫の食材の行 × 単位」ごと(家ごとに別の行)で、食材・単位が完全に一致するときだけ使う。幅(1〜2パック)には使わない。
-// scale: 人数を変えたときの倍率(元の分量の表記は人数を変えても変わらないため)
-export function convertAmount(amountText, ingredientId, conversions, scale = 1) {
-  if (!amountText || !ingredientId || !conversions?.size) return null
+// 数で分からない分量(元の表記のまま保存した材料)を、食材の単位に直す。換算の順は lib/unitConversion と同じ:
+// 計量の定義(大さじ → ml など)と家庭で覚えた換算(1パック = 200g)は確定として返し、
+// 全体共通の目安(1束 ≈ 100g)は estimate: true で返す(作れるかの断定や在庫の自動の差し引きには使わない)。幅(1〜2パック)には使わない。
+// ingredient: 冷蔵庫の行({ id, unit, catalog_id })か、その ID。scale: 人数を変えたときの倍率
+export function convertAmount(amountText, ingredient, conversions, scale = 1, common = null, state = null) {
+  if (!amountText || !ingredient) return null
+  const ing = typeof ingredient === 'string' ? { id: ingredient } : ingredient
   const a = parseAmount(amountText)
   if (a.quantity == null || !a.unit || a.range) return null
-  const per = conversions.get(`${ingredientId}:${a.unit}`)
-  return per ? { quantity: round(a.quantity * per * scale), per, unit: a.unit } : null
+  if (!ing.unit) {
+    // 食材の単位が分からないときは、家庭の換算だけ(従来どおり)
+    const per = conversions?.get(`${ing.id}:${a.unit}`)
+    return per ? { quantity: round(a.quantity * per * scale), per, unit: a.unit } : null
+  }
+  const r = resolveConversion({ quantity: a.quantity * scale, unit: a.unit, ingredient: ing, household: conversions, common, state })
+  if (!r || r.kind === 'same') return null
+  const per = r.per ?? round(r.quantity / (a.quantity * scale))
+  return { quantity: round(r.quantity), per, unit: a.unit, estimate: !r.confirmed, kind: r.kind, text: describeEstimate(r, ing.unit) }
 }
 
 function round(n) {
@@ -36,7 +46,7 @@ function round(n) {
 }
 
 // options.choices: Map<材料の ingredientId, ruleId | 'none'>(詳細画面で選んだ代替。'none' は代替しない)
-export function getRecipeStatus(recipe, ingredientsById, { substitutions = [], catalogById = new Map(), choices = new Map(), conversions = new Map() } = {}) {
+export function getRecipeStatus(recipe, ingredientsById, { substitutions = [], catalogById = new Map(), choices = new Map(), conversions = new Map(), commonConversions = null } = {}) {
   const items = recipe.recipe_ingredients ?? []
   const remaining = new Map([...ingredientsById.values()].map((i) => [i.id, Number(i.quantity) || 0]))
   const fridge = [...ingredientsById.values()]
@@ -45,7 +55,13 @@ export function getRecipeStatus(recipe, ingredientsById, { substitutions = [], c
   // 1. そのものの在庫を割り当てる
   const lines = items.map((req) => {
     const current = ingredientsById.get(req.ingredient_id)
-    const converted = req.required_quantity == null ? convertAmount(req.amount_text, req.ingredient_id, conversions, req.scale ?? 1) : null
+    const conv =
+      req.required_quantity == null && req.ingredient_id
+        ? convertAmount(req.amount_text, current ? { id: current.id, unit: current.unit, catalog_id: current.catalog_id } : req.ingredient_id, conversions, req.scale ?? 1, commonConversions, req.note)
+        : null
+    // 確定に使えるのは計量の定義と家庭の換算だけ。共通の目安は estimate として見せる
+    const converted = conv && !conv.estimate ? conv : null
+    const estimate = conv?.estimate ? { quantity: conv.quantity, text: conv.text } : null
     const known = req.required_quantity != null || converted != null
     const required = known ? Number(req.required_quantity ?? converted.quantity) || 0 : 0
     const line = {
@@ -66,6 +82,8 @@ export function getRecipeStatus(recipe, ingredientsById, { substitutions = [], c
       vague: !known && VAGUE_TEXT.test(req.amount_text ?? ''),
       // 家庭で覚えた換算で数にした(包装量は商品ごとに違うことがあるので、調理のときに明示する)
       converted: converted ? { per: converted.per, unit: converted.unit } : null,
+      // 共通の目安(候補)。分量は確定させず、「作った」の確認画面で初期値として見せる
+      estimate,
       note: req.note ?? null,
     }
     if (line.pending) return line
@@ -259,11 +277,13 @@ export function buildCookPlan(status) {
         ingredientId: line.ingredientId,
         name: line.name,
         unit: line.unit,
-        quantity: '',
+        // 共通の目安があれば初期値として入れるが、チェックは外したまま(確かめてから引く)
+        quantity: line.estimate ? round(line.estimate.quantity) : '',
         include: false,
         substituteFor: null,
         amountText: line.amountText,
         unknown: true,
+        estimate: line.estimate,
       })
       continue
     }
