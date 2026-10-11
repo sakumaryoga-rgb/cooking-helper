@@ -25,6 +25,7 @@ import { QuantityInput } from '@/components/QuantityInput'
 import { snapToStock } from '@/lib/quantity'
 import { useIngredientBatches } from '@/hooks/useIngredientBatches'
 import { usableIngredientsById } from '@/lib/shelfLife'
+import { useCommonConversions } from '@/hooks/useCommonConversions'
 
 // 確定のあとに「取り消す」を出しておく時間
 const UNDO_TOAST_MS = 8000
@@ -71,7 +72,8 @@ export function RecipeDetail({ groupId }) {
   const scaled = useMemo(() => scaleRecipe(recipe, factor), [recipe, factor])
   // 「作れる」の判定は、消費期限が切れたロットを除いた在庫で行う(引く量の計算は実際の在庫のまま)
   const usableById = useMemo(() => usableIngredientsById(ingredients, batches, catalogById), [ingredients, batches, catalogById])
-  const status = scaled ? getRecipeStatus(scaled, usableById, { substitutions, catalogById, choices, conversions }) : null
+  const commonConversions = useCommonConversions()
+  const status = scaled ? getRecipeStatus(scaled, usableById, { substitutions, catalogById, choices, conversions, commonConversions }) : null
   const nameIndex = useMemo(() => buildNameIndex({ ingredients, catalog, aliases }), [ingredients, catalog, aliases])
 
   // 確認待ちの材料(どの食材か未確定)を1タップで決める。候補・新しい食材を選んだら行を更新し、表記を家の別名として覚える
@@ -361,6 +363,7 @@ export function RecipeDetail({ groupId }) {
                       {line.amountUnknown && <span className="ml-1 text-violet-700 dark:text-violet-400">・分量を確認</span>}
                       {' '}/ 在庫 {formatQuantity(current?.quantity ?? 0)}
                       {unit}
+                      {line.estimate && <span className="block text-[11px] text-muted-foreground">{line.estimate.text}</span>}
                     </>
                   ) : (
                     <>
@@ -602,6 +605,11 @@ export function RecipeDetail({ groupId }) {
                     <p>
                       レシピの分量は「{row.amountText || '分量不明'}」です。使った量を入れたときだけ在庫から引きます
                     </p>
+                    {row.estimate && (
+                      <p className="text-violet-700 dark:text-violet-400">
+                        {row.estimate.text}を入れてあります。確かめてチェックを入れたときだけ引きます
+                      </p>
+                    )}
                     {Number(row.quantity) > 0 && parseAmount(row.amountText ?? '').quantity != null && parseAmount(row.amountText ?? '').unit && (
                       <label className="flex items-center gap-1.5">
                         <input type="checkbox" className="size-3.5" checked={Boolean(row.remember)} onChange={(e) => updatePlan(row.key, { remember: e.target.checked })} />

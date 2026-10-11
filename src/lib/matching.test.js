@@ -275,3 +275,33 @@ describe('期限が近い食材を使うレシピを優先', () => {
     expect(describeExpiring(best[0].status.expiring)).toBe('牛乳(賞味期限切れ)')
   })
 })
+
+describe('分量の換算の目安(migration 026)と、家庭の換算・計量の定義', () => {
+  const nira = { id: 'nira', name: 'ニラ', unit: 'g', quantity: 50, catalog_id: 'c-nira' }
+  const commonConversions = new Map([
+    ['c-nira', [{ catalog_id: 'c-nira', from_unit: '束', from_quantity: 1, to_unit: 'g', to_quantity: 100, state_key: '一般', source_id: 'AJI_FOOD' }]],
+  ])
+  const halfBunch = { id: 'r', recipe_ingredients: [{ ingredient_id: 'nira', required_quantity: null, amount_text: '1/2束', ingredient: nira }] }
+
+  it('在庫50gで「1/2束」は、目安(約50g)を見せるが作れると断定しない', () => {
+    const status = getRecipeStatus(halfBunch, stock([nira]), { commonConversions })
+    expect(status.level).toBe('check')
+    expect(status.lines[0].estimate).toEqual({ quantity: 50, text: '目安 約50g(1束 ≈ 100g・味の素パーク)' })
+    const plan = buildCookPlan(status)
+    expect(plan[0]).toMatchObject({ quantity: 50, include: false, unknown: true })
+  })
+
+  it('家庭で「1束=80g」と確かめていれば、それを使って判定する(目安より優先)', () => {
+    const status = getRecipeStatus(halfBunch, stock([nira]), { commonConversions, conversions: new Map([['nira:束', 80]]) })
+    expect(status.level).toBe('makeable')
+    expect(status.lines[0].estimate).toBeNull()
+    expect(buildCookPlan(status)[0]).toMatchObject({ quantity: 40, include: true })
+  })
+
+  it('「大さじ2」は、ml で数えている食材なら計量の定義で 30ml として判定する', () => {
+    const soy = { id: 'soy', name: '醤油', unit: 'ml', quantity: 20, catalog_id: 'c-soy' }
+    const recipe = { id: 'r', recipe_ingredients: [{ ingredient_id: 'soy', required_quantity: null, amount_text: '大さじ2', ingredient: soy }] }
+    const status = getRecipeStatus(recipe, stock([soy]), { commonConversions })
+    expect(status.shortfalls).toEqual([expect.objectContaining({ ingredientId: 'soy', requiredQuantity: 30, missingQuantity: 10 })])
+  })
+})

@@ -7,6 +7,7 @@ import { useUnitConversions } from '@/hooks/useUnitConversions'
 import { useIngredientBatches } from '@/hooks/useIngredientBatches'
 import { sortRecipesByMakeability } from '@/lib/matching'
 import { getExpiryInfo, usableIngredientsById } from '@/lib/shelfLife'
+import { useCommonConversions } from '@/hooks/useCommonConversions'
 
 // ホーム・レシピ一覧で使う、在庫とレシピの判定(冷蔵庫の在庫が変わるとその場で更新される)
 export function useKitchen(groupId) {
@@ -19,6 +20,7 @@ export function useKitchen(groupId) {
   const ingredientsById = useMemo(() => new Map(ingredients.map((i) => [i.id, i])), [ingredients])
   const catalogById = useMemo(() => new Map(catalog.map((c) => [c.id, c])), [catalog])
   const { batches } = useIngredientBatches(groupId)
+  const commonConversions = useCommonConversions()
   // 在庫のある食材ごとの、いちばん近い期限(レシピを「期限が近い食材を使う順」に並べるため)
   const expiryById = useMemo(() => {
     const byIngredient = new Map()
@@ -37,8 +39,8 @@ export function useKitchen(groupId) {
   // 「作れる」の判定は、消費期限が切れたロットを除いた在庫で行う
   const usableById = useMemo(() => usableIngredientsById(ingredients, batches, catalogById), [ingredients, batches, catalogById])
   const sorted = useMemo(
-    () => sortRecipesByMakeability(recipes, usableById, { substitutions, catalogById, conversions, expiryById }),
-    [recipes, usableById, substitutions, catalogById, conversions, expiryById]
+    () => sortRecipesByMakeability(recipes, usableById, { substitutions, catalogById, conversions, expiryById, commonConversions }),
+    [recipes, usableById, substitutions, catalogById, conversions, expiryById, commonConversions]
   )
 
   return {

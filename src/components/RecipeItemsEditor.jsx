@@ -5,12 +5,30 @@ import { applyChoice } from '@/lib/recipeImport/match'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { QuantityInput } from '@/components/QuantityInput'
+import { useCommonConversions } from '@/hooks/useCommonConversions'
+import { parseAmount } from '@/lib/recipeImport/ingredientLine'
+import { describeEstimate, resolveConversion } from '@/lib/unitConversion'
 
 let nextKey = 0
 export const keyOf = () => `item-${nextKey++}`
 
 // レシピの材料の一覧(追加・編集で共通)。items は resolveIngredient の結果か、冷蔵庫から選んだ食材
+// 分量を数にできなかった材料に、全体共通の目安を出す(押したときだけ入れる。勝手には入れない)
+function estimateFor(item, common) {
+  if (!item.needsCheck || Number(item.requiredQuantity) > 0 || !item.amountText) return null
+  const target =
+    item.kind === 'existing' ? item.ingredient : item.kind === 'catalog' && item.catalogItem ? { unit: item.unit, catalog_id: item.catalogItem.id } : null
+  if (!target) return null
+  const a = parseAmount(item.amountText)
+  if (a.quantity == null || !a.unit || a.range) return null
+  // 条件(サイズ・殻・生米/ご飯など)は、食材名・取り込んだ表記・注記から読む
+  const state = [item.name, item.sourceName, item.note, item.rawText].filter(Boolean).join(' ')
+  const r = resolveConversion({ quantity: a.quantity, unit: a.unit, ingredient: target, common, state })
+  return r && r.kind === 'common' ? { quantity: r.quantity, text: describeEstimate(r, target.unit) } : null
+}
+
 export function RecipeItemsEditor({ groupId, ingredients, items, setItems, emptyText }) {
+  const common = useCommonConversions()
   const [pickerOpen, setPickerOpen] = useState(false)
   const [replaceKey, setReplaceKey] = useState(null) // 付け替える材料の行(null は追加)
 
@@ -110,6 +128,23 @@ export function RecipeItemsEditor({ groupId, ingredients, items, setItems, empty
                   )}
                 </p>
               )}
+              {(() => {
+                const est = item.include ? estimateFor(item, common) : null
+                return est ? (
+                  <div className="ml-6 flex flex-wrap items-center gap-2 text-xs">
+                    <span className="text-muted-foreground">{est.text}</span>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-7 rounded-full text-xs"
+                      onClick={() => updateItem(item.key, { requiredQuantity: String(Math.round(est.quantity * 100) / 100), needsCheck: false })}
+                    >
+                      目安の量で入れる
+                    </Button>
+                  </div>
+                ) : null
+              })()}
               {item.needsChoice && item.include && (
                 <div className="ml-6 flex flex-col gap-1.5 rounded-xl border border-amber-300 bg-amber-50 p-2 dark:border-amber-800 dark:bg-amber-950/40">
                   <p className="text-xs font-medium">「{item.sourceName}」はどの食材ですか?(選ばなくても、確認待ちのまま保存できます)</p>
