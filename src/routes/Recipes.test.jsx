@@ -32,7 +32,7 @@ describe('Recipes', () => {
     expect(links.map((a) => a.textContent.replace(/\p{Extended_Pictographic}|\uFE0F/gu, ''))).toEqual(['卵焼き作れます', 'カレーpotato あと2個、carrot あと1個あと2品'])
   })
 
-  it('「不足あり」で絞り込み、材料名で検索できる', async () => {
+  it('「買い足し」で絞り込み、材料名で検索できる', async () => {
     const { default: userEvent } = await import('@testing-library/user-event')
     useIngredients.mockReturnValue({ ingredients: [{ id: 'egg', name: 'egg', unit: '個', quantity: 2 }] })
     useRecipes.mockReturnValue({
@@ -47,13 +47,41 @@ describe('Recipes', () => {
         <Recipes groupId="g1" />
       </MemoryRouter>
     )
-    await userEvent.click(screen.getByRole('tab', { name: /不足あり/ }))
+    await userEvent.click(screen.getByRole('tab', { name: /買い足し/ }))
     expect(screen.getByText('カレー')).toBeInTheDocument()
     expect(screen.queryByText('卵焼き')).not.toBeInTheDocument()
     await userEvent.click(screen.getByRole('tab', { name: /すべて/ }))
     await userEvent.type(screen.getByLabelText('レシピを検索'), 'egg')
     expect(screen.getByText('卵焼き')).toBeInTheDocument()
     expect(screen.queryByText('カレー')).not.toBeInTheDocument()
+  })
+
+  it('「買い足し」は足りない品数ごとに分け、あと1品のレシピは買えば作れる食材をまとめて出す', async () => {
+    const { default: userEvent } = await import('@testing-library/user-event')
+    useIngredients.mockReturnValue({ ingredients: [{ id: 'rice', name: 'rice', unit: '個', quantity: 5 }] })
+    useRecipes.mockReturnValue({
+      loading: false,
+      recipes: [
+        { id: 'omu', title: 'オムライス', recipe_ingredients: [line('rice', 1), line('egg', 2)] },
+        { id: 'tkg', title: '卵かけご飯', recipe_ingredients: [line('rice', 1), line('egg', 1)] },
+        { id: 'oya', title: '親子丼', recipe_ingredients: [line('rice', 1), line('egg', 2), line('chicken', 1)] },
+        { id: 'curry', title: 'カレー', recipe_ingredients: [line('potato', 1), line('carrot', 1), line('onion', 1)] },
+      ],
+    })
+    render(
+      <MemoryRouter>
+        <Recipes groupId="g1" />
+      </MemoryRouter>
+    )
+    await userEvent.click(screen.getByRole('tab', { name: /買い足し/ }))
+    const one = screen.getByRole('region', { name: 'あと1品で作れる' })
+    expect(one).toHaveTextContent('オムライス')
+    expect(one).toHaveTextContent('卵かけご飯')
+    expect(one).toHaveTextContent('買えば作れる: egg(2品)')
+    expect(screen.getByRole('region', { name: 'あと2品で作れる' })).toHaveTextContent('親子丼')
+    expect(screen.getByRole('region', { name: 'あと3品以上' })).toHaveTextContent('カレー')
+    const order = screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent.replace(/\d+$/, ''))
+    expect(order).toEqual(['あと1品で作れる', 'あと2品で作れる', 'あと3品以上'])
   })
 
   it('レシピがなければ案内を表示する', () => {

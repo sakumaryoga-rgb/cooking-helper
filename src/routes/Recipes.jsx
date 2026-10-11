@@ -17,8 +17,24 @@ const FILTERS = [
   { id: 'expiring', label: '期限が近い', emoji: '⏰', match: (s) => s.expiring?.length > 0 },
   { id: 'substitutable', label: '代替で作れる', emoji: '🪄', match: (s) => s.level === 'substitutable' },
   { id: 'check', label: '要確認', emoji: '🔍', match: (s) => s.level === 'check' },
-  { id: 'short', label: '不足あり', emoji: '🛒', match: (s) => s.level === 'almost' || s.level === 'short' },
+  { id: 'short', label: '買い足し', emoji: '🛒', match: (s) => s.level === 'almost' || s.level === 'short' },
 ]
+
+// 「買い足し」は足りない品数ごとに分ける(3品以上はまとめる)。少ないほど、買い物で少し足せば作れる
+const SHORT_GROUPS = [
+  { id: 1, title: 'あと1品で作れる', match: (n) => n === 1 },
+  { id: 2, title: 'あと2品で作れる', match: (n) => n === 2 },
+  { id: 3, title: 'あと3品以上', match: (n) => n >= 3 },
+]
+
+// あと1品のレシピの足りない食材を、作れるようになるレシピの数が多い順に(買い物のメモ)
+function shoppingMemo(items) {
+  const count = new Map()
+  for (const { status } of items) {
+    for (const s of status.shortfalls) count.set(s.name, (count.get(s.name) ?? 0) + 1)
+  }
+  return [...count.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'ja'))
+}
 
 // 名前・材料・出典で検索する(カタカナとひらがなの違いは同じとみなす)
 function matchesQuery(recipe, status, key) {
@@ -36,6 +52,35 @@ export function Recipes({ groupId }) {
   const key = normalizeName(query)
   const active = FILTERS.find((f) => f.id === filter)
   const visible = sorted.filter(({ recipe, status }) => active.match(status) && matchesQuery(recipe, status, key))
+
+  function renderCard({ recipe, status }) {
+    return (
+        <li key={recipe.id}>
+          <Link
+            to={`/recipes/${recipe.id}`}
+            className="flex items-center gap-3 rounded-2xl border bg-card p-2.5 pr-3 shadow-sm transition-transform hover:-translate-y-0.5 active:scale-[0.99]"
+          >
+            <span className={`flex size-14 shrink-0 items-center justify-center rounded-xl text-3xl ${dishLook(recipe).bg}`} aria-hidden="true">
+              {dishLook(recipe).emoji}
+            </span>
+            <span className="flex min-w-0 flex-1 flex-col">
+              <span className="text-sm font-semibold truncate">{recipe.title}</span>
+              {status.expiring?.length > 0 && (
+                <span className="truncate text-xs font-medium text-amber-700 dark:text-amber-400">⏰ {describeExpiring(status.expiring)}を使える</span>
+              )}
+              {status.level === 'substitutable' && (
+                <span className="text-xs text-muted-foreground truncate">{describeSubstitutes(status.lines)}</span>
+              )}
+              {(status.level === 'almost' || status.level === 'short') && (
+                <span className="text-xs text-destructive/90 truncate">{describeShortfalls(status.shortfalls, 3)}</span>
+              )}
+              {recipe.source_site && <span className="text-xs text-muted-foreground">{recipe.source_site}</span>}
+            </span>
+            <MakeableBadge status={status} />
+          </Link>
+        </li>
+    )
+  }
 
   return (
     <div className="flex flex-col gap-4">
@@ -81,34 +126,40 @@ export function Recipes({ groupId }) {
       ) : visible.length === 0 ? (
         <p className="py-10 text-center text-sm text-muted-foreground">条件に合うレシピはありません</p>
       ) : (
+        filter === 'short' ? (
+          <div className="flex flex-col gap-5">
+            {SHORT_GROUPS.map((g) => {
+              const items = visible.filter(({ status }) => g.match(status.shortfallCount))
+              if (items.length === 0) return null
+              const memo = g.id === 1 ? shoppingMemo(items) : null
+              return (
+                <section key={g.id} className="flex flex-col gap-2" aria-label={g.title}>
+                  <h2 className="flex items-center gap-1.5 text-sm font-semibold">
+                    {g.title}
+                    <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">{items.length}</span>
+                  </h2>
+                  {memo && (
+                    <p className="rounded-xl bg-amber-50 px-3 py-2 text-xs leading-relaxed dark:bg-amber-950/40">
+                      <span className="font-semibold">買えば作れる: </span>
+                      {memo.map(([name, n], i) => (
+                        <span key={name}>
+                          {i > 0 && '・'}
+                          {name}
+                          {n > 1 && <span className="text-muted-foreground">({n}品)</span>}
+                        </span>
+                      ))}
+                    </p>
+                  )}
+                  <ul className="flex flex-col gap-2.5">{items.map(renderCard)}</ul>
+                </section>
+              )
+            })}
+          </div>
+        ) : (
         <ul className="flex flex-col gap-2.5">
-          {visible.map(({ recipe, status }) => (
-            <li key={recipe.id}>
-              <Link
-                to={`/recipes/${recipe.id}`}
-                className="flex items-center gap-3 rounded-2xl border bg-card p-2.5 pr-3 shadow-sm transition-transform hover:-translate-y-0.5 active:scale-[0.99]"
-              >
-                <span className={`flex size-14 shrink-0 items-center justify-center rounded-xl text-3xl ${dishLook(recipe).bg}`} aria-hidden="true">
-                  {dishLook(recipe).emoji}
-                </span>
-                <span className="flex min-w-0 flex-1 flex-col">
-                  <span className="text-sm font-semibold truncate">{recipe.title}</span>
-                  {status.expiring?.length > 0 && (
-                    <span className="truncate text-xs font-medium text-amber-700 dark:text-amber-400">⏰ {describeExpiring(status.expiring)}を使える</span>
-                  )}
-                  {status.level === 'substitutable' && (
-                    <span className="text-xs text-muted-foreground truncate">{describeSubstitutes(status.lines)}</span>
-                  )}
-                  {(status.level === 'almost' || status.level === 'short') && (
-                    <span className="text-xs text-destructive/90 truncate">{describeShortfalls(status.shortfalls, 3)}</span>
-                  )}
-                  {recipe.source_site && <span className="text-xs text-muted-foreground">{recipe.source_site}</span>}
-                </span>
-                <MakeableBadge status={status} />
-              </Link>
-            </li>
-          ))}
+          {visible.map(renderCard)}
         </ul>
+        )
       )}
     </div>
   )
