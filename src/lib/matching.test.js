@@ -305,3 +305,27 @@ describe('分量の換算の目安(migration 026)と、家庭の換算・計量�
     expect(status.shortfalls).toEqual([expect.objectContaining({ ingredientId: 'soy', requiredQuantity: 30, missingQuantity: 10 })])
   })
 })
+
+describe('水・お湯は食材として数えない', () => {
+  it('在庫がなくても不足にせず、調理で差し引かない(確認待ちの「お湯」も数えない)', () => {
+    const recipe = {
+      id: 'r',
+      recipe_ingredients: [
+        line('egg', 2, '卵'),
+        line('water', 200, '水', 'ml'),
+        { ingredient_id: null, source_name: 'お湯', amount_text: '適量' },
+        { ingredient_id: 'w2', required_quantity: null, amount_text: '1カップ', ingredient: { id: 'w2', name: '水(ゆで用)', unit: 'ml' } },
+      ],
+    }
+    const status = getRecipeStatus(recipe, stock([{ id: 'egg', name: '卵', unit: '個', quantity: 2 }]))
+    expect(status).toMatchObject({ makeable: true, level: 'makeable', shortfallCount: 0, pendingCount: 0, uncertainCount: 0, readiness: 1 })
+    expect(status.notStockedLines.map((l) => l.name)).toEqual(['水', 'お湯', '水(ゆで用)'])
+    expect(buildCookPlan(status).map((r) => r.ingredientId)).toEqual(['egg'])
+  })
+
+  it('水菜や炭酸水は食材として数える', () => {
+    const recipe = { id: 'r', recipe_ingredients: [line('mizuna', 1, '水菜', '束'), line('soda', 100, '炭酸水', 'ml')] }
+    const status = getRecipeStatus(recipe, stock([]))
+    expect(status.shortfallCount).toBe(2)
+  })
+})

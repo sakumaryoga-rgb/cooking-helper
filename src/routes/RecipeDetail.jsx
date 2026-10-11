@@ -7,7 +7,7 @@ import { useIngredientCatalog } from '@/hooks/useIngredientCatalog'
 import { useCookLogs } from '@/hooks/useCookLogs'
 import { useIngredientAliases } from '@/hooks/useIngredientAliases'
 import { useUnitConversions } from '@/hooks/useUnitConversions'
-import { buildNameIndex, matchIngredientName } from '@/lib/ingredientName'
+import { buildNameIndex, isNotStocked, matchIngredientName } from '@/lib/ingredientName'
 import { parseAmount } from '@/lib/recipeImport/ingredientLine'
 import { quantityInUnit } from '@/lib/recipeImport/match'
 import { ensureIngredient, learnAliases } from '@/lib/recipeImport/save'
@@ -304,6 +304,21 @@ export function RecipeDetail({ groupId }) {
 
       <ul className="flex flex-col divide-y divide-border rounded-lg border bg-card">
         {scaled.recipe_ingredients.map((ri) => {
+          const plainName = ri.ingredient?.name ?? ingredientsById.get(ri.ingredient_id)?.name ?? ri.source_name
+          if (isNotStocked(plainName)) {
+            // 水・お湯など: 食材として数えない(在庫と比べず、調理でも引かない)
+            return (
+              <li key={ri.id} className="flex items-center justify-between gap-3 px-3 py-2.5">
+                <span className="flex items-center gap-2 min-w-0">
+                  <span className="size-4 shrink-0" />
+                  <span className="text-sm truncate text-muted-foreground">{plainName}</span>
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  {ri.amount_text || (ri.required_quantity != null ? `${formatQuantity(ri.required_quantity)}${ri.ingredient?.unit ?? ''}` : '')}
+                </span>
+              </li>
+            )
+          }
           if (!ri.ingredient_id) {
             // 確認待ち(どの食材か未確定): 候補を1タップで選ぶ
             const match = matchIngredientName(ri.source_name, nameIndex, { notes: ri.note ? ri.note.split('・') : [] })

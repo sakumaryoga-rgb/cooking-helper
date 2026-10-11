@@ -27,6 +27,7 @@ const Onboarding = lazy(() => import('@/routes/Onboarding').then((m) => ({ defau
 const RecipeNew = lazy(() => import('@/routes/RecipeNew').then((m) => ({ default: m.RecipeNew })))
 const RecipeEdit = lazy(() => import('@/routes/RecipeEdit').then((m) => ({ default: m.RecipeEdit })))
 const HouseManage = lazy(() => import('@/routes/HouseManage').then((m) => ({ default: m.HouseManage })))
+const IngredientAliases = lazy(() => import('@/routes/IngredientAliases').then((m) => ({ default: m.IngredientAliases })))
 const Terms = lazy(() => import('@/routes/Legal').then((m) => ({ default: m.Terms })))
 const Privacy = lazy(() => import('@/routes/Legal').then((m) => ({ default: m.Privacy })))
 const Contact = lazy(() => import('@/routes/Contact').then((m) => ({ default: m.Contact })))
@@ -126,6 +127,7 @@ function AppMain() {
             <Route path="/recipes/:id/edit" element={<RecipeEdit groupId={group.id} />} />
             <Route path="/settings" element={<Settings group={group} groups={groups} onSelectGroup={selectGroup} onGroupsChanged={refreshGroup} email={session.user.email} userId={session.user.id} />} />
             <Route path="/settings/houses/:id" element={<HouseManage groups={groups} userId={session.user.id} onGroupsChanged={refreshGroup} />} />
+            <Route path="/settings/aliases" element={<IngredientAliases groupId={group.id} />} />
             <Route path="/group" element={<Navigate to="/settings" replace />} />
             <Route path="/contact" element={<Contact />} />
             <Route path="/admin" element={<Admin />} />

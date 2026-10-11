@@ -377,3 +377,13 @@ export function matchIngredientName(rawName, index, { notes = [] } = {}) {
 export function searchKeywords(catalogItem, index) {
   return [nameKey(catalogItem.name), ...(index.aliasWords.get(catalogItem.id) ?? [])]
 }
+
+// 在庫で管理しないもの(水・お湯など)。食材として数えない: 作れるかの判定・不足・材料の品数・調理の差し引きに入れない。
+// レシピの材料としては表示する(取り込みでは最初は保存しない。画面でチェックすれば保存できる)。
+// 揚げ油・打ち粉のように量を決めにくく、在庫から引かないものも含む
+const NOT_STOCKED = ['水', 'お湯', '湯', '熱湯', '氷', '氷水', 'ゆで汁', '茹で汁', 'のゆで汁', 'の茹で汁', '戻し汁', 'の水', '揚げ油', '打ち粉']
+
+export function isNotStocked(name) {
+  const n = String(name ?? '').normalize('NFKC').replace(/[(（[【][^)）\]】]*[)）\]】]/g, '').trim()
+  return NOT_STOCKED.some((w) => n === w || (w.length >= 2 && n.endsWith(w)))
+}
