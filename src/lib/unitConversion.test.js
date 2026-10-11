@@ -116,3 +116,64 @@ describe('家庭で確認した換算が優先', () => {
     expect(Math.round(third.quantity * 3)).toBe(90)
   })
 })
+
+describe('条件(サイズ・殻・形・米・加工)が食い違う目安は使わない', () => {
+  const c = indexCommonConversions([
+    rule('c-egg', '個', 61, { min_quantity: 58, max_quantity: 64, state_key: 'Mサイズ・殻付き', source_id: 'MAFF_EGG' }),
+    rule('c-shrimp', '尾', 15, { min_quantity: 10, max_quantity: 20, state_key: '小・むき身' }),
+    rule('c-shrimp', '尾', 40, { min_quantity: 30, max_quantity: 50, state_key: '大・殻つき' }),
+    rule('c-rice', '合', 150, { state_key: '精白米・生' }),
+    rule('c-asari', '個', 10, { state_key: '殻つき' }),
+    rule('c-takenoko', '個', 200, { state_key: '水煮' }),
+    rule('c-cabbage', '個', 1200),
+    rule('c-cabbage', '枚', 50),
+    rule('c-nasu', '個', 80),
+  ])
+  const conv = (quantity, unit, ingredient, state) => resolveConversion({ quantity, unit, ingredient, common: c, state })
+
+  it('Lサイズの卵に、Mサイズの重さを使わない', () => {
+    expect(conv(2, '個', ing('egg', 'g', 'c-egg'), '卵 Lサイズ')).toBeNull()
+    // M と書かれていても、殻の有無が分からなければ条件つきの候補(確定しない)
+    expect(conv(2, '個', ing('egg', 'g', 'c-egg'), '卵(Mサイズ)')).toMatchObject({ quantity: 122, needsCondition: true })
+    expect(conv(2, '個', ing('egg', 'g', 'c-egg'), '卵 Mサイズ 殻付き')).toMatchObject({ quantity: 122, needsCondition: false })
+  })
+  it('サイズが書かれていない卵は、Mサイズの場合の候補として出す(確定しない)', () => {
+    const r = conv(2, '個', ing('egg', 'g', 'c-egg'), '卵')
+    expect(r).toMatchObject({ confirmed: false, needsCondition: true })
+    expect(describeEstimate(r, 'g')).toMatch(/Mサイズ・殻付きの場合の目安です$/)
+  })
+  it('大きなエビのむき身に、小さいむきえびの重さも、殻つきの重さも使わない', () => {
+    expect(conv(10, '尾', ing('e', 'g', 'c-shrimp'), 'むきえび(大)')).toBeNull()
+    expect(conv(10, '尾', ing('e', 'g', 'c-shrimp'), '大きなエビのむき身')).toBeNull()
+    expect(conv(10, '尾', ing('e', 'g', 'c-shrimp'), 'むきえび(小)')).toMatchObject({ quantity: 150, needsCondition: false })
+  })
+  it('炊いたご飯に、生米の重さを使わない', () => {
+    expect(conv(2, '合', ing('rice', 'g', 'c-rice'), 'ご飯')).toBeNull()
+    expect(conv(2, '合', ing('rice', 'g', 'c-rice'), '米(炊飯後)')).toBeNull()
+    expect(conv(2, '合', ing('rice', 'g', 'c-rice'), '米 精白米')).toMatchObject({ quantity: 300, needsCondition: false })
+  })
+  it('むき身のあさりに殻つきの重さを、乾燥のたけのこに水煮の重さを使わない', () => {
+    expect(conv(20, '個', ing('a', 'g', 'c-asari'), 'あさり(むき身)')).toBeNull()
+    expect(conv(20, '個', ing('a', 'g', 'c-asari'), 'あさり(殻つき)')).toMatchObject({ quantity: 200 })
+    expect(conv(1, '個', ing('t', 'g', 'c-takenoko'), '干したけのこ(乾燥)')).toBeNull()
+    expect(conv(1, '個', ing('t', 'g', 'c-takenoko'), 'たけのこ(水煮)')).toMatchObject({ quantity: 200 })
+  })
+  it('食材名の「大根」「小松菜」「大さじ」をサイズの条件と取り違えない', () => {
+    expect(conv(2, '個', ing('egg', 'g', 'c-egg'), '大根と卵 大さじ1 小松菜')).toMatchObject({ needsCondition: true })
+  })
+})
+
+describe('数え方の違う単位を同じものとみなさない', () => {
+  const c = indexCommonConversions([rule('c-cabbage', '個', 1200), rule('c-cabbage', '枚', 50), rule('c-nasu', '個', 80)])
+  it('キャベツを「玉」で数える家に、「個」「枚」の目安を使わない', () => {
+    expect(resolveConversion({ quantity: 0.25, unit: '個', ingredient: ing('k', '玉', 'c-cabbage'), common: c })).toBeNull()
+    expect(resolveConversion({ quantity: 200, unit: 'g', ingredient: ing('k', '玉', 'c-cabbage'), common: c })).toBeNull()
+  })
+  it('なすを「本」で数える家に、「個」の目安を使わない', () => {
+    expect(resolveConversion({ quantity: 160, unit: 'g', ingredient: ing('n', '本', 'c-nasu'), common: c })).toBeNull()
+    expect(resolveConversion({ quantity: 2, unit: '個', ingredient: ing('n', '本', 'c-nasu'), common: c })).toBeNull()
+  })
+  it('g で数える家なら、目安の単位どおりに使える', () => {
+    expect(resolveConversion({ quantity: 2, unit: '枚', ingredient: ing('k', 'g', 'c-cabbage'), common: c })).toMatchObject({ quantity: 100 })
+  })
+})

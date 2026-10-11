@@ -57,7 +57,7 @@ export function getRecipeStatus(recipe, ingredientsById, { substitutions = [], c
     const current = ingredientsById.get(req.ingredient_id)
     const conv =
       req.required_quantity == null && req.ingredient_id
-        ? convertAmount(req.amount_text, current ? { id: current.id, unit: current.unit, catalog_id: current.catalog_id } : req.ingredient_id, conversions, req.scale ?? 1, commonConversions, req.note)
+        ? convertAmount(req.amount_text, current ? { id: current.id, unit: current.unit, catalog_id: current.catalog_id } : req.ingredient_id, conversions, req.scale ?? 1, commonConversions, [current?.name ?? req.ingredient?.name, req.source_name, req.note, req.raw_text].filter(Boolean).join(' '))
         : null
     // 確定に使えるのは計量の定義と家庭の換算だけ。共通の目安は estimate として見せる
     const converted = conv && !conv.estimate ? conv : null

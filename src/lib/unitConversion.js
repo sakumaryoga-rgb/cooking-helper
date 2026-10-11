@@ -58,12 +58,57 @@ export function indexCommonConversions(rows) {
   return map
 }
 
-// 状態の指定(「切り身」「殻つき」など。レシピの注記)に合う目安を選ぶ。指定がなければ「一般」を先に
+// 換算の条件(大きさ・殻・形・米の状態・加工)。目安の state_key と、レシピの食材名・注記・元の表記から読む。
+// 同じ種類の条件が食い違う目安は使わない(Lサイズの卵に M の重さ、大きいむきえびに小さいむきえびの重さ、
+// 炊いたご飯に生米の重さ、殻つきにむき身の重さ、乾燥に水煮の重さ)
+const CONDITIONS = [
+  ['size', [
+    [/LL(?:サイズ|玉)?|特大/, 'LL'], [/(?<![LMS])L(?:サイズ|玉)|Lサイズ/, 'L'], [/MS(?:サイズ|玉)/, 'MS'], [/(?<![LMS])M(?:サイズ|玉)/, 'M'],
+    [/SS(?:サイズ|玉)/, 'SS'], [/(?<![LMS])S(?:サイズ|玉)/, 'S'], [/大きめ|大ぶり|^大$|大・|・大|[(（]大[)）]|大きい|大きな/, '大'],
+    [/小さめ|小ぶり|^小$|小・|・小|[(（]小[)）]|小さい|小さな/, '小'], [/中くらい|^中$|[(（]中[)）]/, '中'],
+  ]],
+  ['shell', [[/殻(?:付き|つき|付)/, 'shell'], [/むき身|むき|剥き|殻なし/, 'peeled']]],
+  ['form', [[/丸魚|[(（]丸[)）]|^丸$|尾頭付き/, 'whole'], [/切り身/, 'fillet'], [/貝柱/, 'adductor'], [/足/, 'leg']]],
+  ['rice', [[/炊飯後|炊いた|ご飯|ごはん/, 'cooked'], [/生米|精白米|無洗米|・生$|^生$/, 'raw']]],
+  ['process', [[/乾燥|乾めん|乾麺|干し/, 'dried'], [/水煮/, 'boiled_can'], [/ゆで(?!卵)/, 'boiled']]],
+]
+
+export function readConditions(text) {
+  const found = {}
+  if (!text) return found
+  const t = String(text)
+  for (const [kind, patterns] of CONDITIONS) {
+    for (const [re, value] of patterns) {
+      if (re.test(t)) {
+        found[kind] = value
+        break
+      }
+    }
+  }
+  return found
+}
+
+// 目安の行が使えるか: 'match'(条件なし・条件がすべて合う)/ 'unconfirmed'(条件があるが、レシピに書かれていない)/ 'conflict'(食い違う)
+export function ruleFit(rule, stateText) {
+  if (!rule.state_key || rule.state_key === '一般') return 'match'
+  const need = readConditions(rule.state_key)
+  const have = readConditions(stateText)
+  let unconfirmed = Object.keys(need).length === 0
+  for (const [kind, value] of Object.entries(need)) {
+    if (have[kind] == null) unconfirmed = true
+    else if (have[kind] !== value) return 'conflict'
+  }
+  // レシピに目安にない条件が書かれていて、目安の側に同じ種類の条件がなければ、そのまま使える(例: 切り身の目安に「皮つき」)
+  return unconfirmed ? 'unconfirmed' : 'match'
+}
+
+// 条件が合う目安を先に、条件を確かめる必要がある目安を後に。食い違う目安は外す
 function pickRules(rules, state) {
-  if (!state) return [...rules].sort((a, b) => (a.state_key === '一般' ? -1 : 0) - (b.state_key === '一般' ? -1 : 0))
-  const s = String(state)
-  const matched = rules.filter((r) => r.state_key === '一般' || s.includes(r.state_key) || r.state_key.split('・').some((k) => s.includes(k)))
-  return matched.length > 0 ? matched : rules
+  const fits = rules.map((r) => ({ r, fit: ruleFit(r, state) })).filter((x) => x.fit !== 'conflict')
+  const order = { match: 0, unconfirmed: 1 }
+  return fits
+    .sort((a, b) => order[a.fit] - order[b.fit] || (a.r.state_key === '一般' ? -1 : 0) - (b.r.state_key === '一般' ? -1 : 0))
+    .map((x) => ({ ...x.r, fit: x.fit }))
 }
 
 // 共通の目安で、quantity unit を食材の単位(target)に直す。候補がなければ null
@@ -116,7 +161,8 @@ export function resolveConversion({ quantity, unit, ingredient, household, commo
   const rules = ingredient.catalog_id ? common?.get(ingredient.catalog_id) : null
   if (rules?.length) {
     const est = commonEstimate(q, unit, target, rules, state)
-    if (est) return { ...est, kind: 'common', confirmed: false }
+    // 条件(サイズなど)がレシピに書かれていない目安は、条件つきの候補として返す(needsCondition)
+    if (est) return { ...est, kind: 'common', confirmed: false, needsCondition: est.rule.fit === 'unconfirmed' }
   }
   return null
 }
@@ -135,7 +181,8 @@ export function describeEstimate(result, unit) {
   const amount = r.min_quantity && r.max_quantity ? `${r.min_quantity}〜${r.max_quantity}` : `${r.to_quantity}`
   const state = r.state_key && r.state_key !== '一般' ? `・${r.state_key}` : ''
   const head = `${r.from_quantity === 1 ? '1' : r.from_quantity}${r.from_unit} ≈ ${amount}${r.to_unit}`
-  return `目安 約${formatShort(result.quantity)}${unit}(${head}${state}・${SOURCE_LABEL[r.source_id] ?? r.source_id})`
+  const text = `目安 約${formatShort(result.quantity)}${unit}(${head}${state}・${SOURCE_LABEL[r.source_id] ?? r.source_id})`
+  return result.needsCondition ? `${text}。${r.state_key}の場合の目安です` : text
 }
 
 function formatShort(n) {

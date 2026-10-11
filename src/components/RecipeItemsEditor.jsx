@@ -21,7 +21,9 @@ function estimateFor(item, common) {
   if (!target) return null
   const a = parseAmount(item.amountText)
   if (a.quantity == null || !a.unit || a.range) return null
-  const r = resolveConversion({ quantity: a.quantity, unit: a.unit, ingredient: target, common, state: item.note })
+  // 条件(サイズ・殻・生米/ご飯など)は、食材名・取り込んだ表記・注記から読む
+  const state = [item.name, item.sourceName, item.note, item.rawText].filter(Boolean).join(' ')
+  const r = resolveConversion({ quantity: a.quantity, unit: a.unit, ingredient: target, common, state })
   return r && r.kind === 'common' ? { quantity: r.quantity, text: describeEstimate(r, target.unit) } : null
 }
 
