@@ -144,7 +144,7 @@ function CatalogItemRow({ item, disabled, onSelect, onRequestDelete, keywords, s
 // 「その用途での数量」はここでは扱わず呼び出し側に任せる。
 // multiple のときは、タップで複数を選び「決定」で onSelectMany(ingredients) を返す
 export function IngredientPicker({ open, onOpenChange, groupId, ingredients, onSelect, onSelectMany, multiple = false, excludeIds = [], title = '食材を選ぶ' }) {
-  const { catalog: rawCatalog, loading: catalogLoading } = useIngredientCatalog()
+  const { catalog: rawCatalog, loading: catalogLoading, refresh: refreshCatalog } = useIngredientCatalog()
   const { aliases } = useIngredientAliases()
   // 同じ名前の品目が共通と家庭専用の両方にあれば、家庭専用を使う
   const catalog = useMemo(() => {
@@ -210,13 +210,20 @@ export function IngredientPicker({ open, onOpenChange, groupId, ingredients, onS
     onOpenChange(next)
   }
 
-  // 選び終わった食材の行を返す。複数選択のときは選択中に加えて一覧に戻る
+  // 複数選択のときに、リストにない食材として追加した(または見つかった)食材を、選択しないで一覧に出す。
+  // 選ぶかどうかは一覧でタップして決める(勝手に選択済みにしない)
+  function showInList(name) {
+    setCreating(false)
+    setSimilar(null)
+    setSearch(name)
+  }
+
+  // 選び終わった食材の行を返す。複数選択のときは選択しないで一覧に戻る
   function finish(row) {
     if (multiple) {
-      setPicked((prev) => new Map(prev).set(row.catalog_id ?? `row:${row.id}`, { item: null, row }))
-      setCreating(false)
-      setSimilar(null)
-      setSearch('')
+      // 新しく登録した食材をすぐ一覧に出す(リアルタイムの反映を待たない)
+      refreshCatalog?.()
+      showInList(row.name)
       return
     }
     onSelect(row)
@@ -331,6 +338,10 @@ export function IngredientPicker({ open, onOpenChange, groupId, ingredients, onS
 
   function handleUseSimilar(option) {
     setSimilar(null)
+    if (multiple) {
+      showInList(option.kind === 'existing' ? option.ingredient.name : option.catalogItem.name)
+      return
+    }
     if (option.kind === 'existing') handleSelectExisting(option.ingredient)
     else handleSelectCatalog(option.catalogItem)
   }
@@ -620,7 +631,7 @@ export function IngredientPicker({ open, onOpenChange, groupId, ingredients, onS
                 戻る
               </Button>
               <Button type="button" onClick={handleCreateRequest} disabled={saving || !trimmedSearch || Boolean(similar)}>
-                {saving ? '追加中...' : '追加して選択'}
+                {saving ? '追加中...' : multiple ? 'リストに追加' : '追加して選択'}
               </Button>
             </div>
           </div>
