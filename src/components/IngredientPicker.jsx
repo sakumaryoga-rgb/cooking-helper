@@ -410,6 +410,14 @@ export function IngredientPicker({ open, onOpenChange, groupId, ingredients, onS
       }
     }
 
+    if (multiple) {
+      // 複数選択: 食材マスタに登録するだけ。冷蔵庫の行は、一覧で選んで「決定」したときに作る(在庫0の行を勝手に作らない)
+      setSaving(false)
+      refreshCatalog?.()
+      showInList(catalogItem.name)
+      return
+    }
+
     const { data, error: insertError } = await supabase
       .from('ingredients')
       .insert({

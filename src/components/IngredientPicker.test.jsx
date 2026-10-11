@@ -137,14 +137,15 @@ describe('複数選択', () => {
     expect(screen.getByRole('button', { name: /1品を決定/ })).toBeInTheDocument()
   })
 
-  it('新しい名前で登録しても選択済みにしない', async () => {
+  it('新しい名前で登録しても選択済みにせず、冷蔵庫に在庫0の行も作らない(食材マスタに登録するだけ)', async () => {
     supabase.from.mockReset()
     const catalogRow = { id: 'c-new', name: 'パクチー', unit: '束', category: '葉物', sort_order: 10, group_id: 'g1' }
+    const inserted = []
     const q = {
       select: () => q, eq: () => q, order: () => q, limit: () => q,
       maybeSingle: async () => ({ data: null, error: null }),
-      single: async () => ({ data: q.table === 'ingredients' ? { id: 'i-new', name: 'パクチー', unit: '束', quantity: 0, catalog_id: 'c-new' } : catalogRow, error: null }),
-      insert: () => q,
+      single: async () => ({ data: catalogRow, error: null }),
+      insert: () => { inserted.push(q.table); return q },
       then: (res) => Promise.resolve({ data: [], error: null }).then(res),
     }
     supabase.from.mockImplementation((table) => { q.table = table; return q })
@@ -154,5 +155,6 @@ describe('複数選択', () => {
     await userEvent.click(screen.getByRole('button', { name: 'リストに追加' }))
     expect(await screen.findByPlaceholderText('食材名で検索...')).toHaveValue('パクチー')
     expect(screen.queryByRole('button', { name: /品を決定/ })).not.toBeInTheDocument()
+    expect(inserted).toEqual(['ingredient_catalog'])
   })
 })
