@@ -3,7 +3,9 @@ import { Link } from 'react-router-dom'
 import { BookOpen, Plus, Refrigerator } from 'lucide-react'
 import { useKitchen } from '@/hooks/useKitchen'
 import { useIngredientBatches } from '@/hooks/useIngredientBatches'
-import { describeExpiring, describeSubstitutes } from '@/lib/matching'
+import { describeExpiring } from '@/lib/matching'
+import { shoppingItems } from '@/lib/shopping'
+import { ShoppingList } from '@/components/ShoppingList'
 import { describeExpiry, getExpiryInfo, getExpiryState } from '@/lib/shelfLife'
 import { categoryLook, dishLook, greeting } from '@/lib/foodLook'
 import { MakeableBadge } from '@/components/MakeableBadge'
@@ -53,16 +55,15 @@ function DishCards({ items, detail }) {
   )
 }
 
-// ホーム(設計書 4 章): 今すぐ作れる / 代替で作れる の2段と、期限が3日以内の食材。不足のあるレシピは出さない
+// ホーム: 買い物リスト、期限が近い食材を使い切るレシピ、今すぐ作れるレシピ、期限が3日以内の食材。不足のあるレシピは出さない
 export function Home({ groupId }) {
-  const { sorted, ingredients, catalogById, loading } = useKitchen(groupId)
+  const { sorted, ingredients, catalogById, loading, refreshIngredients } = useKitchen(groupId)
   const { batches } = useIngredientBatches(groupId)
 
   const makeable = sorted.filter((s) => s.status.level === 'makeable')
-  const substitutable = sorted.filter((s) => s.status.level === 'substitutable')
   // 期限が近い食材を使って、今の在庫で作れるレシピ(期限の近い順)
   const useSoon = sorted
-    .filter((s) => (s.status.level === 'makeable' || s.status.level === 'substitutable') && s.status.expiring?.length > 0)
+    .filter((s) => s.status.level === 'makeable' && s.status.expiring?.length > 0)
     .sort((a, b) => a.status.expiring[0].daysLeft - b.status.expiring[0].daysLeft)
 
   const expiring = useMemo(() => {
@@ -81,7 +82,7 @@ export function Home({ groupId }) {
   if (loading) return <p className="text-sm text-muted-foreground">読み込み中...</p>
 
   const hello = greeting()
-  const stock = ingredients.filter((i) => Number(i.quantity) > 0).length
+  const shopping = shoppingItems(ingredients).length
 
   return (
     <div className="flex flex-col gap-6">
@@ -98,8 +99,8 @@ export function Home({ groupId }) {
             <p className="mt-1 text-[11px] opacity-80">すぐ作れる</p>
           </div>
           <div className="rounded-2xl bg-background/70 px-2 py-2">
-            <p className="text-2xl font-bold leading-none">{stock}</p>
-            <p className="mt-1 text-[11px] opacity-80">冷蔵庫の食材</p>
+            <p className="text-2xl font-bold leading-none">{shopping}</p>
+            <p className="mt-1 text-[11px] opacity-80">買い物</p>
           </div>
           <div className={`rounded-2xl px-2 py-2 ${expiring.length > 0 ? 'bg-brand-tomato text-white' : 'bg-background/70'}`}>
             <p className="text-2xl font-bold leading-none">{expiring.length}</p>
@@ -109,6 +110,8 @@ export function Home({ groupId }) {
       </section>
 
       <InstallGuide dismissible />
+
+      <ShoppingList ingredients={ingredients} onChanged={refreshIngredients} />
 
       {useSoon.length > 0 && (
         <section className="flex flex-col gap-2">
@@ -120,15 +123,6 @@ export function Home({ groupId }) {
       <section className="flex flex-col gap-2">
         <SectionTitle emoji="✨" title="今すぐ作れる" count={makeable.length} />
         {makeable.length === 0 ? <Empty text="今の在庫だけで作れるレシピはありません" /> : <DishCards items={makeable} />}
-      </section>
-
-      <section className="flex flex-col gap-2">
-        <SectionTitle emoji="🪄" title="代替で作れる" count={substitutable.length} />
-        {substitutable.length === 0 ? (
-          <Empty text="代わりの食材で作れるレシピはありません" />
-        ) : (
-          <DishCards items={substitutable} detail={(status) => describeSubstitutes(status.lines)} />
-        )}
       </section>
 
       <section className="flex flex-col gap-2">

@@ -182,3 +182,22 @@ body {
     font-size: max(16px, 1em) !important;
   }
 }
+/* 料理のあとの「お疲れ様でした」の丸がぽんと出る */
+@keyframes pop-in {
+  0% {
+    transform: scale(0.4);
+    opacity: 0;
+  }
+  70% {
+    transform: scale(1.08);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  [class*='animate-[pop-in'] {
+    animation: none;
+  }
+}

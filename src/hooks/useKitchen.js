@@ -2,7 +2,6 @@ import { useMemo } from 'react'
 import { useIngredients } from '@/hooks/useIngredients'
 import { useRecipes } from '@/hooks/useRecipes'
 import { useIngredientCatalog } from '@/hooks/useIngredientCatalog'
-import { useSubstitutions } from '@/hooks/useSubstitutions'
 import { useUnitConversions } from '@/hooks/useUnitConversions'
 import { useIngredientBatches } from '@/hooks/useIngredientBatches'
 import { sortRecipesByMakeability } from '@/lib/matching'
@@ -14,7 +13,6 @@ export function useKitchen(groupId) {
   const { ingredients, loading: ingredientsLoading, refresh: refreshIngredients } = useIngredients(groupId)
   const { recipes, loading: recipesLoading } = useRecipes(groupId)
   const { catalog } = useIngredientCatalog()
-  const { rules: substitutions } = useSubstitutions(groupId)
   const { conversions } = useUnitConversions(groupId)
 
   const ingredientsById = useMemo(() => new Map(ingredients.map((i) => [i.id, i])), [ingredients])
@@ -39,8 +37,8 @@ export function useKitchen(groupId) {
   // 「作れる」の判定は、消費期限が切れたロットを除いた在庫で行う
   const usableById = useMemo(() => usableIngredientsById(ingredients, batches, catalogById), [ingredients, batches, catalogById])
   const sorted = useMemo(
-    () => sortRecipesByMakeability(recipes, usableById, { substitutions, catalogById, conversions, expiryById, commonConversions }),
-    [recipes, usableById, substitutions, catalogById, conversions, expiryById, commonConversions]
+    () => sortRecipesByMakeability(recipes, usableById, { catalogById, conversions, expiryById, commonConversions }),
+    [recipes, usableById, catalogById, conversions, expiryById, commonConversions]
   )
 
   return {
