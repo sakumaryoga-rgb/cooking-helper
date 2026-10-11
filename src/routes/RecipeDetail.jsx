@@ -1,10 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, Ban, BookOpen, CheckCircle2, ExternalLink, Check, ChefHat, Infinity as InfinityIcon, Minus, Pencil, Plus, X } from 'lucide-react'
 import { useIngredients } from '@/hooks/useIngredients'
 import { useRecipes } from '@/hooks/useRecipes'
 import { useIngredientCatalog } from '@/hooks/useIngredientCatalog'
-import { useSubstitutions } from '@/hooks/useSubstitutions'
 import { useCookLogs } from '@/hooks/useCookLogs'
 import { useIngredientAliases } from '@/hooks/useIngredientAliases'
 import { useUnitConversions } from '@/hooks/useUnitConversions'
@@ -26,9 +25,8 @@ import { snapToStock } from '@/lib/quantity'
 import { useIngredientBatches } from '@/hooks/useIngredientBatches'
 import { usableIngredientsById } from '@/lib/shelfLife'
 import { useCommonConversions } from '@/hooks/useCommonConversions'
+import { CookedCelebration } from '@/components/CookedCelebration'
 
-// 確定のあとに「取り消す」を出しておく時間
-const UNDO_TOAST_MS = 8000
 
 export function RecipeDetail({ groupId }) {
   const { id } = useParams()
@@ -44,25 +42,22 @@ export function RecipeDetail({ groupId }) {
   const [resolvingId, setResolvingId] = useState(null)
   const [resolveError, setResolveError] = useState('')
   const { catalog } = useIngredientCatalog()
-  const { rules: substitutions, disableRule } = useSubstitutions(groupId)
   const { logs, refresh: refreshLogs } = useCookLogs(id)
   const [servings, setServings] = useState(null) // 作る人数(null は元の人数)
-  const [choices, setChoices] = useState(() => new Map()) // 材料ごとに選んだ代替
   const [cookOpen, setCookOpen] = useState(false)
   const [plan, setPlan] = useState([])
   const [requestId, setRequestId] = useState(null)
   const [saving, setSaving] = useState(false)
   const [cookError, setCookError] = useState('')
   const [undoingId, setUndoingId] = useState(null)
-  const [justCooked, setJustCooked] = useState(null) // 確定直後の記録 ID(数秒だけ「取り消す」を出す)
-  const toastTimer = useRef(null)
+  // 確定直後の「お疲れ様でした」(記録 ID と、このレシピで使った常備品)
+  const [cooked, setCooked] = useState(null)
 
   // 調理の確定シートを開いている間は、アプリの更新でリロードされないようにする
   useEffect(() => {
     setBusy('cook-dialog', cookOpen)
     return () => setBusy('cook-dialog', false)
   }, [cookOpen])
-  useEffect(() => () => clearTimeout(toastTimer.current), [])
 
   const ingredientsById = useMemo(() => new Map(ingredients.map((i) => [i.id, i])), [ingredients])
   const recipe = recipes.find((r) => r.id === id)
@@ -73,7 +68,7 @@ export function RecipeDetail({ groupId }) {
   // 「作れる」の判定は、消費期限が切れたロットを除いた在庫で行う(引く量の計算は実際の在庫のまま)
   const usableById = useMemo(() => usableIngredientsById(ingredients, batches, catalogById), [ingredients, batches, catalogById])
   const commonConversions = useCommonConversions()
-  const status = scaled ? getRecipeStatus(scaled, usableById, { substitutions, catalogById, choices, conversions, commonConversions }) : null
+  const status = scaled ? getRecipeStatus(scaled, usableById, { catalogById, conversions, commonConversions }) : null
   const nameIndex = useMemo(() => buildNameIndex({ ingredients, catalog, aliases }), [ingredients, catalog, aliases])
 
   // 確認待ちの材料(どの食材か未確定)を1タップで決める。候補・新しい食材を選んだら行を更新し、表記を家の別名として覚える
@@ -158,10 +153,6 @@ export function RecipeDetail({ groupId }) {
     refreshIngredients()
   }
 
-  function chooseSubstitute(ingredientId, value) {
-    setChoices((prev) => new Map(prev).set(ingredientId, value))
-  }
-
   function openCookSheet() {
     setPlan(buildCookPlan(status))
     // 確定ボタンの連打や再送でも1回分だけ差し引くための ID(シートを開くたびに作り直す)
@@ -200,9 +191,12 @@ export function RecipeDetail({ groupId }) {
     refreshIngredients()
     refreshLogs()
     if (logId) {
-      setJustCooked(logId)
-      clearTimeout(toastTimer.current)
-      toastTimer.current = setTimeout(() => setJustCooked(null), UNDO_TOAST_MS)
+      // このレシピで使った常備品(なくなったら買い物リストへ)。常備品以外は入れない
+      const staples = status.lines
+        .filter((l) => l.staple && l.ingredientId)
+        .map((l) => ({ id: l.ingredientId, name: l.name }))
+        .filter((x, i, arr) => arr.findIndex((y) => y.id === x.id) === i)
+      setCooked({ logId, staples })
     }
   }
 
@@ -211,7 +205,7 @@ export function RecipeDetail({ groupId }) {
     const { error } = await supabase.rpc('undo_cook', { p_cook_log_id: logId })
     setUndoingId(null)
     if (error) console.error('取り消しに失敗しました', error)
-    if (logId === justCooked) setJustCooked(null)
+    if (logId === cooked?.logId) setCooked(null)
     refreshIngredients()
     refreshLogs()
   }
@@ -350,7 +344,6 @@ export function RecipeDetail({ groupId }) {
           const shortfall = status.shortfalls.find((s) => s.ingredientId === ri.ingredient_id)
           const enough = !shortfall
           const unit = ri.ingredient?.unit ?? current?.unit ?? ''
-          const chosen = choices.get(ri.ingredient_id) ?? line?.substitutes[0]?.ruleId ?? ''
           return (
             <li key={ri.id} className="flex flex-col gap-1 px-3 py-2.5">
               <div className="flex items-center justify-between gap-3">
@@ -387,35 +380,6 @@ export function RecipeDetail({ groupId }) {
                   )}
                 </span>
               </div>
-              {line?.candidates.length > 0 && (
-                <div className="flex items-center gap-2 rounded-md bg-muted px-2 py-1 text-xs">
-                  <label htmlFor={`sub-${ri.id}`} className="shrink-0">
-                    代わりに
-                  </label>
-                  <select
-                    id={`sub-${ri.id}`}
-                    className="min-w-0 flex-1 rounded border bg-background px-1 py-0.5"
-                    value={line.substitutes.length > 0 ? chosen : 'none'}
-                    onChange={(e) => chooseSubstitute(ri.ingredient_id, e.target.value)}
-                    aria-label={`${ri.ingredient?.name ?? current?.name}の代替`}
-                  >
-                    <option value="none">使わない</option>
-                    {line.candidates.map((c) => (
-                      <option key={c.ruleId} value={c.ruleId} disabled={!c.enough}>
-                        {c.name} {formatQuantity(c.quantity)}
-                        {c.unit}
-                        {c.enough ? '' : '(在庫不足)'}
-                        {c.note ? `・${c.note}` : ''}
-                      </option>
-                    ))}
-                  </select>
-                  {line.substitutes[0] && (
-                    <button type="button" className="shrink-0 text-muted-foreground underline-offset-2 hover:underline" onClick={() => disableRule(line.substitutes[0].ruleId)}>
-                      今後使わない
-                    </button>
-                  )}
-                </div>
-              )}
               <div className="flex flex-wrap items-center justify-end gap-1.5 pt-1">
                 {current && (
                   <button
@@ -558,22 +522,24 @@ export function RecipeDetail({ groupId }) {
         </div>
       </div>
 
-      {justCooked && (
-        <div role="status" className="fixed inset-x-0 bottom-[calc(7.5rem+env(safe-area-inset-bottom,0px))] z-30 flex justify-center px-4">
-          <div className="flex items-center gap-3 rounded-full bg-foreground px-4 py-2 text-sm text-background shadow-lg">
-            在庫を更新しました
-            <button type="button" className="font-medium text-primary" onClick={() => handleUndo(justCooked)}>
-              取り消す
-            </button>
-          </div>
-        </div>
+      {cooked && (
+        <CookedCelebration
+          title={recipe.title}
+          staples={cooked.staples}
+          undoing={undoingId === cooked.logId}
+          onUndo={() => handleUndo(cooked.logId)}
+          onClose={() => {
+            setCooked(null)
+            refreshIngredients()
+          }}
+        />
       )}
 
       <Sheet open={cookOpen} onOpenChange={setCookOpen}>
         <SheetContent side="bottom" className="max-h-[85svh] overflow-y-auto pb-safe">
           <SheetHeader>
             <SheetTitle>使った材料を確認</SheetTitle>
-            <SheetDescription>使った量と代替を確かめて確定します。使わない材料はチェックを外します</SheetDescription>
+            <SheetDescription>使った量を確かめて確定します。使わない材料はチェックを外します</SheetDescription>
           </SheetHeader>
           <div className="flex flex-col gap-3 px-4">
             {(() => {

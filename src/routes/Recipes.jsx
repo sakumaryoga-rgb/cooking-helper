@@ -2,20 +2,19 @@ import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Plus, Search } from 'lucide-react'
 import { useKitchen } from '@/hooks/useKitchen'
-import { describeExpiring, describeShortfalls, describeSubstitutes } from '@/lib/matching'
+import { describeExpiring, describeShortfalls } from '@/lib/matching'
 import { normalizeName } from '@/lib/recipeImport/match'
 import { buttonVariants } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { MakeableBadge } from '@/components/MakeableBadge'
 import { dishLook } from '@/lib/foodLook'
 
-// 絞り込み(設計書 4 章): 作れる / 代替で作れる / 不足あり / すべて
+// 絞り込み: すべて / 作れる / 期限が近い / 要確認 / 買い足し
 const FILTERS = [
   { id: 'all', label: 'すべて', emoji: '📖', match: () => true },
   { id: 'makeable', label: '作れる', emoji: '✨', match: (s) => s.level === 'makeable' },
   // 期限が近い食材を使うレシピ(作れるものから順に並ぶ)
   { id: 'expiring', label: '期限が近い', emoji: '⏰', match: (s) => s.expiring?.length > 0 },
-  { id: 'substitutable', label: '代替で作れる', emoji: '🪄', match: (s) => s.level === 'substitutable' },
   { id: 'check', label: '要確認', emoji: '🔍', match: (s) => s.level === 'check' },
   { id: 'short', label: '買い足し', emoji: '🛒', match: (s) => s.level === 'almost' || s.level === 'short' },
 ]
@@ -67,9 +66,6 @@ export function Recipes({ groupId }) {
               <span className="text-sm font-semibold truncate">{recipe.title}</span>
               {status.expiring?.length > 0 && (
                 <span className="truncate text-xs font-medium text-amber-700 dark:text-amber-400">⏰ {describeExpiring(status.expiring)}を使える</span>
-              )}
-              {status.level === 'substitutable' && (
-                <span className="text-xs text-muted-foreground truncate">{describeSubstitutes(status.lines)}</span>
               )}
               {(status.level === 'almost' || status.level === 'short') && (
                 <span className="text-xs text-destructive/90 truncate">{describeShortfalls(status.shortfalls, 3)}</span>

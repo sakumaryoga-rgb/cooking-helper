@@ -8,7 +8,6 @@ import { markSignOutRequested } from '@/lib/sessionNotice'
 import { parseInviteToken } from '@/lib/invite'
 import { supabase } from '@/supabaseClient'
 import { buildInviteUrl } from '@/lib/invite'
-import { useSubstitutions } from '@/hooks/useSubstitutions'
 import { useIngredientCatalog } from '@/hooks/useIngredientCatalog'
 import { useIngredientAliases } from '@/hooks/useIngredientAliases'
 import { Button } from '@/components/ui/button'
@@ -92,7 +91,6 @@ export function Settings({ group, groups = [group], onSelectGroup, onGroupsChang
   const [busy, setBusy] = useState(false)
   const [copied, setCopied] = useState(false)
   const [error, setError] = useState('')
-  const { disabledRules, enableRule } = useSubstitutions(group.id)
   const { catalog } = useIngredientCatalog()
   const catalogName = (id) => catalog.find((c) => c.id === id)?.name ?? '(不明)'
   // この家で覚えた食材の別名(レシピの取り込みで付け替えたときに覚えたもの)。誤って覚えたものは消せる
@@ -260,28 +258,6 @@ export function Settings({ group, groups = [group], onSelectGroup, onGroupsChang
         </CardContent>
       </Card>
 
-      {disabledRules.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">使わないことにした代替</CardTitle>
-            <CardDescription>レシピの判定で、これらの代替は使いません</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <ul className="flex flex-col divide-y divide-border">
-              {disabledRules.map((rule) => (
-                <li key={rule.id} className="flex items-center justify-between gap-2 py-2 text-sm">
-                  <span>
-                    {catalogName(rule.from_catalog_id)} → {catalogName(rule.to_catalog_id)}
-                  </span>
-                  <Button size="sm" variant="ghost" onClick={() => enableRule(rule.id)}>
-                    戻す
-                  </Button>
-                </li>
-              ))}
-            </ul>
-          </CardContent>
-        </Card>
-      )}
       {ownAliases.length > 0 && (
         <Card>
           <CardHeader>

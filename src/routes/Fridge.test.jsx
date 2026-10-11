@@ -405,3 +405,16 @@ describe('複数の食材をまとめて入れる', () => {
     expect(await screen.findByRole('dialog', { name: 'じゃがいも を冷蔵庫に入れる' })).toBeInTheDocument()
   })
 })
+
+describe('常備品がなくなったら買い物リストへ', () => {
+  it('常備品の棚で「なくなった」を押すと、その常備品だけを買い物リストに入れる', async () => {
+    const db = mockDb()
+    setup([
+      { id: 's', name: '塩', unit: 'g', quantity: 0, is_staple: true },
+      { id: 'e', name: '卵', unit: '個', quantity: 2 },
+    ])
+    await userEvent.click(screen.getByRole('button', { name: /塩/ }))
+    await userEvent.click(screen.getByRole('button', { name: /なくなった/ }))
+    await waitFor(() => expect(db.updates).toEqual([{ patch: { restock_requested_at: expect.any(String) }, id: ['s'] }]))
+  })
+})

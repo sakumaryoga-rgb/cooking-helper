@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Plus, Minus, Search, CalendarPlus, ChevronDown, Infinity as InfinityIcon, X } from 'lucide-react'
+import { Plus, Minus, Search, CalendarPlus, ChevronDown, Infinity as InfinityIcon, ShoppingCart, X } from 'lucide-react'
 import { useIngredients } from '@/hooks/useIngredients'
 import { useIngredientBatches } from '@/hooks/useIngredientBatches'
 import { useIngredientCatalog } from '@/hooks/useIngredientCatalog'
@@ -15,6 +15,7 @@ import { getBatchExpiry, getExpiryInfo, getExpiryState, describeExpiry, formatMo
 import { StockDialog } from '@/components/StockDialog'
 import { BatchStockDialog } from '@/components/BatchStockDialog'
 import { categoryLook } from '@/lib/foodLook'
+import { addToShoppingList } from '@/lib/shopping'
 
 // g/ml のような細かい単位はまとめて増減、個数系は1ずつ増減する
 const STEP_BY_UNIT = { g: 10, ml: 10 }
@@ -133,6 +134,15 @@ export function Fridge({ groupId }) {
     }
     setExpandedId(null)
     if (!(Number(ingredient.quantity) > 0)) await safeDiscard(ingredient.id)
+    refresh()
+  }
+
+  // 常備品がなくなった: 買い物リストに入れる(常備品以外は自動で入れない)
+  const [shoppingError, setShoppingError] = useState('')
+  async function runOut(ingredient) {
+    setShoppingError('')
+    const result = await addToShoppingList([ingredient.id])
+    if (result.error) setShoppingError(result.error)
     refresh()
   }
 
@@ -401,6 +411,7 @@ export function Fridge({ groupId }) {
                       >
                         <span aria-hidden="true">{categoryLook(categoryOf(ingredient), ingredient.name).emoji}</span>
                         {ingredient.name}
+                        {ingredient.restock_requested_at && <ShoppingCart className="size-3 text-amber-600" aria-label="買い物リストに入っています" />}
                       </button>
                     </li>
                   ))}
@@ -409,15 +420,24 @@ export function Fridge({ groupId }) {
               {(() => {
                 const open = staples.find((r) => r.ingredient.id === expandedId)?.ingredient
                 return open ? (
-                  <div className="flex items-center justify-between gap-2 rounded-xl bg-card px-3 py-2 text-xs">
-                    <span>{open.name}は常備品です</span>
-                    <Button size="sm" variant="outline" className="h-7 rounded-full text-xs" onClick={() => unstaple(open)}>
-                      <X className="size-3.5" />
-                      常備品から外す
-                    </Button>
+                  <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-card px-3 py-2 text-xs">
+                    <span>{open.restock_requested_at ? `${open.name}は買い物リストに入っています` : `${open.name}は常備品です`}</span>
+                    <span className="flex gap-1.5">
+                      {!open.restock_requested_at && (
+                        <Button size="sm" className="h-7 rounded-full text-xs" onClick={() => runOut(open)}>
+                          <ShoppingCart className="size-3.5" />
+                          なくなった
+                        </Button>
+                      )}
+                      <Button size="sm" variant="outline" className="h-7 rounded-full text-xs" onClick={() => unstaple(open)}>
+                        <X className="size-3.5" />
+                        常備品から外す
+                      </Button>
+                    </span>
                   </div>
                 ) : null
               })()}
+              {shoppingError && <p className="text-xs text-destructive">{shoppingError}</p>}
               {!searching && countedSeasonings.length > 0 && (
                 <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-card px-3 py-2 text-xs">
                   <span className="text-muted-foreground">
