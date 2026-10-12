@@ -170,8 +170,9 @@ export function RecipeDetail({ groupId }) {
     setSaving(true)
     setCookError('')
     // 量が入っている行だけを在庫から引く(数が分からない分量は、入れたときだけ)
+    // 常備品は在庫から引かない(確認の画面にも分量は出さない)
     const items = plan
-      .filter((row) => row.include && Number(row.quantity) > 0)
+      .filter((row) => row.include && !row.staple && Number(row.quantity) > 0)
       // 1/3 を3回使ったときなどに在庫へ 0.000001 のような端数を残さない
       .map((row) => ({ ingredient_id: row.ingredientId, quantity: snapToStock(row.quantity, ingredientsById.get(row.ingredientId)?.quantity), substitute_for: row.substituteFor }))
     const toRemember = plan.filter((row) => row.unknown && row.remember && row.include && Number(row.quantity) > 0)
@@ -573,7 +574,7 @@ export function RecipeDetail({ groupId }) {
                 </p>
               )
             })()}
-            {plan.map((row) => (
+            {plan.filter((row) => !row.staple).map((row) => (
               <div key={row.key} className="flex flex-col gap-0.5">
                 <div className="flex items-center gap-2">
                   <input
@@ -593,7 +594,6 @@ export function RecipeDetail({ groupId }) {
                   <span className="text-xs text-muted-foreground w-8">{row.unit}</span>
                 </div>
                 {row.substituteFor && <p className="pl-6 text-xs text-amber-700 dark:text-amber-400">{row.substituteFor}の代わり</p>}
-                {row.staple && <p className="pl-6 text-xs text-violet-700 dark:text-violet-400">常備品なので在庫から引きません(引くときはチェック)</p>}
                 {row.converted && (
                   <p className="pl-6 text-xs text-violet-700 dark:text-violet-400">
                     レシピの「{row.amountText}」を、覚えた「1{row.converted.unit} = {row.converted.per}
@@ -621,6 +621,17 @@ export function RecipeDetail({ groupId }) {
                 )}
               </div>
             ))}
+            {(() => {
+              // 常備品は数えないので、分量の確認はしない。名前だけを畳んで見せる
+              const staples = plan.filter((row) => row.staple)
+              if (staples.length === 0) return null
+              return (
+                <details className="rounded-xl bg-violet-50 px-3 py-2 text-xs text-violet-900 dark:bg-violet-950/40 dark:text-violet-200">
+                  <summary className="cursor-pointer font-medium">常備品 {staples.length}品(在庫から引きません)</summary>
+                  <p className="mt-1.5">{staples.map((row) => row.name).join('、')}</p>
+                </details>
+              )
+            })()}
             {status.shortfalls.length > 0 && (
               <p className="text-xs text-destructive">不足のまま作ります: {describeShortfalls(status.shortfalls, 5)}(在庫のある分だけ差し引きます)</p>
             )}
