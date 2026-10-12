@@ -244,6 +244,21 @@ describe('常備品と分数の在庫', () => {
     expect(supabase.rpc).not.toHaveBeenCalled()
   })
 
+  it('個数の食材は、開くと ¼・½・¾ だけ減らせる(一覧のボタンは増やさない。g・ml には出さない)', async () => {
+    setup([
+      { id: 'o', name: '玉ねぎ', unit: '個', quantity: 2 },
+      { id: 'm', name: '牛乳', unit: 'ml', quantity: 500 },
+    ])
+    expect(screen.queryByRole('button', { name: /½/ })).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: /玉ねぎ/ }))
+    await userEvent.click(screen.getByRole('button', { name: '玉ねぎを½個減らす' }))
+    expect(supabase.rpc).toHaveBeenCalledWith('adjust_stock', expect.objectContaining({ p_ingredient_id: 'o', p_delta: -0.5 }))
+    await userEvent.click(screen.getByRole('button', { name: '玉ねぎを¼個減らす' }))
+    expect(supabase.rpc).toHaveBeenCalledWith('adjust_stock', expect.objectContaining({ p_ingredient_id: 'o', p_delta: -0.25 }))
+    await userEvent.click(screen.getByRole('button', { name: /牛乳/ }))
+    expect(screen.queryByRole('button', { name: /牛乳を.*減らす/ })).not.toBeInTheDocument()
+  })
+
   it('じゃがいも 1/2 は 0.5 として在庫に入る', async () => {
     setup([{ id: 'p', name: 'じゃがいも', unit: '個', quantity: 0 }])
     await act(async () => pickerProps.onSelect({ id: 'p', name: 'じゃがいも', unit: '個', quantity: 0 }))
