@@ -23,6 +23,13 @@ function stepFor(unit) {
   return STEP_BY_UNIT[unit] ?? 1
 }
 
+// 個数系の食材を、1より細かく使ったとき(半分・4分の1など)の量。開いた食材の中にだけ出す(一覧のボタンは増やさない)
+const PARTIAL_USES = [
+  { label: '¼', value: 0.25 },
+  { label: '½', value: 0.5 },
+  { label: '¾', value: 0.75 },
+]
+
 // 冷蔵庫に新しく入れるとき、最初から「常備品(数えない)」を選んでおくカテゴリ
 const STAPLE_CATEGORIES = new Set(['調味料・油'])
 
@@ -292,6 +299,22 @@ export function Fridge({ groupId }) {
           <li className="text-muted-foreground">
             {formatQuantity(unrecorded)}
             {ingredient.unit}・ロットの記録なし
+          </li>
+        )}
+        {!STEP_BY_UNIT[ingredient.unit] && Number(ingredient.quantity) > 0 && (
+          <li className="flex flex-wrap items-center gap-1.5 pt-1">
+            <span className="text-muted-foreground">少しだけ使った</span>
+            {PARTIAL_USES.map((u) => (
+              <button
+                key={u.label}
+                type="button"
+                className="rounded-full border bg-background px-2.5 py-1 font-medium tabular-nums hover:border-primary"
+                onClick={() => adjustQuantity(ingredient, -u.value)}
+                aria-label={`${ingredient.name}を${u.label}${ingredient.unit}減らす`}
+              >
+                −{u.label}
+              </button>
+            ))}
           </li>
         )}
         <li className="pt-1">
