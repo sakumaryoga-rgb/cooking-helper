@@ -157,6 +157,25 @@ describe('RecipeDetail', () => {
     expect(screen.getByText('あと1品')).toBeInTheDocument()
   })
 
+  it('使った材料の確認では、常備品は分量を出さず、畳んだ欄に名前だけを出す(在庫からも引かない)', async () => {
+    supabase.rpc.mockImplementation((name) => Promise.resolve(name === 'cook_recipe_v2' ? { data: 'log-new', error: null } : { error: null }))
+    setup([
+      { id: 'chicken', name: '鶏もも肉', unit: 'g', quantity: 300 },
+      { id: 'egg', name: '卵', unit: '個', quantity: 4, is_staple: true },
+    ])
+    await userEvent.click(screen.getByRole('button', { name: /これを作る/ }))
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByLabelText('鶏もも肉の使用量')).toBeInTheDocument()
+    expect(within(dialog).queryByLabelText('卵の使用量')).not.toBeInTheDocument()
+    expect(within(dialog).queryByLabelText('卵を使う')).not.toBeInTheDocument()
+    expect(within(dialog).getByText('常備品 1品(在庫から引きません)')).toBeInTheDocument()
+    expect(within(dialog).getByText('卵')).toBeInTheDocument()
+    await userEvent.click(within(dialog).getByRole('button', { name: '確定' }))
+    await waitFor(() =>
+      expect(supabase.rpc).toHaveBeenCalledWith('cook_recipe_v2', expect.objectContaining({ p_items: [{ ingredient_id: 'chicken', quantity: 200, substitute_for: null }] }))
+    )
+  })
+
   it('確定のあとに画面いっぱいの「お疲れ様でした」を出し、なくなった常備品だけを買い物リストに入れられる', async () => {
     supabase.rpc.mockImplementation((name) => Promise.resolve(name === 'cook_recipe_v2' ? { data: 'log-new', error: null } : { error: null }))
     updateIn.mockClear()

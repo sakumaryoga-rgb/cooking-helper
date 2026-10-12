@@ -296,6 +296,7 @@ export function buildCookPlan(status) {
         amountText: line.amountText,
         unknown: true,
         estimate: line.estimate,
+        staple: line.staple,
       })
       continue
     }
@@ -339,6 +340,7 @@ export function scaleRecipe(recipe, factor) {
 // 調理のときに在庫から引かない材料(量を入れない限り)。確定画面で明示する
 export function describeNotSubtracted(status, plan) {
   const pending = status.lines.filter((l) => l.pending).map((l) => l.name)
-  const unknown = plan.filter((row) => row.unknown && !(row.include && Number(row.quantity) > 0)).map((row) => row.name)
+  // 常備品(適量など)は、もともと在庫から引かないので挙げない
+  const unknown = plan.filter((row) => row.unknown && !row.staple && !(row.include && Number(row.quantity) > 0)).map((row) => row.name)
   return { pending, unknown }
 }
