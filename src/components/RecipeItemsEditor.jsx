@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { ArrowLeftRight, Plus, X } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { ArrowLeftRight, Infinity as InfinityIcon, Plus, X } from 'lucide-react'
 import { IngredientPicker } from '@/components/IngredientPicker'
 import { applyChoice } from '@/lib/recipeImport/match'
 import { Button } from '@/components/ui/button'
@@ -8,6 +8,12 @@ import { QuantityInput } from '@/components/QuantityInput'
 import { useCommonConversions } from '@/hooks/useCommonConversions'
 import { parseAmount } from '@/lib/recipeImport/ingredientLine'
 import { describeEstimate, resolveConversion } from '@/lib/unitConversion'
+import { guessCategory } from '@/lib/ingredientCategory'
+import { useIngredientCatalog } from '@/hooks/useIngredientCatalog'
+import { supabase } from '@/supabaseClient'
+
+const VAGUE_AMOUNT = '適量'
+const isVagueAmount = (item) => item.amountText === VAGUE_AMOUNT && !(Number(item.requiredQuantity) > 0)
 
 let nextKey = 0
 export const keyOf = () => `item-${nextKey++}`
@@ -29,6 +35,13 @@ function estimateFor(item, common) {
 
 export function RecipeItemsEditor({ groupId, ingredients, items, setItems, emptyText }) {
   const common = useCommonConversions()
+  const { catalog } = useIngredientCatalog()
+  const catalogById = useMemo(() => new Map(catalog.map((c) => [c.id, c])), [catalog])
+  const fridgeById = useMemo(() => new Map((ingredients ?? []).map((i) => [i.id, i])), [ingredients])
+  // 「適量」を選ぶのに常備品の登録が必要な材料(その場で登録するか確かめる)
+  const [stapleAskKey, setStapleAskKey] = useState(null)
+  const [stapleBusy, setStapleBusy] = useState(false)
+  const [stapleError, setStapleError] = useState('')
   const [pickerOpen, setPickerOpen] = useState(false)
   const [replaceKey, setReplaceKey] = useState(null) // 付け替える材料の行(null は追加)
 
@@ -52,6 +65,44 @@ export function RecipeItemsEditor({ groupId, ingredients, items, setItems, empty
 
   function updateItem(key, patch) {
     setItems((prev) => prev.map((i) => (i.key === key ? { ...i, ...patch } : i)))
+  }
+
+  // 調味料(冷蔵庫の食材に限る)だけ「適量」を選べる
+  function isSeasoning(item) {
+    if (item.kind !== 'existing' || !item.ingredient) return false
+    const category = catalogById.get(item.ingredient.catalog_id)?.category ?? guessCategory(item.ingredient.name)
+    return category === '調味料・油'
+  }
+
+  const isStaple = (item) => Boolean(fridgeById.get(item.ingredient?.id)?.is_staple ?? item.ingredient?.is_staple)
+
+  function setVague(item) {
+    updateItem(item.key, { requiredQuantity: '', amountText: VAGUE_AMOUNT, needsCheck: false })
+  }
+
+  // 適量は具体的な量を在庫から引けないので、常備品(数えない)の登録を必須にする
+  function toggleVague(item) {
+    setStapleError('')
+    if (isVagueAmount(item)) {
+      updateItem(item.key, { requiredQuantity: 1, amountText: '' })
+      return
+    }
+    if (isStaple(item)) setVague(item)
+    else setStapleAskKey(item.key)
+  }
+
+  async function registerStapleAndSetVague(item) {
+    setStapleBusy(true)
+    setStapleError('')
+    const { error } = await supabase.from('ingredients').update({ is_staple: true }).eq('id', item.ingredient.id)
+    setStapleBusy(false)
+    if (error) {
+      setStapleError('常備品に登録できませんでした。もう一度お試しください')
+      return
+    }
+    updateItem(item.key, { ingredient: { ...item.ingredient, is_staple: true } })
+    setVague(item)
+    setStapleAskKey(null)
   }
 
   function removeItem(key) {
@@ -98,7 +149,9 @@ export function RecipeItemsEditor({ groupId, ingredients, items, setItems, empty
                   // 数で分からない分量は空のまま保存できる(元の表記を表示)。1/2 や ½ も入れられる
                   placeholder={item.amountText || ''}
                   value={item.requiredQuantity}
-                  onChange={(v) => updateItem(item.key, { requiredQuantity: v, needsCheck: false })}
+                  onChange={(v) =>
+                    updateItem(item.key, { requiredQuantity: v, needsCheck: false, ...(item.amountText === VAGUE_AMOUNT && Number(v) > 0 ? { amountText: '' } : {}) })
+                  }
                   aria-label={`${item.name}の分量`}
                 />
                 <span className="text-xs text-muted-foreground w-10">{item.unit}</span>
@@ -117,11 +170,45 @@ export function RecipeItemsEditor({ groupId, ingredients, items, setItems, empty
                   <X className="size-3.5" />
                 </Button>
               </div>
+              {isSeasoning(item) && item.include && (
+                <div className="flex flex-wrap items-center gap-1.5 pl-6">
+                  <button
+                    type="button"
+                    aria-pressed={isVagueAmount(item)}
+                    className={`rounded-full border px-2.5 py-0.5 text-xs font-medium ${
+                      isVagueAmount(item)
+                        ? 'border-violet-300 bg-violet-100 text-violet-800 dark:border-violet-800 dark:bg-violet-950 dark:text-violet-300'
+                        : 'bg-background text-muted-foreground hover:border-violet-300 hover:text-violet-700'
+                    }`}
+                    onClick={() => toggleVague(item)}
+                  >
+                    適量
+                  </button>
+                  {isVagueAmount(item) && <span className="text-xs text-muted-foreground">常備品なので、作ったときに在庫から引きません</span>}
+                </div>
+              )}
+              {stapleAskKey === item.key && !isVagueAmount(item) && (
+                <div role="alertdialog" aria-label="常備品に登録しますか" className="ml-6 flex flex-col gap-1.5 rounded-xl border border-violet-200 bg-violet-50 p-2.5 dark:border-violet-900 dark:bg-violet-950/40">
+                  <p className="text-xs">
+                    適量は量を数えられないため、常備品(在庫を数えない食材)にする必要があります。「{item.name}」を常備品に登録しますか?
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    <Button type="button" size="sm" className="h-7 rounded-full text-xs" disabled={stapleBusy} onClick={() => registerStapleAndSetVague(item)}>
+                      <InfinityIcon className="size-3.5" />
+                      {stapleBusy ? '登録しています...' : '常備品に登録して適量にする'}
+                    </Button>
+                    <Button type="button" size="sm" variant="ghost" className="h-7 rounded-full text-xs" disabled={stapleBusy} onClick={() => setStapleAskKey(null)}>
+                      やめる
+                    </Button>
+                  </div>
+                  {stapleError && <p className="text-xs text-destructive">{stapleError}</p>}
+                </div>
+              )}
               {(item.rawText || item.needsCheck || item.note) && (
                 <p className="pl-6 text-xs text-muted-foreground">
                   {item.rawText}
                   {item.note && <span className="ml-1">・状態: {item.note}</span>}
-                  {item.needsCheck && item.include && !(Number(item.requiredQuantity) > 0) && (
+                  {item.needsCheck && item.include && !(Number(item.requiredQuantity) > 0) && !isVagueAmount(item) && (
                     <span className="ml-1 text-violet-700 dark:text-violet-400">
                       ・分量は「{item.amountText || '不明'}」のまま保存します(作るときに在庫から引く量を入れられます)
                     </span>
