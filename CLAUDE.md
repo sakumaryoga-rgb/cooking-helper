@@ -15,6 +15,10 @@
   なるように書く(if not exists、create or replace、drop policy if exists)。
   security definer 関数は `set search_path = public, extensions` とし、
   returns table の列名はテーブルの列名と重ねない(migration 008 の 42702 の再発防止)。
+- 動作確認のために本番のアプリで食材・食材マスタ・レシピ・別名などを作らない(「削除テスト用」のような
+  テストの行が家族の画面に出てしまうため)。画面の確認は、本番DBに接続しないモックのハーネス
+  (`vite` + `@/supabaseClient` の差し替え)か、ローカルDBの合成データで行う。
+  やむを得ず本番で作った場合は、確認が終わったらすぐ消し、ユーザーに報告する。
 - Vercel の production 以外(Preview など)のビルドは本番DBに接続しない
   (`src/lib/runtimeEnv.js`、`vite.config.js` の `__DB_ENABLED__`)。この仕組みを外さない。
 
