@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/supabaseClient'
 import { useSharedKitchen } from '@/hooks/kitchenData'
+import { ALIASES_CHANGED } from '@/lib/aliasEvents'
 
 // 食材の別名辞書(共通 + 自分の家庭)。表記の違い(人参 → にんじん)を食材マスタの1品目にまとめる
 export function useIngredientAliases() {
@@ -22,6 +23,12 @@ export function useIngredientAliasesSource(enabled = true) {
   useEffect(() => {
     refresh()
   }, [refresh])
+
+  useEffect(() => {
+    if (!enabled) return undefined
+    window.addEventListener(ALIASES_CHANGED, refresh)
+    return () => window.removeEventListener(ALIASES_CHANGED, refresh)
+  }, [enabled, refresh])
 
   return useMemo(() => ({ aliases, refresh }), [aliases, refresh])
 }

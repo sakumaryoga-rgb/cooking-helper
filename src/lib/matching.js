@@ -13,6 +13,7 @@
 // - 分量が数で分からない材料(「1パック」で食材の単位が g など): 家庭で覚えた換算があれば数に直す。
 //   なければ、在庫があっても「作れる」と断定せず 'check' にする。在庫がなければ不足
 // - 「少々」「適量」: 在庫があれば足りているとみなす(量を量らないため)
+// - 常備品は、分量が数で分からなくても 'check' にしない(量を数えない食材のため)
 // - 確認待ちの材料(どの食材か未確定): 'check' にする
 // - 水・お湯など(isNotStocked)は食材として数えない(不足・確認・品数・調理の差し引きに入れない。notStocked: true の行で返す)
 
@@ -89,7 +90,8 @@ export function getRecipeStatus(recipe, ingredientsById, { substitutions = [], c
       // 確認待ち(どの食材か未確定)・分量が数で分からない・少々や適量
       pending: !req.ingredient_id,
       amountText: req.amount_text ?? null,
-      amountUnknown: !known && !VAGUE_TEXT.test(req.amount_text ?? ''),
+      // 常備品は量を数えないので、分量が数で分からなくても確認しない(「大さじ4」のままの味噌など)
+      amountUnknown: !known && !current?.is_staple && !VAGUE_TEXT.test(req.amount_text ?? ''),
       vague: !known && VAGUE_TEXT.test(req.amount_text ?? ''),
       // 家庭で覚えた換算で数にした(包装量は商品ごとに違うことがあるので、調理のときに明示する)
       converted: converted ? { per: converted.per, unit: converted.unit } : null,

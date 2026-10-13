@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { ArrowLeftRight, Infinity as InfinityIcon, Plus, X } from 'lucide-react'
 import { IngredientPicker } from '@/components/IngredientPicker'
-import { applyChoice } from '@/lib/recipeImport/match'
+import { applyChoice, normalizeName } from '@/lib/recipeImport/match'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { QuantityInput } from '@/components/QuantityInput'
@@ -60,21 +60,34 @@ export function RecipeItemsEditor({ groupId, ingredients, items, setItems, empty
 
   // どの食材かを選ぶ(候補・新しい食材・ほかの食材)
   function choose(key, option) {
-    setItems((prev) => prev.map((i) => (i.key === key ? applyChoice(i, option) : i)))
+    // 別の食材に変えたら、前の食材を常備品にする予定は取り消す
+    setItems((prev) => prev.map((i) => (i.key === key ? { ...applyChoice(i, option), stapleOnSave: false } : i)))
   }
 
   function updateItem(key, patch) {
     setItems((prev) => prev.map((i) => (i.key === key ? { ...i, ...patch } : i)))
   }
 
-  // 調味料(冷蔵庫の食材に限る)だけ「適量」を選べる
+  // 調味料だけ「適量」を選べる。この家にまだない調味料(取り込みで初めて出てきたもの)も選べる
   function isSeasoning(item) {
-    if (item.kind !== 'existing' || !item.ingredient) return false
-    const category = catalogById.get(item.ingredient.catalog_id)?.category ?? guessCategory(item.ingredient.name)
-    return category === '調味料・油'
+    if (item.needsChoice) return false
+    if (item.kind === 'existing' && item.ingredient) {
+      return (catalogById.get(item.ingredient.catalog_id)?.category ?? guessCategory(item.ingredient.name)) === '調味料・油'
+    }
+    if (item.kind === 'catalog' && item.catalogItem) return (item.catalogItem.category ?? guessCategory(item.catalogItem.name)) === '調味料・油'
+    if (item.kind === 'new') return guessCategory(item.name) === '調味料・油'
+    return false
   }
 
-  const isStaple = (item) => Boolean(fridgeById.get(item.ingredient?.id)?.is_staple ?? item.ingredient?.is_staple)
+  // 材料の冷蔵庫の行(この家にまだなければ null)。保存のときと同じく、食材マスタの品目か名前で探す
+  function fridgeRowOf(item) {
+    if (item.kind === 'existing') return fridgeById.get(item.ingredient?.id) ?? item.ingredient ?? null
+    const list = ingredients ?? []
+    if (item.kind === 'catalog') return list.find((i) => i.catalog_id === item.catalogItem?.id || normalizeName(i.name) === normalizeName(item.catalogItem?.name ?? '')) ?? null
+    return list.find((i) => normalizeName(i.name) === normalizeName(item.name)) ?? null
+  }
+
+  const isStaple = (item) => Boolean(item.stapleOnSave || fridgeRowOf(item)?.is_staple)
 
   function setVague(item) {
     updateItem(item.key, { requiredQuantity: '', amountText: VAGUE_AMOUNT, needsCheck: false })
@@ -84,7 +97,7 @@ export function RecipeItemsEditor({ groupId, ingredients, items, setItems, empty
   function toggleVague(item) {
     setStapleError('')
     if (isVagueAmount(item)) {
-      updateItem(item.key, { requiredQuantity: 1, amountText: '' })
+      updateItem(item.key, { requiredQuantity: 1, amountText: '', stapleOnSave: false })
       return
     }
     if (isStaple(item)) setVague(item)
@@ -92,15 +105,22 @@ export function RecipeItemsEditor({ groupId, ingredients, items, setItems, empty
   }
 
   async function registerStapleAndSetVague(item) {
-    setStapleBusy(true)
     setStapleError('')
-    const { error } = await supabase.from('ingredients').update({ is_staple: true }).eq('id', item.ingredient.id)
+    const row = fridgeRowOf(item)
+    if (!row) {
+      // この家にまだない調味料: レシピを保存するときに、冷蔵庫の行を作って常備品にする
+      updateItem(item.key, { requiredQuantity: '', amountText: VAGUE_AMOUNT, needsCheck: false, stapleOnSave: true })
+      setStapleAskKey(null)
+      return
+    }
+    setStapleBusy(true)
+    const { error } = await supabase.from('ingredients').update({ is_staple: true }).eq('id', row.id)
     setStapleBusy(false)
     if (error) {
       setStapleError('常備品に登録できませんでした。もう一度お試しください')
       return
     }
-    updateItem(item.key, { ingredient: { ...item.ingredient, is_staple: true } })
+    if (item.kind === 'existing') updateItem(item.key, { ingredient: { ...item.ingredient, is_staple: true } })
     setVague(item)
     setStapleAskKey(null)
   }
@@ -184,7 +204,11 @@ export function RecipeItemsEditor({ groupId, ingredients, items, setItems, empty
                   >
                     適量
                   </button>
-                  {isVagueAmount(item) && <span className="text-xs text-muted-foreground">常備品なので、作ったときに在庫から引きません</span>}
+                  {isVagueAmount(item) && (
+                    <span className="text-xs text-muted-foreground">
+                      {item.stapleOnSave ? '保存すると常備品に登録します。作ったときに在庫から引きません' : '常備品なので、作ったときに在庫から引きません'}
+                    </span>
+                  )}
                 </div>
               )}
               {stapleAskKey === item.key && !isVagueAmount(item) && (

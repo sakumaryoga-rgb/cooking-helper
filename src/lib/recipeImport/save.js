@@ -1,6 +1,7 @@
 import { mergeResolved, normalizeName } from './match'
 import { guessCategory } from '@/lib/ingredientCategory'
 import { stepsToInstructions, stepsToSaved } from '@/lib/recipeSteps'
+import { notifyAliasesChanged } from '@/lib/aliasEvents'
 
 const DUPLICATE_MESSAGE = 'このレシピはすでに保存されています'
 
@@ -80,6 +81,11 @@ async function toIngredientRows(supabase, groupId, items, fridge) {
       continue
     }
     const id = await ensureIngredient(supabase, groupId, row, fridge)
+    if (row.stapleOnSave) {
+      // 取り込みで初めて出てきた調味料を「適量」にした: 冷蔵庫の行を常備品にする(できなくてもレシピは保存する)
+      const { error } = await supabase.from('ingredients').update({ is_staple: true }).eq('id', id)
+      if (error) console.error('常備品に登録できませんでした', error)
+    }
     for (const k of row.memberKeys ?? []) targets.set(k, { ingredient_id: id })
     const prev = byIngredient.get(id)
     if (prev) {
@@ -165,6 +171,8 @@ export async function learnAliases(supabase, groupId, items) {
     }
     if (error) console.error('別名を覚えられませんでした', error)
   }
+  // 覚えた別名を、設定の一覧や次の取り込みにすぐ使う
+  if (rows.length > 0) notifyAliasesChanged()
 }
 
 export async function findDuplicate(supabase, groupId, sourceKey) {
