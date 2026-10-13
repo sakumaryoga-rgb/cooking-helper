@@ -66,3 +66,55 @@ describe('材料の「適量」(調味料だけ)', () => {
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
   })
 })
+
+describe('この家にまだない調味料の「適量」(取り込みで初めて出てきたもの)', () => {
+  let latestNew
+  function NewHarness({ initial, fridge = [] }) {
+    const [items, setItems] = useState(initial)
+    latestNew = items
+    return <RecipeItemsEditor groupId="g1" ingredients={fridge} items={items} setItems={setItems} emptyText="" />
+  }
+  const catalogMirin = { key: 'm', kind: 'catalog', catalogItem: { id: 'c-mirin', name: 'みりん', unit: 'ml', category: '調味料・油' }, name: 'みりん', unit: 'ml', requiredQuantity: 15, include: true, needsCheck: false }
+  const newSoy = { key: 'n', kind: 'new', name: 'だし醤油', unit: 'ml', requiredQuantity: 10, include: true, needsCheck: false, needsChoice: false }
+
+  it('食材マスタの調味料にも、新しい食材の調味料にも「適量」を出す', () => {
+    render(<NewHarness initial={[catalogMirin, newSoy]} />)
+    expect(screen.getAllByRole('button', { name: '適量' })).toHaveLength(2)
+  })
+
+  it('どの食材か確認待ちの材料には出さない', () => {
+    render(<NewHarness initial={[{ ...newSoy, needsChoice: true, sourceName: 'だし醤油', candidates: [] }]} />)
+    expect(screen.queryByRole('button', { name: '適量' })).not.toBeInTheDocument()
+  })
+
+  it('登録すると、保存のときに常備品にする印を付けて適量にする(この時点では DB を変えない)', async () => {
+    update.mockClear()
+    render(<NewHarness initial={[catalogMirin]} />)
+    await userEvent.click(screen.getByRole('button', { name: '適量' }))
+    await userEvent.click(screen.getByRole('button', { name: '常備品に登録して適量にする' }))
+    expect(update).not.toHaveBeenCalled()
+    expect(latestNew[0]).toMatchObject({ requiredQuantity: '', amountText: '適量', stapleOnSave: true })
+    expect(screen.getByText('保存すると常備品に登録します。作ったときに在庫から引きません')).toBeInTheDocument()
+    // 適量をやめたら、常備品にする印も外す
+    await userEvent.click(screen.getByRole('button', { name: '適量' }))
+    expect(latestNew[0]).toMatchObject({ requiredQuantity: 1, amountText: '', stapleOnSave: false })
+  })
+
+  it('冷蔵庫に同じ食材の常備品があれば、聞かずに適量にする', async () => {
+    render(<NewHarness initial={[catalogMirin]} fridge={[{ id: 'i-mirin', name: 'みりん', unit: 'ml', catalog_id: 'c-mirin', is_staple: true }]} />)
+    await userEvent.click(screen.getByRole('button', { name: '適量' }))
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+    expect(latestNew[0]).toMatchObject({ amountText: '適量' })
+  })
+
+  it('冷蔵庫に常備品でない同じ食材があれば、その行を常備品にする', async () => {
+    update.mockClear()
+    eq.mockResolvedValueOnce({ error: null })
+    render(<NewHarness initial={[catalogMirin]} fridge={[{ id: 'i-mirin', name: 'みりん', unit: 'ml', catalog_id: 'c-mirin', is_staple: false }]} />)
+    await userEvent.click(screen.getByRole('button', { name: '適量' }))
+    await userEvent.click(screen.getByRole('button', { name: '常備品に登録して適量にする' }))
+    expect(update).toHaveBeenCalledWith({ is_staple: true })
+    expect(eq).toHaveBeenCalledWith('id', 'i-mirin')
+    await waitFor(() => expect(latestNew[0]).toMatchObject({ amountText: '適量' }))
+  })
+})

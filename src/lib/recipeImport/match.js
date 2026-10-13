@@ -118,6 +118,8 @@ export function mergeResolved(rows) {
       prev.amountText = [prev.amountText, row.amountText].filter(Boolean).join(' + ').slice(0, 60)
       prev.note = [...new Set([prev.note, row.note].filter(Boolean))].join('・') || null
       if (row.key) prev.memberKeys.push(row.key)
+      // どれかの行で「適量」にして常備品にすると決めたら、まとめた食材を常備品にする
+      if (row.stapleOnSave) prev.stapleOnSave = true
     } else {
       // memberKeys: まとめた元の行(手順で使う材料を、保存先の食材に結び付けるため)
       merged.set(key, { ...row, requiredQuantity: known ? qty : '', memberKeys: row.key ? [row.key] : [] })

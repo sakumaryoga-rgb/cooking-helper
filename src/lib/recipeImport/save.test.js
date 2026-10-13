@@ -32,6 +32,14 @@ function mockSupabase({ recipeError = null, riError = null } = {}) {
       calls.push({ table, op: 'delete' })
       return { eq: async () => ({ error: null }) }
     },
+    update(row) {
+      return {
+        eq: async (column, value) => {
+          calls.push({ table, op: 'update', row, eq: [column, value] })
+          return { error: null }
+        },
+      }
+    },
   })
   return { from: vi.fn(from), calls }
 }
@@ -161,6 +169,44 @@ describe('冷蔵庫とレシピの食材の整合性', () => {
       ],
     })
     expect(supabase.calls.find((c) => c.table === 'ingredient_aliases').row).toEqual({ group_id: 'g1', catalog_id: 'c-potato', alias: 'メークイン' })
+  })
+
+  it('別名を覚えたら、読み込み済みの別名の一覧に知らせる(設定の一覧と次の取り込みにすぐ出す)', async () => {
+    const listener = vi.fn()
+    window.addEventListener('cookdoor:aliases-changed', listener)
+    await saveRecipe({
+      supabase: mockSupabase(), groupId: 'g1', userId: 'u1', title: 'ポテサラ', url: null, fridge,
+      items: [
+        { key: 'a', kind: 'existing', ingredient: { id: 'p1', catalog_id: 'c-potato' }, name: 'じゃがいも', unit: '個', requiredQuantity: 2, include: true, learnAlias: { alias: 'メークイン', catalogId: 'c-potato' } },
+      ],
+    })
+    expect(listener).toHaveBeenCalledTimes(1)
+    // 覚えるものがなければ知らせない
+    await saveRecipe({ supabase: mockSupabase(), groupId: 'g1', userId: 'u1', title: 'きゅうり', url: null, fridge, items: [item('きゅうり 1本')] })
+    expect(listener).toHaveBeenCalledTimes(1)
+    window.removeEventListener('cookdoor:aliases-changed', listener)
+  })
+})
+
+describe('取り込みで初めて出てきた調味料の「適量」', () => {
+  it('冷蔵庫の行を作ってから常備品にし、分量は「適量」のまま保存する', async () => {
+    const supabase = mockSupabase()
+    const result = await saveRecipe({
+      supabase, groupId: 'g1', userId: 'u1', title: '煮物', url: null, fridge,
+      items: [{ key: 'a', kind: 'new', name: 'みりん', unit: 'ml', requiredQuantity: '', amountText: '適量', include: true, needsChoice: false, stapleOnSave: true }],
+    })
+    expect(result).toEqual({ recipeId: 'r1' })
+    const created = supabase.calls.find((c) => c.table === 'ingredients' && c.op === 'insert')
+    expect(created.row).toMatchObject({ name: 'みりん', quantity: 0 })
+    const staple = supabase.calls.find((c) => c.table === 'ingredients' && c.op === 'update')
+    expect(staple).toMatchObject({ row: { is_staple: true }, eq: ['id', expect.stringMatching(/^new-/)] })
+    expect(supabase.calls.find((c) => c.table === 'recipe_ingredients').row[0]).toMatchObject({ required_quantity: null, amount_text: '適量' })
+  })
+
+  it('常備品にすると決めていない材料は、常備品にしない', async () => {
+    const supabase = mockSupabase()
+    await saveRecipe({ supabase, groupId: 'g1', userId: 'u1', title: 'きゅうり', url: null, fridge, items: [item('きゅうり 1本')] })
+    expect(supabase.calls.some((c) => c.op === 'update')).toBe(false)
   })
 })
 

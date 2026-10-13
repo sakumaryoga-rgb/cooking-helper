@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ArrowLeft, Search, X } from 'lucide-react'
 import { supabase } from '@/supabaseClient'
@@ -15,6 +15,11 @@ export function IngredientAliases({ groupId }) {
   const [query, setQuery] = useState('')
   const [error, setError] = useState('')
   const [busyAlias, setBusyAlias] = useState(null)
+
+  // 開いたときに読み直す(取り込みで覚えた別名や、家族が別の端末で覚えた別名を出す)
+  useEffect(() => {
+    refresh?.()
+  }, [refresh])
 
   const own = useMemo(() => (aliases ?? []).filter((a) => a.group_id === groupId), [aliases, groupId])
   const groups = useMemo(() => {

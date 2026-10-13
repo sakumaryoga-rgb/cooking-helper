@@ -48,6 +48,21 @@ describe('getRecipeStatus', () => {
     expect(status).toMatchObject({ makeable: true, stapleCount: 1 })
   })
 
+  it('常備品は、分量が数で分からなくても確認にしない(「大さじ4」のままの味噌でも作れる)', () => {
+    const recipe = {
+      id: 'r',
+      recipe_ingredients: [
+        { ingredient_id: 'miso', required_quantity: null, amount_text: '大さじ4', ingredient: { id: 'miso', name: '味噌', unit: 'g' } },
+        line('pork', 150, '豚バラ肉', 'g'),
+      ],
+    }
+    const status = getRecipeStatus(recipe, stock([{ id: 'miso', name: '味噌', unit: 'g', quantity: 0, is_staple: true }, { id: 'pork', name: '豚バラ肉', unit: 'g', quantity: 200 }]))
+    expect(status).toMatchObject({ makeable: true, level: 'makeable', uncertainCount: 0, stapleCount: 1 })
+    // 常備品でなければ、これまでどおり分量を確かめる
+    const counted = getRecipeStatus(recipe, stock([{ id: 'miso', name: '味噌', unit: 'g', quantity: 500 }, { id: 'pork', name: '豚バラ肉', unit: 'g', quantity: 200 }]))
+    expect(counted).toMatchObject({ level: 'check', uncertainCount: 1 })
+  })
+
   it('不足が3品以上は short、材料のないレシピは empty(作れる扱いにしない)', () => {
     const recipe = { id: 'r', recipe_ingredients: [line('a', 1), line('b', 1), line('c', 1)] }
     expect(getRecipeStatus(recipe, new Map()).level).toBe('short')
