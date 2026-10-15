@@ -42,7 +42,8 @@ export function Layout({ groupId, groupName, notice, onDismissNotice }) {
         )}
         <Suspense fallback={<p className="text-sm text-muted-foreground">読み込み中...</p>}>
           {groupId ? (
-            <KitchenDataProvider groupId={groupId}>
+            // 家を切り替えたら作り直す(前の家のデータを一瞬でも出さず、遅れて届いた前の家の結果も使わない)
+            <KitchenDataProvider key={groupId} groupId={groupId}>
               <Outlet />
             </KitchenDataProvider>
           ) : (

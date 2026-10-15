@@ -157,4 +157,28 @@ describe('複数選択', () => {
     expect(screen.queryByRole('button', { name: /品を決定/ })).not.toBeInTheDocument()
     expect(inserted).toEqual(['ingredient_catalog'])
   })
+
+  it('リストにない食材の名前が、所属している別の家の品目と同じでも、その品目は使わずこの家の品目として登録する', async () => {
+    supabase.from.mockReset()
+    const otherHouse = { id: 'c-other', name: 'パクチー', unit: '束', category: '葉物', sort_order: 5, group_id: 'g2' }
+    const catalogRow = { id: 'c-new', name: 'パクチー', unit: '束', category: '葉物', sort_order: 10, group_id: 'g1' }
+    const inserted = []
+    const q = {
+      select: () => q, eq: () => q, order: () => q, limit: () => q,
+      update: () => { inserted.push('update'); return q },
+      maybeSingle: async () => ({ data: null, error: null }),
+      single: async () => ({ data: catalogRow, error: null }),
+      insert: (row) => { inserted.push(row); return q },
+      // 名前で探すと、別の家(g2)の同じ名前の品目だけが見つかる
+      then: (res) => Promise.resolve({ data: [otherHouse], error: null }).then(res),
+    }
+    supabase.from.mockImplementation((table) => { q.table = table; return q })
+    render(<IngredientPicker open multiple onOpenChange={() => {}} groupId="g1" ingredients={fridge} onSelect={vi.fn()} onSelectMany={vi.fn()} />)
+    await userEvent.click(screen.getByRole('button', { name: 'リストにない食材を追加' }))
+    await userEvent.type(screen.getByLabelText('食材名'), 'パクチー')
+    await userEvent.click(screen.getByRole('button', { name: 'リストに追加' }))
+    await screen.findByPlaceholderText('食材名で検索...')
+    // 別の家の品目を書き換えず、この家(g1)の品目を新しく登録する
+    expect(inserted).toEqual([expect.objectContaining({ name: 'パクチー', group_id: 'g1' })])
+  })
 })

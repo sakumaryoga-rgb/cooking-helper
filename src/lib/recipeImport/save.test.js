@@ -215,6 +215,31 @@ describe('冷蔵庫とレシピの食材の整合性', () => {
   })
 })
 
+describe('家ごとの食材マスタ', () => {
+  it('同じ名前の品目は、選んでいる家か共通の品目だけを使う(所属している別の家の品目には結び付けない)', async () => {
+    const supabase = mockSupabase()
+    const origFrom = supabase.from
+    supabase.from = vi.fn((table) => {
+      const t = origFrom(table)
+      if (table !== 'ingredient_catalog') return t
+      return {
+        ...t,
+        // 名前で探すと、所属している別の家(g2)の同じ名前の品目だけが見つかる
+        select: () => {
+          const p = Promise.resolve({ data: [{ id: 'other-house', name: '花椒', unit: 'g', group_id: 'g2' }], error: null })
+          const chain = new Proxy({}, { get: (_, k) => (k === 'then' ? p.then.bind(p) : k === 'maybeSingle' ? async () => ({ data: null }) : () => chain) })
+          return chain
+        },
+      }
+    })
+    await saveRecipe({ supabase, groupId: 'g1', userId: 'u1', title: '麻婆', url: null, fridge, items: [{ key: 'a', kind: 'new', name: '花椒', unit: 'g', requiredQuantity: 1, include: true, needsChoice: false }] })
+    const ing = supabase.calls.find((c) => c.table === 'ingredients' && c.op === 'insert')
+    expect(ing.row.catalog_id).not.toBe('other-house')
+    // 選んでいる家の品目として新しく登録する
+    expect(supabase.calls.find((c) => c.table === 'ingredient_catalog' && c.op === 'insert').row).toMatchObject({ name: '花椒', group_id: 'g1' })
+  })
+})
+
 describe('新しいレシピのカテゴリ', () => {
   it('自動の分類は category_manual = false、利用者が選んだカテゴリは true で保存する', async () => {
     let supabase = mockSupabase()

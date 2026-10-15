@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/supabaseClient'
 import { useSharedKitchen } from '@/hooks/kitchenData'
+import { filterHouse } from '@/lib/houseScope'
 
 // 代替ルール(共通 + 自分の家庭)と、家庭で使わないことにしたルール。
 // 判定に使うのは「使わない」に入っていないルールだけ
@@ -21,9 +22,10 @@ export function useSubstitutionsSource(groupId, enabled = true) {
       supabase.from('substitution_opt_outs').select('substitution_id'),
     ])
     if (ruleError || optError) console.error('代替ルールの取得に失敗しました', ruleError ?? optError)
-    setRules(ruleRows ?? [])
+    // 共通のルールと、選んでいる家のルールだけ
+    setRules(filterHouse(ruleRows, groupId))
     setOptOutIds(new Set((optRows ?? []).map((r) => r.substitution_id)))
-  }, [enabled])
+  }, [enabled, groupId])
 
   useEffect(() => {
     refresh()
