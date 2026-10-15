@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Plus, Search } from 'lucide-react'
+import { ChevronDown, Plus, Search } from 'lucide-react'
 import { useKitchen } from '@/hooks/useKitchen'
 import { describeExpiring, describeShortfalls } from '@/lib/matching'
 import { normalizeName } from '@/lib/recipeImport/match'
@@ -10,30 +10,24 @@ import { MakeableBadge } from '@/components/MakeableBadge'
 import { dishLook } from '@/lib/foodLook'
 import { CATEGORIES, categoryOf } from '@/lib/recipeCategory'
 
-// 絞り込み: すべて / 作れる / 期限が近い / 要確認 / 買い足し
-const FILTERS = [
-  { id: 'all', label: 'すべて', emoji: '📖', match: () => true },
-  { id: 'makeable', label: '作れる', emoji: '✨', match: (s) => s.level === 'makeable' },
-  // 期限が近い食材を使うレシピ(作れるものから順に並ぶ)
-  { id: 'expiring', label: '期限が近い', emoji: '⏰', match: (s) => s.expiring?.length > 0 },
-  { id: 'check', label: '要確認', emoji: '🔍', match: (s) => s.level === 'check' },
-  { id: 'short', label: '買い足し', emoji: '🛒', match: (s) => s.level === 'almost' || s.level === 'short' },
-]
+// 畳んだカテゴリ(この端末で覚える)
+const COLLAPSED_KEY = 'cookdoor:recipeCategoriesCollapsed'
 
-// 「買い足し」は足りない品数ごとに分ける(3品以上はまとめる)。少ないほど、買い物で少し足せば作れる
-const SHORT_GROUPS = [
-  { id: 1, title: 'あと1品で作れる', match: (n) => n === 1 },
-  { id: 2, title: 'あと2品で作れる', match: (n) => n === 2 },
-  { id: 3, title: 'あと3品以上', match: (n) => n >= 3 },
-]
-
-// あと1品のレシピの足りない食材を、作れるようになるレシピの数が多い順に(買い物のメモ)
-function shoppingMemo(items) {
-  const count = new Map()
-  for (const { status } of items) {
-    for (const s of status.shortfalls) count.set(s.name, (count.get(s.name) ?? 0) + 1)
+function readCollapsed() {
+  try {
+    const list = JSON.parse(localStorage.getItem(COLLAPSED_KEY) ?? '[]')
+    return new Set(Array.isArray(list) ? list : [])
+  } catch {
+    return new Set()
   }
-  return [...count.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'ja'))
+}
+
+function saveCollapsed(set) {
+  try {
+    localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...set]))
+  } catch {
+    /* 覚えられなくても畳む・開くはできる */
+  }
 }
 
 // 名前・材料・出典で検索する(カタカナとひらがなの違いは同じとみなす)
@@ -43,51 +37,56 @@ function matchesQuery(recipe, status, key) {
   return fields.some((f) => normalizeName(f).includes(key))
 }
 
+// レシピ一覧: 料理のカテゴリ(和食・イタリアンなど)ごとにまとめ、カテゴリは畳める。
+// カテゴリの中は「作れる」→ 期限が近い食材を使う → 足りない品数が少ない、の順(useKitchen の並び)
 export function Recipes({ groupId }) {
   const { sorted, loading } = useKitchen(groupId)
-  const [filter, setFilter] = useState('all')
   const [query, setQuery] = useState('')
-  // 料理のカテゴリ('all' はすべて。すべてのときはカテゴリごとにまとめて出す)
-  const [genre, setGenre] = useState('all')
+  const [collapsed, setCollapsed] = useState(readCollapsed)
 
-  const counts = useMemo(() => Object.fromEntries(FILTERS.map((f) => [f.id, sorted.filter((s) => f.match(s.status)).length])), [sorted])
   const key = normalizeName(query)
-  const active = FILTERS.find((f) => f.id === filter)
-  // 状態の絞り込みと検索(カテゴリをまたぐ)をした結果。並びは「作れる」・期限優先のまま
-  const matched = useMemo(
-    () => sorted.filter(({ recipe, status }) => active.match(status) && matchesQuery(recipe, status, key)).map((s) => ({ ...s, genre: categoryOf(s.recipe) })),
-    [sorted, active, key]
-  )
-  const genreCounts = useMemo(() => {
-    const c = new Map()
-    for (const s of matched) c.set(s.genre, (c.get(s.genre) ?? 0) + 1)
-    return c
-  }, [matched])
-  const visible = genre === 'all' ? matched : matched.filter((s) => s.genre === genre)
+  const groups = useMemo(() => {
+    const byGenre = new Map(CATEGORIES.map((c) => [c.id, []]))
+    for (const s of sorted) {
+      if (!matchesQuery(s.recipe, s.status, key)) continue
+      byGenre.get(categoryOf(s.recipe))?.push(s)
+    }
+    return CATEGORIES.map((c) => ({ ...c, items: byGenre.get(c.id) })).filter((g) => g.items.length > 0)
+  }, [sorted, key])
+
+  function toggle(id) {
+    setCollapsed((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      saveCollapsed(next)
+      return next
+    })
+  }
 
   function renderCard({ recipe, status }) {
     return (
-        <li key={recipe.id}>
-          <Link
-            to={`/recipes/${recipe.id}`}
-            className="flex items-center gap-3 rounded-2xl border bg-card p-2.5 pr-3 shadow-sm transition-transform hover:-translate-y-0.5 active:scale-[0.99]"
-          >
-            <span className={`flex size-14 shrink-0 items-center justify-center rounded-xl text-3xl ${dishLook(recipe).bg}`} aria-hidden="true">
-              {dishLook(recipe).emoji}
-            </span>
-            <span className="flex min-w-0 flex-1 flex-col">
-              <span className="text-sm font-semibold truncate">{recipe.title}</span>
-              {status.expiring?.length > 0 && (
-                <span className="truncate text-xs font-medium text-amber-700 dark:text-amber-400">⏰ {describeExpiring(status.expiring)}を使える</span>
-              )}
-              {(status.level === 'almost' || status.level === 'short') && (
-                <span className="text-xs text-destructive/90 truncate">{describeShortfalls(status.shortfalls, 3)}</span>
-              )}
-              {recipe.source_site && <span className="text-xs text-muted-foreground">{recipe.source_site}</span>}
-            </span>
-            <MakeableBadge status={status} />
-          </Link>
-        </li>
+      <li key={recipe.id}>
+        <Link
+          to={`/recipes/${recipe.id}`}
+          className="flex items-center gap-3 rounded-2xl border bg-card p-2.5 pr-3 shadow-sm transition-transform hover:-translate-y-0.5 active:scale-[0.99]"
+        >
+          <span className={`flex size-14 shrink-0 items-center justify-center rounded-xl text-3xl ${dishLook(recipe).bg}`} aria-hidden="true">
+            {dishLook(recipe).emoji}
+          </span>
+          <span className="flex min-w-0 flex-1 flex-col">
+            <span className="text-sm font-semibold truncate">{recipe.title}</span>
+            {status.expiring?.length > 0 && (
+              <span className="truncate text-xs font-medium text-amber-700 dark:text-amber-400">⏰ {describeExpiring(status.expiring)}を使える</span>
+            )}
+            {(status.level === 'almost' || status.level === 'short') && (
+              <span className="text-xs text-destructive/90 truncate">{describeShortfalls(status.shortfalls, 3)}</span>
+            )}
+            {recipe.source_site && <span className="text-xs text-muted-foreground">{recipe.source_site}</span>}
+          </span>
+          <MakeableBadge status={status} />
+        </Link>
+      </li>
     )
   }
 
@@ -112,106 +111,50 @@ export function Recipes({ groupId }) {
         <Input className="h-10 rounded-full pl-9" placeholder="料理名・材料・出典で検索" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="レシピを検索" />
       </div>
 
-      <div className="flex gap-1.5 overflow-x-auto pb-1" role="tablist" aria-label="絞り込み">
-        {FILTERS.map((f) => (
-          <button
-            key={f.id}
-            type="button"
-            role="tab"
-            aria-selected={filter === f.id}
-            className={`flex shrink-0 items-center gap-1 rounded-full border px-3 py-1.5 text-xs transition-colors ${filter === f.id ? 'border-primary bg-primary text-primary-foreground font-semibold shadow-sm' : 'bg-card text-muted-foreground'}`}
-            onClick={() => setFilter(f.id)}
-          >
-            <span aria-hidden="true">{f.emoji}</span>
-            {f.label} {counts[f.id]}
-          </button>
-        ))}
-      </div>
-
-      {sorted.length > 0 && (
-        <div className="-mt-2 flex gap-1.5 overflow-x-auto pb-1" role="tablist" aria-label="料理のカテゴリ">
-          {[{ id: 'all', label: '全カテゴリ', emoji: '🗂️' }, ...CATEGORIES].map((c) => {
-            const n = c.id === 'all' ? matched.length : genreCounts.get(c.id) ?? 0
-            // 0件のカテゴリは出さない(選んでいるものは出す)
-            if (c.id !== 'all' && n === 0 && genre !== c.id) return null
-            return (
-              <button
-                key={c.id}
-                type="button"
-                role="tab"
-                aria-selected={genre === c.id}
-                className={`flex shrink-0 items-center gap-1 rounded-full border px-3 py-1 text-xs transition-colors ${
-                  genre === c.id ? 'border-foreground/70 bg-foreground font-semibold text-background' : 'bg-card text-muted-foreground'
-                }`}
-                onClick={() => setGenre(c.id)}
-              >
-                <span aria-hidden="true">{c.emoji}</span>
-                {c.label} {n}
-              </button>
-            )
-          })}
-        </div>
-      )}
-
       {loading ? (
         <p className="text-sm text-muted-foreground">読み込み中...</p>
       ) : sorted.length === 0 ? (
         <p className="py-10 text-center text-sm text-muted-foreground">まだレシピがありません。「追加」から登録しましょう。</p>
-      ) : visible.length === 0 ? (
-        <p className="py-10 text-center text-sm text-muted-foreground">条件に合うレシピはありません</p>
+      ) : groups.length === 0 ? (
+        <p className="py-10 text-center text-sm text-muted-foreground">「{query}」に合うレシピはありません</p>
       ) : (
-        filter === 'short' ? (
-          <div className="flex flex-col gap-5">
-            {SHORT_GROUPS.map((g) => {
-              const items = visible.filter(({ status }) => g.match(status.shortfallCount))
-              if (items.length === 0) return null
-              const memo = g.id === 1 ? shoppingMemo(items) : null
-              return (
-                <section key={g.id} className="flex flex-col gap-2" aria-label={g.title}>
-                  <h2 className="flex items-center gap-1.5 text-sm font-semibold">
-                    {g.title}
-                    <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">{items.length}</span>
-                  </h2>
-                  {memo && (
-                    <p className="rounded-xl bg-amber-50 px-3 py-2 text-xs leading-relaxed dark:bg-amber-950/40">
-                      <span className="font-semibold">買えば作れる: </span>
-                      {memo.map(([name, n], i) => (
-                        <span key={name}>
-                          {i > 0 && '・'}
-                          {name}
-                          {n > 1 && <span className="text-muted-foreground">({n}品)</span>}
-                        </span>
-                      ))}
-                    </p>
-                  )}
-                  <ul className="flex flex-col gap-2.5">{items.map(renderCard)}</ul>
-                </section>
-              )
-            })}
-          </div>
-        ) : genre === 'all' && genreCounts.size > 1 ? (
-          // すべてのカテゴリ: カテゴリごとにまとめる(カテゴリの中は「作れる」・期限優先の並びのまま)
-          <div className="flex flex-col gap-5">
-            {CATEGORIES.map((c) => {
-              const items = visible.filter((s) => s.genre === c.id)
-              if (items.length === 0) return null
-              return (
-                <section key={c.id} className="flex flex-col gap-2" aria-label={c.label}>
-                  <h2 className="flex items-center gap-1.5 text-sm font-semibold">
-                    <span aria-hidden="true">{c.emoji}</span>
-                    {c.label}
-                    <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">{items.length}</span>
-                  </h2>
-                  <ul className="flex flex-col gap-2.5">{items.map(renderCard)}</ul>
-                </section>
-              )
-            })}
-          </div>
-        ) : (
-        <ul className="flex flex-col gap-2.5">
-          {visible.map(renderCard)}
-        </ul>
-        )
+        <div className="flex flex-col gap-4">
+          {groups.map((g) => {
+            // 検索中は、見つかったカテゴリをすべて開いて見せる
+            const open = Boolean(key) || !collapsed.has(g.id)
+            const makeable = g.items.filter((s) => s.status.makeable).length
+            return (
+              <section key={g.id} aria-label={g.label} className="overflow-hidden rounded-3xl border-2 border-[#3b2a1c] bg-[#fffdf5] shadow-[0_4px_0_#3b2a1c] dark:bg-card">
+                <h2>
+                  <button
+                    type="button"
+                    aria-expanded={open}
+                    aria-controls={`genre-${g.id}`}
+                    onClick={() => toggle(g.id)}
+                    className={`flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors ${g.tone}`}
+                  >
+                    <span className={`flex size-10 shrink-0 items-center justify-center rounded-2xl text-xl ${g.badge}`} aria-hidden="true">
+                      {g.emoji}
+                    </span>
+                    <span className="flex min-w-0 flex-1 flex-col">
+                      <span className="text-base font-bold leading-tight">{g.label}</span>
+                      <span className="text-xs text-muted-foreground">
+                        {g.items.length}品
+                        {makeable > 0 && <span className="ml-1.5 font-medium text-emerald-700 dark:text-emerald-400">✨ 作れる {makeable}</span>}
+                      </span>
+                    </span>
+                    <ChevronDown className={`size-5 shrink-0 text-muted-foreground transition-transform ${open ? 'rotate-180' : ''}`} aria-hidden="true" />
+                  </button>
+                </h2>
+                {open && (
+                  <ul id={`genre-${g.id}`} className="flex flex-col gap-2 border-t-2 border-dashed border-[#3b2a1c]/25 p-2.5">
+                    {g.items.map(renderCard)}
+                  </ul>
+                )}
+              </section>
+            )
+          })}
+        </div>
       )}
     </div>
   )
