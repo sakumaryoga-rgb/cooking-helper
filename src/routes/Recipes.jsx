@@ -8,6 +8,7 @@ import { buttonVariants } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { MakeableBadge } from '@/components/MakeableBadge'
 import { dishLook } from '@/lib/foodLook'
+import { CATEGORIES, categoryOf } from '@/lib/recipeCategory'
 
 // 絞り込み: すべて / 作れる / 期限が近い / 要確認 / 買い足し
 const FILTERS = [
@@ -46,11 +47,23 @@ export function Recipes({ groupId }) {
   const { sorted, loading } = useKitchen(groupId)
   const [filter, setFilter] = useState('all')
   const [query, setQuery] = useState('')
+  // 料理のカテゴリ('all' はすべて。すべてのときはカテゴリごとにまとめて出す)
+  const [genre, setGenre] = useState('all')
 
   const counts = useMemo(() => Object.fromEntries(FILTERS.map((f) => [f.id, sorted.filter((s) => f.match(s.status)).length])), [sorted])
   const key = normalizeName(query)
   const active = FILTERS.find((f) => f.id === filter)
-  const visible = sorted.filter(({ recipe, status }) => active.match(status) && matchesQuery(recipe, status, key))
+  // 状態の絞り込みと検索(カテゴリをまたぐ)をした結果。並びは「作れる」・期限優先のまま
+  const matched = useMemo(
+    () => sorted.filter(({ recipe, status }) => active.match(status) && matchesQuery(recipe, status, key)).map((s) => ({ ...s, genre: categoryOf(s.recipe) })),
+    [sorted, active, key]
+  )
+  const genreCounts = useMemo(() => {
+    const c = new Map()
+    for (const s of matched) c.set(s.genre, (c.get(s.genre) ?? 0) + 1)
+    return c
+  }, [matched])
+  const visible = genre === 'all' ? matched : matched.filter((s) => s.genre === genre)
 
   function renderCard({ recipe, status }) {
     return (
@@ -115,6 +128,31 @@ export function Recipes({ groupId }) {
         ))}
       </div>
 
+      {sorted.length > 0 && (
+        <div className="-mt-2 flex gap-1.5 overflow-x-auto pb-1" role="tablist" aria-label="料理のカテゴリ">
+          {[{ id: 'all', label: '全カテゴリ', emoji: '🗂️' }, ...CATEGORIES].map((c) => {
+            const n = c.id === 'all' ? matched.length : genreCounts.get(c.id) ?? 0
+            // 0件のカテゴリは出さない(選んでいるものは出す)
+            if (c.id !== 'all' && n === 0 && genre !== c.id) return null
+            return (
+              <button
+                key={c.id}
+                type="button"
+                role="tab"
+                aria-selected={genre === c.id}
+                className={`flex shrink-0 items-center gap-1 rounded-full border px-3 py-1 text-xs transition-colors ${
+                  genre === c.id ? 'border-foreground/70 bg-foreground font-semibold text-background' : 'bg-card text-muted-foreground'
+                }`}
+                onClick={() => setGenre(c.id)}
+              >
+                <span aria-hidden="true">{c.emoji}</span>
+                {c.label} {n}
+              </button>
+            )
+          })}
+        </div>
+      )}
+
       {loading ? (
         <p className="text-sm text-muted-foreground">読み込み中...</p>
       ) : sorted.length === 0 ? (
@@ -146,6 +184,24 @@ export function Recipes({ groupId }) {
                       ))}
                     </p>
                   )}
+                  <ul className="flex flex-col gap-2.5">{items.map(renderCard)}</ul>
+                </section>
+              )
+            })}
+          </div>
+        ) : genre === 'all' && genreCounts.size > 1 ? (
+          // すべてのカテゴリ: カテゴリごとにまとめる(カテゴリの中は「作れる」・期限優先の並びのまま)
+          <div className="flex flex-col gap-5">
+            {CATEGORIES.map((c) => {
+              const items = visible.filter((s) => s.genre === c.id)
+              if (items.length === 0) return null
+              return (
+                <section key={c.id} className="flex flex-col gap-2" aria-label={c.label}>
+                  <h2 className="flex items-center gap-1.5 text-sm font-semibold">
+                    <span aria-hidden="true">{c.emoji}</span>
+                    {c.label}
+                    <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">{items.length}</span>
+                  </h2>
                   <ul className="flex flex-col gap-2.5">{items.map(renderCard)}</ul>
                 </section>
               )

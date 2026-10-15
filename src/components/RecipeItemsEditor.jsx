@@ -190,8 +190,25 @@ export function RecipeItemsEditor({ groupId, ingredients, items, setItems, empty
                   <X className="size-3.5" />
                 </Button>
               </div>
-              {isSeasoning(item) && item.include && (
+              {item.include && (
                 <div className="flex flex-wrap items-center gap-1.5 pl-6">
+                  {/* 必須・任意(既定は必須)。任意の材料は「作れる」の判定に入れず、作るときに使うか選べる */}
+                  <button
+                    type="button"
+                    aria-pressed={Boolean(item.optional)}
+                    aria-label={item.optional ? `${item.name}を必須の材料に戻す` : `${item.name}を任意の材料にする`}
+                    title={item.optional ? 'あれば使う材料です。押すと必須に戻します' : '押すと「任意(あれば使う)」にします'}
+                    className={`rounded-full border px-2.5 py-0.5 text-xs font-medium ${
+                      item.optional
+                        ? 'border-sky-300 bg-sky-100 text-sky-800 dark:border-sky-800 dark:bg-sky-950 dark:text-sky-300'
+                        : 'bg-background text-muted-foreground hover:border-sky-300 hover:text-sky-700'
+                    }`}
+                    onClick={() => updateItem(item.key, { optional: !item.optional })}
+                  >
+                    {item.optional ? '任意' : '必須'}
+                  </button>
+                  {item.optional && <span className="text-xs text-muted-foreground">あれば使う(なくても作れる)</span>}
+                  {isSeasoning(item) && (
                   <button
                     type="button"
                     aria-pressed={isVagueAmount(item)}
@@ -204,7 +221,8 @@ export function RecipeItemsEditor({ groupId, ingredients, items, setItems, empty
                   >
                     適量
                   </button>
-                  {isVagueAmount(item) && (
+                  )}
+                  {isSeasoning(item) && isVagueAmount(item) && (
                     <span className="text-xs text-muted-foreground">
                       {item.stapleOnSave ? '保存すると常備品に登録します。作ったときに在庫から引きません' : '常備品なので、作ったときに在庫から引きません'}
                     </span>

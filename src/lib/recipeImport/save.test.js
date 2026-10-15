@@ -62,9 +62,9 @@ describe('取り込んだレシピの保存', () => {
     expect(inserts.find((c) => c.table === 'recipes')).toMatchObject({ row: { source_key: 'delishkitchen:1', servings: 2, url: 'https://delishkitchen.tv/recipes/1' } })
     // 「塩 少々」も元の表記のまま保存する(数は空。在庫の数は推測しない)。水は保存しない
     expect(inserts.find((c) => c.table === 'recipe_ingredients').row).toEqual([
-      { ingredient_id: 'new-1', required_quantity: 250, recipe_id: 'r1', raw_text: '鶏むね肉 1枚(250g)', amount_text: '1枚(250g)', note: null, source_name: null },
-      { ingredient_id: 'i1', required_quantity: 1, recipe_id: 'r1', raw_text: 'きゅうり 1本', amount_text: '1本', note: null, source_name: null },
-      { ingredient_id: expect.stringMatching(/^new-/), required_quantity: null, recipe_id: 'r1', raw_text: '塩 少々', amount_text: '少々', note: null, source_name: null },
+      { ingredient_id: 'new-1', required_quantity: 250, recipe_id: 'r1', raw_text: '鶏むね肉 1枚(250g)', amount_text: '1枚(250g)', note: null, source_name: null, optional: false },
+      { ingredient_id: 'i1', required_quantity: 1, recipe_id: 'r1', raw_text: 'きゅうり 1本', amount_text: '1本', note: null, source_name: null, optional: false },
+      { ingredient_id: expect.stringMatching(/^new-/), required_quantity: null, recipe_id: 'r1', raw_text: '塩 少々', amount_text: '少々', note: null, source_name: null, optional: false },
     ])
   })
 
@@ -108,10 +108,37 @@ describe('レシピのカスタマイズの保存', () => {
     expect(supabase.rpc).toHaveBeenCalledWith('update_recipe', {
       p_recipe_id: 'r1', p_title: 'わが家のバンバンジー', p_servings: 2, p_instructions: '和える', p_memo: null, p_icon: '🥗',
       p_items: [
-        { ingredient_id: 'i1', required_quantity: 1.5, raw_text: null, amount_text: null, note: null, source_name: null },
-        { ingredient_id: 'new-1', required_quantity: 250, raw_text: '鶏むね肉 1枚(250g)', amount_text: '1枚(250g)', note: null, source_name: null },
+        { ingredient_id: 'i1', required_quantity: 1.5, raw_text: null, amount_text: null, note: null, source_name: null, optional: false },
+        { ingredient_id: 'new-1', required_quantity: 250, raw_text: '鶏むね肉 1枚(250g)', amount_text: '1枚(250g)', note: null, source_name: null, optional: false },
       ],
     })
+  })
+
+  it('カテゴリと材料の必須・任意を update_recipe に渡す(同じ食材をまとめたときは、どれかが必須なら必須)', async () => {
+    const supabase = mockSupabase()
+    supabase.rpc = vi.fn().mockResolvedValue({ data: 'r1', error: null })
+    await updateRecipe({
+      supabase, groupId: 'g1', recipeId: 'r1', title: 'きゅうりの和え物', fridge, category: 'japanese', categoryManual: true,
+      items: [
+        { key: 'a', kind: 'existing', ingredient: fridge[0], name: 'きゅうり', unit: '本', requiredQuantity: 1, include: true, optional: true },
+        { key: 'b', kind: 'existing', ingredient: fridge[0], name: 'きゅうり', unit: '本', requiredQuantity: 1, include: true },
+        { key: 'c', kind: 'new', name: 'みょうが', unit: '個', requiredQuantity: 1, include: true, needsChoice: true, sourceName: 'みょうが', optional: true },
+      ],
+      extras: {},
+    })
+    const args = supabase.rpc.mock.calls[0][1]
+    expect(args).toMatchObject({ p_category: 'japanese', p_category_manual: true })
+    expect(args.p_items).toEqual([
+      expect.objectContaining({ ingredient_id: 'i1', required_quantity: 2, optional: false }),
+      expect.objectContaining({ ingredient_id: null, source_name: 'みょうが', optional: true }),
+    ])
+  })
+
+  it('カテゴリを渡さなければ、カテゴリの引数を送らない(変えない)', async () => {
+    const supabase = mockSupabase()
+    supabase.rpc = vi.fn().mockResolvedValue({ data: 'r1', error: null })
+    await updateRecipe({ supabase, groupId: 'g1', recipeId: 'r1', title: 'x', fridge, items: [item('きゅうり 1本')], extras: {} })
+    expect(supabase.rpc.mock.calls[0][1]).not.toHaveProperty('p_category')
   })
 
   it('材料がなければ DB を呼ばない', async () => {
@@ -146,7 +173,7 @@ describe('冷蔵庫とレシピの食材の整合性', () => {
     expect(result.recipeId).toBe('r1')
     expect(supabase.calls.filter((c) => c.table === 'ingredients' || c.table === 'ingredient_catalog')).toHaveLength(0)
     expect(supabase.calls.find((c) => c.table === 'recipe_ingredients').row).toEqual([
-      { ingredient_id: null, source_name: '豆腐', required_quantity: null, amount_text: '1/2丁', raw_text: '豆腐1/2丁', note: null, recipe_id: 'r1' },
+      { ingredient_id: null, source_name: '豆腐', required_quantity: null, amount_text: '1/2丁', raw_text: '豆腐1/2丁', note: null, recipe_id: 'r1', optional: false },
     ])
   })
 
@@ -185,6 +212,23 @@ describe('冷蔵庫とレシピの食材の整合性', () => {
     await saveRecipe({ supabase: mockSupabase(), groupId: 'g1', userId: 'u1', title: 'きゅうり', url: null, fridge, items: [item('きゅうり 1本')] })
     expect(listener).toHaveBeenCalledTimes(1)
     window.removeEventListener('cookdoor:aliases-changed', listener)
+  })
+})
+
+describe('新しいレシピのカテゴリ', () => {
+  it('自動の分類は category_manual = false、利用者が選んだカテゴリは true で保存する', async () => {
+    let supabase = mockSupabase()
+    await saveRecipe({ supabase, groupId: 'g1', userId: 'u1', title: '麻婆豆腐', url: null, fridge, items: [item('きゅうり 1本')], category: 'chinese' })
+    expect(supabase.calls.find((c) => c.table === 'recipes').row).toMatchObject({ category: 'chinese', category_manual: false })
+    supabase = mockSupabase()
+    await saveRecipe({ supabase, groupId: 'g1', userId: 'u1', title: '麻婆豆腐', url: null, fridge, items: [item('きゅうり 1本')], category: 'japanese', categoryManual: true })
+    expect(supabase.calls.find((c) => c.table === 'recipes').row).toMatchObject({ category: 'japanese', category_manual: true })
+  })
+
+  it('取り込んだ材料は、すべて必須で保存する', async () => {
+    const supabase = mockSupabase()
+    await saveRecipe({ supabase, groupId: 'g1', userId: 'u1', title: 'サラダ', url: null, fridge, items: [item('きゅうり 1本'), item('塩 少々')] })
+    expect(supabase.calls.find((c) => c.table === 'recipe_ingredients').row.every((r) => r.optional === false)).toBe(true)
   })
 })
 

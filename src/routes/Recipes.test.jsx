@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { Recipes } from './Recipes'
 import { useIngredients } from '@/hooks/useIngredients'
@@ -93,5 +94,42 @@ describe('Recipes', () => {
       </MemoryRouter>
     )
     expect(screen.getByText(/まだレシピがありません/)).toBeInTheDocument()
+  })
+
+  it('すべてのカテゴリでは、カテゴリごとにまとめ、件数を出す。カテゴリで絞り込め、検索はカテゴリをまたぐ', async () => {
+    useIngredients.mockReturnValue({ ingredients: [{ id: 'egg', name: 'egg', unit: '個', quantity: 2 }] })
+    useRecipes.mockReturnValue({
+      loading: false,
+      recipes: [
+        { id: 'mabo', title: '麻婆豆腐', recipe_ingredients: [line('tofu', 1)] },
+        { id: 'tamago', title: '卵焼き', recipe_ingredients: [line('egg', 2)] },
+        { id: 'oyako', title: '親子丼', recipe_ingredients: [line('chicken', 1), line('egg', 2)] },
+        // 利用者が選んだカテゴリ(料理名からの分類より優先)
+        { id: 'pasta', title: '和風パスタ', category: 'italian', category_manual: true, recipe_ingredients: [line('pasta', 1)] },
+      ],
+    })
+    render(
+      <MemoryRouter>
+        <Recipes groupId="g1" />
+      </MemoryRouter>
+    )
+    const sections = screen.getAllByRole('region')
+    expect(sections.map((s) => s.getAttribute('aria-label'))).toEqual(['和食', '中華', 'イタリアン'])
+    // カテゴリの中は「作れる」の順(卵焼き → 親子丼)
+    expect(within(sections[0]).getAllByRole('link').map((a) => a.textContent)).toEqual([expect.stringContaining('卵焼き'), expect.stringContaining('親子丼')])
+    const genreTabs = within(screen.getByRole('tablist', { name: '料理のカテゴリ' }))
+    expect(genreTabs.getByRole('tab', { name: /和食 2/ })).toBeInTheDocument()
+    expect(genreTabs.getByRole('tab', { name: /全カテゴリ 4/ })).toBeInTheDocument()
+    // 0件のカテゴリは出さない
+    expect(genreTabs.queryByRole('tab', { name: /韓国料理/ })).not.toBeInTheDocument()
+
+    await userEvent.click(genreTabs.getByRole('tab', { name: /中華 1/ }))
+    expect(screen.getAllByRole('link').filter((a) => a.getAttribute('href')?.startsWith('/recipes/') && !a.getAttribute('href').endsWith('/new'))).toHaveLength(1)
+
+    // 検索はカテゴリをまたぐ(すべてのカテゴリに戻すと、ほかのカテゴリの一致も出る)
+    await userEvent.click(genreTabs.getByRole('tab', { name: /全カテゴリ/ }))
+    await userEvent.type(screen.getByLabelText('レシピを検索'), 'egg')
+    const found = screen.getAllByRole('link').filter((a) => a.getAttribute('href')?.startsWith('/recipes/') && !a.getAttribute('href').endsWith('/new'))
+    expect(found.map((a) => a.getAttribute('href'))).toEqual(['/recipes/tamago', '/recipes/oyako'])
   })
 })

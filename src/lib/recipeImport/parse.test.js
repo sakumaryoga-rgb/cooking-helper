@@ -26,8 +26,15 @@ describe('JSON-LD', () => {
     const r = extractRecipe(
       ld({ '@context': 'https://schema.org', '@type': 'Recipe', name: '親子丼 &amp; みそ汁', recipeYield: '2人分', recipeIngredient: ['鶏もも肉 200g', '卵 3個'], recipeInstructions: [{ text: '手順1' }] })
     )
-    expect(r).toEqual({ title: '親子丼 & みそ汁', servings: 2, yieldText: '2人分', ingredients: ['鶏もも肉 200g', '卵 3個'] })
+    expect(r).toEqual({ title: '親子丼 & みそ汁', servings: 2, yieldText: '2人分', ingredients: ['鶏もも肉 200g', '卵 3個'], cuisine: [], categories: [], keywords: [] })
     expect(JSON.stringify(r)).not.toContain('手順1')
+  })
+
+  it('料理ジャンルの手がかり(recipeCuisine・recipeCategory・keywords)を短い文字列の配列で取り出す', () => {
+    const r = extractRecipe(
+      ld({ '@type': 'Recipe', name: '麻婆豆腐', recipeIngredient: ['豆腐 1丁'], recipeCuisine: '中華', recipeCategory: ['主菜', 123], keywords: '豆腐,ひき肉、簡単' })
+    )
+    expect(r).toMatchObject({ cuisine: ['中華'], categories: ['主菜'], keywords: ['豆腐', 'ひき肉', '簡単'] })
   })
 
   it('@graph や配列、@type の配列にも対応する', () => {

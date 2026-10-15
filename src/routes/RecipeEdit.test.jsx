@@ -129,4 +129,26 @@ describe('レシピのカスタマイズ', () => {
     )
     expect(await screen.findByText('前の画面')).toBeInTheDocument()
   })
+
+  it('料理のカテゴリは自動で選ばれ、選び直すと手動として保存する。材料は任意に切り替えられる', async () => {
+    vi.mocked(updateRecipe).mockClear()
+    vi.mocked(updateRecipe).mockResolvedValue({ recipeId: 'r1' })
+    renderEdit()
+    // だし巻き卵 → 和食(自動)
+    expect(screen.getByRole('radio', { name: /和食/ })).toHaveAttribute('aria-checked', 'true')
+    expect(screen.getByText(/自動で「和食」にしました/)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('radio', { name: /洋食/ }))
+    await userEvent.click(screen.getByRole('button', { name: '卵を任意の材料にする' }))
+    await userEvent.click(screen.getByRole('button', { name: '保存する' }))
+    expect(updateRecipe).toHaveBeenCalledWith(expect.objectContaining({ category: 'western', categoryManual: true }))
+    expect(vi.mocked(updateRecipe).mock.calls[0][0].items[0]).toMatchObject({ name: '卵', optional: true })
+  })
+
+  it('カテゴリを選んでいなければ、自動の分類を手動ではないものとして保存する', async () => {
+    vi.mocked(updateRecipe).mockClear()
+    vi.mocked(updateRecipe).mockResolvedValue({ recipeId: 'r1' })
+    renderEdit()
+    await userEvent.click(screen.getByRole('button', { name: '保存する' }))
+    expect(updateRecipe).toHaveBeenCalledWith(expect.objectContaining({ category: 'japanese', categoryManual: false }))
+  })
 })

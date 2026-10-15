@@ -52,6 +52,24 @@ describe('レシピURLの取り込み', () => {
     expect(args.items.find((i) => i.name === 'きゅうり').requiredQuantity).toBe('2')
   })
 
+  it('取り込んだレシピは、サイトの料理ジャンルと料理名からカテゴリを自動で付け、保存前に変えられる', async () => {
+    vi.mocked(saveRecipe).mockClear()
+    vi.mocked(fetchRecipeFromUrl).mockResolvedValue({
+      recipe: { title: 'ピリ辛きゅうり', servings: 2, url: URL_, sourceKey: 'delishkitchen:1', site: 'DELISH KITCHEN', ingredients: ['きゅうり 1本'], cuisine: ['中華'] },
+    })
+    renderPage()
+    await userEvent.type(screen.getByLabelText('レシピのURL'), URL_)
+    await userEvent.click(screen.getByRole('button', { name: '読み込む' }))
+    expect(screen.getByRole('radio', { name: /中華/ })).toHaveAttribute('aria-checked', 'true')
+    await userEvent.click(screen.getByRole('button', { name: 'レシピ帳に保存' }))
+    expect(saveRecipe).toHaveBeenLastCalledWith(expect.objectContaining({ category: 'chinese', categoryManual: false }))
+
+    // 保存前に選び直すと、手動のカテゴリとして保存する
+    await userEvent.click(screen.getByRole('radio', { name: /韓国料理/ }))
+    await userEvent.click(screen.getByRole('button', { name: 'レシピ帳に保存' }))
+    expect(saveRecipe).toHaveBeenLastCalledWith(expect.objectContaining({ category: 'korean', categoryManual: true }))
+  })
+
   it('すでに保存したレシピは読み込まずに知らせる', async () => {
     vi.mocked(findDuplicate).mockResolvedValue({ id: 'r9', title: 'バンバンジー' })
     renderPage()

@@ -344,3 +344,70 @@ describe('水・お湯は食材として数えない', () => {
     expect(status.shortfallCount).toBe(2)
   })
 })
+
+describe('必須・任意の材料', () => {
+  const opt = (ingredient_id, required_quantity, name = ingredient_id, unit = '個') => ({ ...line(ingredient_id, required_quantity, name, unit), optional: true })
+
+  it('必須の材料がそろえば、任意の材料が足りなくても作れる', () => {
+    const recipe = { id: 'r', recipe_ingredients: [line('beef', 200, '牛肉', 'g'), line('potato', 3, 'じゃがいも'), opt('peas', 5, 'さやえんどう', '本')] }
+    const status = getRecipeStatus(recipe, stock([{ id: 'beef', quantity: 300 }, { id: 'potato', quantity: 3 }]))
+    expect(status).toMatchObject({ level: 'makeable', makeable: true, shortfallCount: 0, shortfalls: [], optionalCount: 1, noRequired: false })
+    expect(status.lines.find((l) => l.ingredientId === 'peas')).toMatchObject({ optional: true, optionalStock: 'none' })
+  })
+
+  it('必須の材料が1つでも足りなければ作れない。「あとN品」は必須の不足だけを数える', () => {
+    const recipe = { id: 'r', recipe_ingredients: [line('beef', 200, '牛肉', 'g'), line('potato', 3, 'じゃがいも'), opt('peas', 5), opt('shimeji', 1)] }
+    const status = getRecipeStatus(recipe, stock([{ id: 'beef', quantity: 300 }]))
+    expect(status).toMatchObject({ level: 'almost', makeable: false, shortfallCount: 1 })
+    expect(status.shortfalls.map((s) => s.ingredientId)).toEqual(['potato'])
+  })
+
+  it('任意の材料の在庫を「あり・少ない・なし」で区別する', () => {
+    const recipe = { id: 'r', recipe_ingredients: [line('beef', 1), opt('a', 2), opt('b', 2), opt('c', 2), opt('salt', 5)] }
+    const status = getRecipeStatus(recipe, stock([{ id: 'beef', quantity: 1 }, { id: 'a', quantity: 2 }, { id: 'b', quantity: 1 }, { id: 'salt', quantity: 0, is_staple: true }]))
+    const of = (id) => status.lines.find((l) => l.ingredientId === id).optionalStock
+    expect([of('a'), of('b'), of('c'), of('salt')]).toEqual(['enough', 'partial', 'none', 'enough'])
+  })
+
+  it('在庫は必須の材料に先に割り当てる(任意の材料が必須の材料の在庫を使わない)', () => {
+    // 同じ卵を、任意の材料(先に並ぶ)と必須の材料が使う
+    const recipe = { id: 'r', recipe_ingredients: [opt('egg', 2, '卵'), line('egg', 2, '卵')] }
+    const status = getRecipeStatus(recipe, stock([{ id: 'egg', quantity: 2 }]))
+    expect(status.level).toBe('makeable')
+  })
+
+  it('任意の材料が確認待ち・分量が数で分からなくても、確認にしない', () => {
+    const recipe = {
+      id: 'r',
+      recipe_ingredients: [
+        line('beef', 1),
+        { ingredient_id: null, source_name: 'パセリ', amount_text: '少々', optional: true },
+        { ingredient_id: 'cheese', required_quantity: null, amount_text: '1袋', ingredient: { id: 'cheese', name: 'チーズ', unit: 'g' }, optional: true },
+      ],
+    }
+    const status = getRecipeStatus(recipe, stock([{ id: 'beef', quantity: 1 }, { id: 'cheese', quantity: 100, unit: 'g' }]))
+    expect(status).toMatchObject({ level: 'makeable', pendingCount: 0, uncertainCount: 0 })
+  })
+
+  it('材料がすべて任意なら「作れる」と断定しない', () => {
+    const status = getRecipeStatus({ id: 'r', recipe_ingredients: [opt('a', 1), opt('b', 1)] }, stock([{ id: 'a', quantity: 1 }, { id: 'b', quantity: 1 }]))
+    expect(status).toMatchObject({ level: 'check', makeable: false, noRequired: true })
+  })
+
+  it('任意の材料は代替を探さない', () => {
+    const recipe = { id: 'r', recipe_ingredients: [line('egg', 1), { ...opt('thigh', 100, '鶏もも肉', 'g') }] }
+    const fridge = stock([{ id: 'egg', quantity: 1 }, { id: 'thigh', quantity: 0, catalog_id: 'c-thigh', unit: 'g' }, { id: 'breast', quantity: 300, catalog_id: 'c-breast', unit: 'g' }])
+    const status = getRecipeStatus(recipe, fridge, { substitutions: [{ id: 's1', from_catalog_id: 'c-thigh', to_catalog_id: 'c-breast', ratio: 1 }] })
+    expect(status.lines.find((l) => l.ingredientId === 'thigh').substitutes).toEqual([])
+  })
+
+  it('作るときの確認では、任意の材料は最初は在庫から引かない(使うと選んだときだけ)', () => {
+    const recipe = { id: 'r', recipe_ingredients: [line('beef', 200, '牛肉', 'g'), opt('peas', 5, 'さやえんどう', '本')] }
+    const status = getRecipeStatus(recipe, stock([{ id: 'beef', quantity: 300 }, { id: 'peas', quantity: 10 }]))
+    const plan = buildCookPlan(status)
+    expect(plan.find((r) => r.ingredientId === 'beef')).toMatchObject({ include: true, optional: false })
+    expect(plan.find((r) => r.ingredientId === 'peas')).toMatchObject({ include: false, optional: true, quantity: 5 })
+    // 引かない材料の注意書きに、任意の材料は挙げない
+    expect(describeNotSubtracted(status, plan)).toEqual({ pending: [], unknown: [] })
+  })
+})

@@ -26,6 +26,8 @@ import { useIngredientBatches } from '@/hooks/useIngredientBatches'
 import { usableIngredientsById } from '@/lib/shelfLife'
 import { useCommonConversions } from '@/hooks/useCommonConversions'
 import { CookedCelebration } from '@/components/CookedCelebration'
+import { ExtraIngredientAdder } from '@/components/ExtraIngredientAdder'
+import { categoryInfo, categoryOf } from '@/lib/recipeCategory'
 
 
 export function RecipeDetail({ groupId }) {
@@ -174,7 +176,13 @@ export function RecipeDetail({ groupId }) {
     const items = plan
       .filter((row) => row.include && !row.staple && Number(row.quantity) > 0)
       // 1/3 を3回使ったときなどに在庫へ 0.000001 のような端数を残さない
-      .map((row) => ({ ingredient_id: row.ingredientId, quantity: snapToStock(row.quantity, ingredientsById.get(row.ingredientId)?.quantity), substitute_for: row.substituteFor }))
+      .map((row) => ({
+        ingredient_id: row.ingredientId,
+        quantity: snapToStock(row.quantity, ingredientsById.get(row.ingredientId)?.quantity),
+        substitute_for: row.substituteFor,
+        // サーバーで確かめる種類: 必須・任意はこのレシピの材料だけ。今回だけ追加(extra)は家の食材ならよい
+        kind: row.extra ? 'extra' : row.substituteFor ? 'substitute' : row.optional ? 'optional' : 'required',
+      }))
     const toRemember = plan.filter((row) => row.unknown && row.remember && row.include && Number(row.quantity) > 0)
     const { data: logId, error } = await supabase.rpc('cook_recipe_v2', { p_recipe_id: recipe.id, p_items: items, p_request_id: requestId })
     setSaving(false)
@@ -214,6 +222,65 @@ export function RecipeDetail({ groupId }) {
     if (logId === cooked?.logId) setCooked(null)
     refreshIngredients()
     refreshLogs()
+  }
+
+  // 調理の確定シートの1行(必須・任意・今回だけ追加で共通)
+  function renderPlanRow(row) {
+    return (
+      <div key={row.key} className="flex flex-col gap-0.5">
+        <div className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            className="size-4 shrink-0"
+            checked={row.include}
+            onChange={(e) => updatePlan(row.key, { include: e.target.checked })}
+            aria-label={row.optional ? `${row.name}を今回は使う` : `${row.name}を使う`}
+          />
+          <span className="flex-1 text-sm">
+            {row.name}
+            {row.optional && <span className="ml-1 text-xs text-sky-700 dark:text-sky-400">今回は使う</span>}
+          </span>
+          <QuantityInput
+            className="w-20 h-8"
+            value={row.quantity}
+            onChange={(v) => updatePlan(row.key, row.unknown ? { quantity: v, include: Number(v) > 0 } : { quantity: v })}
+            aria-label={`${row.name}の使用量`}
+          />
+          <span className="min-w-8 whitespace-nowrap text-xs text-muted-foreground">{row.unit}</span>
+          {row.extra && (
+            <Button size="icon" variant="ghost" className="size-7" aria-label={`${row.name}を今回の追加から外す`} onClick={() => setPlan((prev) => prev.filter((r) => r.key !== row.key))}>
+              <X className="size-3.5" />
+            </Button>
+          )}
+        </div>
+        {row.substituteFor && <p className="pl-6 text-xs text-amber-700 dark:text-amber-400">{row.substituteFor}の代わり</p>}
+        {row.converted && (
+          <p className="pl-6 text-xs text-violet-700 dark:text-violet-400">
+            レシピの「{row.amountText}」を、覚えた「1{row.converted.unit} = {row.converted.per}
+            {row.unit}」で計算しました。商品で量が違うときは直してください
+          </p>
+        )}
+        {row.unknown && (
+          <div className="flex flex-col gap-1 pl-6 text-xs text-muted-foreground">
+            <p>
+              レシピの分量は「{row.amountText || '分量不明'}」です。使った量を入れたときだけ在庫から引きます
+            </p>
+            {row.estimate && (
+              <p className="text-violet-700 dark:text-violet-400">
+                {row.estimate.text}を入れてあります。確かめてチェックを入れたときだけ引きます
+              </p>
+            )}
+            {Number(row.quantity) > 0 && parseAmount(row.amountText ?? '').quantity != null && parseAmount(row.amountText ?? '').unit && (
+              <label className="flex items-center gap-1.5">
+                <input type="checkbox" className="size-3.5" checked={Boolean(row.remember)} onChange={(e) => updatePlan(row.key, { remember: e.target.checked })} />
+                次から「{row.amountText}」を {row.quantity}
+                {row.unit} として覚える
+              </label>
+            )}
+          </div>
+        )}
+      </div>
+    )
   }
 
   if (loading) return <p className="text-sm text-muted-foreground">読み込み中...</p>
@@ -260,6 +327,10 @@ export function RecipeDetail({ groupId }) {
           <h1 className="text-xl font-bold leading-snug">{recipe.title}</h1>
           <div className="flex flex-wrap items-center gap-1.5">
             <MakeableBadge status={status} />
+            <span className="rounded-full bg-muted px-2.5 py-1 text-[11px] font-semibold text-muted-foreground">
+              <span aria-hidden="true">{categoryInfo(categoryOf(recipe)).emoji} </span>
+              {categoryInfo(categoryOf(recipe)).label}
+            </span>
             {!recipe.url && (
               <span className="rounded-full bg-violet-100 px-2.5 py-1 text-[11px] font-semibold text-violet-800 dark:bg-violet-950 dark:text-violet-300">
                 わが家のオリジナル
@@ -295,7 +366,12 @@ export function RecipeDetail({ groupId }) {
       {(status.level === 'almost' || status.level === 'short') && (
         <p className="text-sm text-destructive">不足: {describeShortfalls(status.shortfalls, 5)}</p>
       )}
-      {status.level === 'check' && (
+      {status.level === 'check' && status.noRequired && (
+        <p className="text-sm text-violet-800 dark:text-violet-300">
+          材料がすべて「任意」です。このレシピに欠かせない材料を「必須にする」で選ぶと、作れるかどうかがわかります
+        </p>
+      )}
+      {status.level === 'check' && !status.noRequired && (
         <p className="text-sm text-violet-800 dark:text-violet-300">
           {status.pendingCount > 0 && `どの食材か決まっていない材料が${status.pendingCount}品あります。`}
           {status.uncertainCount > 0 && `分量を数で比べられない材料が${status.uncertainCount}品あります(在庫はあります)。`}
@@ -363,16 +439,29 @@ export function RecipeDetail({ groupId }) {
           const staple = Boolean(current?.is_staple)
           const line = status.lines.find((l) => l.ingredientId === ri.ingredient_id)
           const shortfall = status.shortfalls.find((s) => s.ingredientId === ri.ingredient_id)
-          const enough = !shortfall
+          const optional = Boolean(ri.optional)
+          // 任意の材料は不足にしない(在庫があるかだけを見せる)
+          const enough = optional ? line?.optionalStock === 'enough' : !shortfall
           const unit = ri.ingredient?.unit ?? current?.unit ?? ''
           return (
             <li key={ri.id} className="flex flex-col gap-1 px-3 py-2.5">
               <div className="flex items-center justify-between gap-3">
                 <div className="flex items-center gap-2 min-w-0">
-                  {enough ? <Check className="size-4 shrink-0 text-emerald-600" /> : <span className="size-2 shrink-0 rounded-full bg-destructive" />}
+                  {enough ? (
+                    <Check className={`size-4 shrink-0 ${optional ? 'text-sky-600' : 'text-emerald-600'}`} />
+                  ) : optional ? (
+                    <span className="size-2 shrink-0 rounded-full border border-muted-foreground/60" />
+                  ) : (
+                    <span className="size-2 shrink-0 rounded-full bg-destructive" />
+                  )}
                   <span className="text-sm truncate">{ri.ingredient?.name ?? current?.name}</span>
+                  {optional && (
+                    <span className="shrink-0 rounded-full bg-sky-100 px-1.5 py-px text-[10px] font-semibold text-sky-800 dark:bg-sky-950 dark:text-sky-300">
+                      任意・{line?.optionalStock === 'enough' ? '在庫あり' : line?.optionalStock === 'partial' ? '在庫が少ない' : '在庫なし'}
+                    </span>
+                  )}
                 </div>
-                <span className={`text-xs text-right ${enough ? 'text-muted-foreground' : 'text-destructive'}`}>
+                <span className={`text-xs text-right ${enough || optional ? 'text-muted-foreground' : 'text-destructive'}`}>
                   {staple ? (
                     '常備品'
                   ) : line?.amountUnknown || line?.vague ? (
@@ -574,53 +663,26 @@ export function RecipeDetail({ groupId }) {
                 </p>
               )
             })()}
-            {plan.filter((row) => !row.staple).map((row) => (
-              <div key={row.key} className="flex flex-col gap-0.5">
-                <div className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    className="size-4 shrink-0"
-                    checked={row.include}
-                    onChange={(e) => updatePlan(row.key, { include: e.target.checked })}
-                    aria-label={`${row.name}を使う`}
-                  />
-                  <span className="flex-1 text-sm">{row.name}</span>
-                  <QuantityInput
-                    className="w-20 h-8"
-                    value={row.quantity}
-                    onChange={(v) => updatePlan(row.key, row.unknown ? { quantity: v, include: Number(v) > 0 } : { quantity: v })}
-                    aria-label={`${row.name}の使用量`}
-                  />
-                  <span className="text-xs text-muted-foreground w-8">{row.unit}</span>
-                </div>
-                {row.substituteFor && <p className="pl-6 text-xs text-amber-700 dark:text-amber-400">{row.substituteFor}の代わり</p>}
-                {row.converted && (
-                  <p className="pl-6 text-xs text-violet-700 dark:text-violet-400">
-                    レシピの「{row.amountText}」を、覚えた「1{row.converted.unit} = {row.converted.per}
-                    {row.unit}」で計算しました。商品で量が違うときは直してください
-                  </p>
-                )}
-                {row.unknown && (
-                  <div className="flex flex-col gap-1 pl-6 text-xs text-muted-foreground">
-                    <p>
-                      レシピの分量は「{row.amountText || '分量不明'}」です。使った量を入れたときだけ在庫から引きます
-                    </p>
-                    {row.estimate && (
-                      <p className="text-violet-700 dark:text-violet-400">
-                        {row.estimate.text}を入れてあります。確かめてチェックを入れたときだけ引きます
-                      </p>
-                    )}
-                    {Number(row.quantity) > 0 && parseAmount(row.amountText ?? '').quantity != null && parseAmount(row.amountText ?? '').unit && (
-                      <label className="flex items-center gap-1.5">
-                        <input type="checkbox" className="size-3.5" checked={Boolean(row.remember)} onChange={(e) => updatePlan(row.key, { remember: e.target.checked })} />
-                        次から「{row.amountText}」を {row.quantity}
-                        {row.unit} として覚える
-                      </label>
-                    )}
-                  </div>
-                )}
-              </div>
-            ))}
+            {plan.filter((row) => !row.staple && !row.optional && !row.extra).map(renderPlanRow)}
+            {plan.some((row) => row.optional && !row.staple) && (
+              <section className="flex flex-col gap-2 rounded-xl border border-sky-200 bg-sky-50/60 px-3 py-2.5 dark:border-sky-900 dark:bg-sky-950/30" aria-label="任意の材料">
+                <p className="text-xs font-medium text-sky-900 dark:text-sky-200">任意の材料(使うものだけチェックすると在庫から引きます)</p>
+                {plan.filter((row) => row.optional && !row.staple).map(renderPlanRow)}
+              </section>
+            )}
+            <ExtraIngredientAdder
+              ingredients={ingredients}
+              excludeIds={new Set(plan.map((row) => row.ingredientId))}
+              onAdd={(ing, quantity) =>
+                setPlan((prev) => [...prev, { key: `e:${ing.id}`, ingredientId: ing.id, name: ing.name, unit: ing.unit, quantity, include: true, extra: true, substituteFor: null }])
+              }
+            />
+            {plan.some((row) => row.extra) && (
+              <section className="flex flex-col gap-2" aria-label="今回だけ追加した食材">
+                <p className="text-xs font-medium">今回だけ追加(レシピの材料は変わりません)</p>
+                {plan.filter((row) => row.extra).map(renderPlanRow)}
+              </section>
+            )}
             {(() => {
               // 常備品は数えないので、分量の確認はしない。名前だけを畳んで見せる
               const staples = plan.filter((row) => row.staple)

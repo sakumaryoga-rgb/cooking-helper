@@ -15,6 +15,8 @@
 // - 「少々」「適量」: 在庫があれば足りているとみなす(量を量らないため)
 // - 常備品は、分量が数で分からなくても 'check' にしない(量を数えない食材のため)
 // - 確認待ちの材料(どの食材か未確定): 'check' にする
+// - 任意の材料(optional): あれば使う材料。不足・確認待ち・分量の確認・品数に入れない(必須の材料だけで判定する)。
+//   在庫は必須の材料に先に割り当てる。材料がすべて任意なら、何があれば作れるか分からないので 'check'(noRequired)
 // - 水・お湯など(isNotStocked)は食材として数えない(不足・確認・品数・調理の差し引きに入れない。notStocked: true の行で返す)
 
 import { parseAmount } from '@/lib/recipeImport/ingredientLine'
@@ -65,7 +67,13 @@ export function getRecipeStatus(recipe, ingredientsById, { substitutions = [], c
       notStocked: true,
       amountText: req.amount_text ?? null,
     }))
-  const lines = items.map((req) => {
+  // 必須の材料に先に在庫を割り当てる(任意の材料が必須の材料の在庫を奪わない)。並びは元のまま返す
+  const order = [...items.filter((req) => !req.optional), ...items.filter((req) => req.optional)]
+  const lineOf = new Map()
+  for (const req of order) lineOf.set(req, buildLine(req))
+  const lines = items.map((req) => lineOf.get(req))
+
+  function buildLine(req) {
     const current = ingredientsById.get(req.ingredient_id)
     const conv =
       req.required_quantity == null && req.ingredient_id
@@ -98,6 +106,8 @@ export function getRecipeStatus(recipe, ingredientsById, { substitutions = [], c
       // 共通の目安(候補)。分量は確定させず、「作った」の確認画面で初期値として見せる
       estimate,
       note: req.note ?? null,
+      // 任意の材料(あれば使う)。「作れる」の判定・不足の品数には入れない
+      optional: Boolean(req.optional),
     }
     if (line.pending) return line
     if (!known) {
@@ -118,11 +128,11 @@ export function getRecipeStatus(recipe, ingredientsById, { substitutions = [], c
     line.missing = required - take > EPSILON ? required - take : 0
     if (current) remaining.set(current.id, have - take)
     return line
-  })
+  }
 
-  // 2. 足りない分を、残った在庫の代替で補う
+  // 2. 足りない分を、残った在庫の代替で補う(必須の材料だけ。任意の材料はなければ使わない)
   for (const line of lines) {
-    if (line.missing <= EPSILON) continue
+    if (line.missing <= EPSILON || line.optional) continue
     const original = ingredientsById.get(line.ingredientId)
     const fromCatalog = original?.catalog_id ? catalogById.get(original.catalog_id) : null
     if (!original?.catalog_id || (fromCatalog && fromCatalog.unit !== original.unit)) continue
@@ -164,7 +174,8 @@ export function getRecipeStatus(recipe, ingredientsById, { substitutions = [], c
     line.missing = 0
   }
 
-  const shortfalls = lines
+  const required = lines.filter((l) => !l.optional)
+  const shortfalls = required
     .filter((l) => !l.pending && l.missing > EPSILON)
     .map((l) => ({
       ingredientId: l.ingredientId,
@@ -176,12 +187,20 @@ export function getRecipeStatus(recipe, ingredientsById, { substitutions = [], c
       missingQuantity: Number.isFinite(l.missing) ? round(l.missing) : null,
       amountText: l.amountText,
     }))
-  const pendingCount = lines.filter((l) => l.pending).length
-  const uncertainCount = lines.filter((l) => !l.pending && l.amountUnknown && !(l.missing > EPSILON)).length
-  const substituted = lines.some((l) => l.substitutes.length > 0)
+  const pendingCount = required.filter((l) => l.pending).length
+  const uncertainCount = required.filter((l) => !l.pending && l.amountUnknown && !(l.missing > EPSILON)).length
+  const substituted = required.some((l) => l.substitutes.length > 0)
+  // 任意の材料: 在庫があるか(なくても作れる)
+  for (const l of lines) {
+    if (l.optional) l.optionalStock = l.pending ? 'unknown' : l.staple || l.missing <= EPSILON ? 'enough' : l.currentQuantity > 0 ? 'partial' : 'none'
+  }
+  // 材料がすべて任意: 何があれば作れるか分からないので「作れる」と断定しない
+  const noRequired = items.length > 0 && required.length === 0
   const level =
     items.length === 0
       ? 'empty'
+      : noRequired
+        ? 'check'
       : shortfalls.length === 0
         ? pendingCount + uncertainCount > 0
           ? 'check'
@@ -202,7 +221,9 @@ export function getRecipeStatus(recipe, ingredientsById, { substitutions = [], c
     stapleCount,
     pendingCount,
     uncertainCount,
-    readiness: items.length === 0 ? 0 : (items.length - shortfalls.length - pendingCount) / items.length,
+    noRequired,
+    optionalCount: lines.length - required.length,
+    readiness: required.length === 0 ? 0 : (required.length - shortfalls.length - pendingCount) / required.length,
   }
 }
 
@@ -287,6 +308,7 @@ export function buildCookPlan(status) {
     // 数が分からない分量(1パック・少々)は推測で引かない: 量を入れたときだけ引く
     if (line.amountUnknown || line.vague) {
       rows.push({
+        optional: line.optional,
         key: `o:${line.ingredientId}`,
         ingredientId: line.ingredientId,
         name: line.name,
@@ -310,8 +332,10 @@ export function buildCookPlan(status) {
         name: line.name,
         unit: line.unit,
         quantity: round(originalQuantity),
-        // 常備品は数えないので、最初は在庫から引かない(引きたいときはチェックを入れる)
-        include: !line.staple,
+        // 常備品は数えないので、最初は在庫から引かない(引きたいときはチェックを入れる)。
+        // 任意の材料も、「今回は使う」を選んだときだけ引く
+        include: !line.staple && !line.optional,
+        optional: line.optional,
         staple: line.staple,
         substituteFor: null,
         converted: line.converted,
@@ -341,8 +365,8 @@ export function scaleRecipe(recipe, factor) {
 
 // 調理のときに在庫から引かない材料(量を入れない限り)。確定画面で明示する
 export function describeNotSubtracted(status, plan) {
-  const pending = status.lines.filter((l) => l.pending).map((l) => l.name)
-  // 常備品(適量など)は、もともと在庫から引かないので挙げない
-  const unknown = plan.filter((row) => row.unknown && !row.staple && !(row.include && Number(row.quantity) > 0)).map((row) => row.name)
+  const pending = status.lines.filter((l) => l.pending && !l.optional).map((l) => l.name)
+  // 常備品(適量など)と任意の材料は、もともと選ばない限り在庫から引かないので挙げない
+  const unknown = plan.filter((row) => row.unknown && !row.staple && !row.optional && !(row.include && Number(row.quantity) > 0)).map((row) => row.name)
   return { pending, unknown }
 }

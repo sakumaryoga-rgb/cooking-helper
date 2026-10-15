@@ -120,6 +120,8 @@ export function mergeResolved(rows) {
       if (row.key) prev.memberKeys.push(row.key)
       // どれかの行で「適量」にして常備品にすると決めたら、まとめた食材を常備品にする
       if (row.stapleOnSave) prev.stapleOnSave = true
+      // どれかの行が必須なら必須
+      prev.optional = Boolean(prev.optional && row.optional)
     } else {
       // memberKeys: まとめた元の行(手順で使う材料を、保存先の食材に結び付けるため)
       merged.set(key, { ...row, requiredQuantity: known ? qty : '', memberKeys: row.key ? [row.key] : [] })
