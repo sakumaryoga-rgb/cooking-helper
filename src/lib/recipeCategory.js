@@ -1,13 +1,14 @@
 // レシピの料理カテゴリ(1レシピに1つ)。並び順はレシピ一覧のまとまりの順。
 // カテゴリを増やすときは、ここに足すだけでよい(DB は形だけを確かめる。migration 028)
+// tone: レシピ一覧のカテゴリの見出しの色(Tailwind のクラスはそのまま書く)
 export const CATEGORIES = [
-  { id: 'japanese', label: '和食', emoji: '🍙' },
-  { id: 'chinese', label: '中華', emoji: '🥟' },
-  { id: 'italian', label: 'イタリアン', emoji: '🍝' },
-  { id: 'western', label: '洋食', emoji: '🍳' },
-  { id: 'korean', label: '韓国料理', emoji: '🌶️' },
-  { id: 'ethnic', label: 'エスニック', emoji: '🍛' },
-  { id: 'other', label: 'その他・未分類', emoji: '🍽️' },
+  { id: 'japanese', label: '和食', emoji: '🥢', tone: 'bg-rose-50 dark:bg-rose-950/30', badge: 'bg-rose-100 dark:bg-rose-900/60' },
+  { id: 'chinese', label: '中華', emoji: '🥟', tone: 'bg-amber-50 dark:bg-amber-950/30', badge: 'bg-amber-100 dark:bg-amber-900/60' },
+  { id: 'italian', label: 'イタリアン', emoji: '🍝', tone: 'bg-emerald-50 dark:bg-emerald-950/30', badge: 'bg-emerald-100 dark:bg-emerald-900/60' },
+  { id: 'western', label: '洋食', emoji: '🍳', tone: 'bg-orange-50 dark:bg-orange-950/30', badge: 'bg-orange-100 dark:bg-orange-900/60' },
+  { id: 'korean', label: '韓国料理', emoji: '🌶️', tone: 'bg-red-50 dark:bg-red-950/30', badge: 'bg-red-100 dark:bg-red-900/60' },
+  { id: 'ethnic', label: 'エスニック', emoji: '🍛', tone: 'bg-lime-50 dark:bg-lime-950/30', badge: 'bg-lime-100 dark:bg-lime-900/60' },
+  { id: 'other', label: 'その他・未分類', emoji: '🍽️', tone: 'bg-stone-50 dark:bg-stone-900/40', badge: 'bg-stone-100 dark:bg-stone-800' },
 ]
 
 export const OTHER = 'other'
