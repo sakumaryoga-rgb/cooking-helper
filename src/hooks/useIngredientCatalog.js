@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/supabaseClient'
-import { debounce, useSharedKitchen } from '@/hooks/kitchenData'
+import { debounce, resyncOnRejoin, useSharedKitchen } from '@/hooks/kitchenData'
 
 // 食材マスタ(全ユーザー共通・グループに紐付かない参照データ)を取得し、
 // 他メンバーの追加・カテゴリ変更・削除をリアルタイムに反映する
@@ -40,7 +40,7 @@ export function useIngredientCatalogSource(enabled = true) {
     const channel = supabase
       .channel(`ingredient-catalog-${Math.random().toString(36).slice(2)}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'ingredient_catalog' }, () => reload())
-      .subscribe()
+      .subscribe(resyncOnRejoin(reload))
 
     return () => {
       reload.cancel()
