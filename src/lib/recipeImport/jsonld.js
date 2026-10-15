@@ -43,6 +43,16 @@ export function parseServings(recipeYield) {
   return n >= 1 && n <= 100 ? n : null
 }
 
+// 文字列・配列・カンマ区切りのどれでも、短い文字列の配列にする(最大10件・各30文字)
+function tags(value) {
+  const list = Array.isArray(value) ? value : typeof value === 'string' ? value.split(/[,、，]/) : []
+  return list
+    .filter((v) => typeof v === 'string')
+    .map((v) => clean(v, 30))
+    .filter(Boolean)
+    .slice(0, 10)
+}
+
 export function extractRecipe(html) {
   const blocks = String(html).matchAll(/<script[^>]*type=["']?application\/ld\+json["']?[^>]*>([\s\S]*?)<\/script>/gi)
   for (const [, body] of blocks) {
@@ -67,7 +77,16 @@ export function extractRecipe(html) {
       .slice(0, MAX_LINES)
     if (!title && ingredients.length === 0) continue
     const yieldText = clean(Array.isArray(recipe.recipeYield) ? recipe.recipeYield.join(' ') : recipe.recipeYield ?? '', 40)
-    return { title, servings: parseServings(recipe.recipeYield), yieldText, ingredients }
+    // 料理ジャンルの手がかり(レシピのカテゴリの自動分類に使う。サイトが付けていないこともある)
+    return {
+      title,
+      servings: parseServings(recipe.recipeYield),
+      yieldText,
+      ingredients,
+      cuisine: tags(recipe.recipeCuisine),
+      categories: tags(recipe.recipeCategory),
+      keywords: tags(recipe.keywords),
+    }
   }
   return null
 }

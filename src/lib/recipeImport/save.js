@@ -73,6 +73,8 @@ async function toIngredientRows(supabase, groupId, items, fridge) {
       raw_text: row.rawText ? String(row.rawText).slice(0, 200) : null,
       amount_text: row.amountText ? String(row.amountText).slice(0, 60) : null,
       note: row.note ? String(row.note).slice(0, 60) : null,
+      // 任意の材料(あれば使う)。指定がなければ必須
+      optional: Boolean(row.optional),
     }
     if (row.needsChoice) {
       const sourceName = String(row.sourceName || row.name).slice(0, 80)
@@ -93,6 +95,8 @@ async function toIngredientRows(supabase, groupId, items, fridge) {
       prev.raw_text = [prev.raw_text, base.raw_text].filter(Boolean).join(' / ').slice(0, 200) || null
       prev.amount_text = [prev.amount_text, base.amount_text].filter(Boolean).join(' + ').slice(0, 60) || null
       prev.note = [...new Set([prev.note, base.note].filter(Boolean))].join('・').slice(0, 60) || null
+      // 同じ食材をまとめたときは、どれかが必須なら必須
+      prev.optional = prev.optional && base.optional
     } else {
       byIngredient.set(id, { ...base, ingredient_id: id, source_name: null })
     }
@@ -108,7 +112,8 @@ function savedSteps(steps, items, targets) {
   return stepsToSaved(steps, items, (item) => targets.get(item.key) ?? null)
 }
 
-export async function saveRecipe({ supabase, groupId, userId, title, url, sourceKey, sourceSite, servings, items, fridge, extras = {}, steps }) {
+// category: 料理カテゴリ(lib/recipeCategory)。categoryManual: 利用者が選んだ(自動の分類で上書きしない)
+export async function saveRecipe({ supabase, groupId, userId, title, url, sourceKey, sourceSite, servings, items, fridge, extras = {}, steps, category = null, categoryManual = false }) {
   if (!title.trim()) return { error: 'タイトルを入力してください' }
   if (!items.some((i) => i.include)) return { error: '材料を1つ以上追加してください' }
 
@@ -132,6 +137,8 @@ export async function saveRecipe({ supabase, groupId, userId, title, url, source
       instructions: steps ? stepsToInstructions(steps) || null : extras.instructions ?? null,
       memo: extras.memo ?? null,
       icon: extras.icon ?? null,
+      category: category ?? null,
+      category_manual: Boolean(categoryManual && category),
       // 手順ごとの材料(オリジナルレシピだけ。migration 025)
       ...(steps ? { steps: savedSteps(steps, items, ingredientRows.targets).length ? savedSteps(steps, items, ingredientRows.targets) : null } : {}),
     })
@@ -183,7 +190,7 @@ export async function findDuplicate(supabase, groupId, sourceKey) {
 
 // 保存したレシピのカスタマイズ。新しい食材は先に冷蔵庫の行(在庫0)を用意し、
 // レシピと材料の差し替えは update_recipe(migration 023)が1つのトランザクションで行う
-export async function updateRecipe({ supabase, groupId, recipeId, title, items, fridge, extras, steps }) {
+export async function updateRecipe({ supabase, groupId, recipeId, title, items, fridge, extras, steps, category, categoryManual }) {
   if (!title.trim()) return { error: '料理名を入力してください' }
   if (!items.some((i) => i.include)) return { error: '材料を1つ以上追加してください' }
   let pItems
@@ -198,6 +205,8 @@ export async function updateRecipe({ supabase, groupId, recipeId, title, items, 
     p_servings: extras.servings,
     p_instructions: steps ? stepsToInstructions(steps) || null : extras.instructions,
     p_memo: extras.memo,
+    // カテゴリ(migration 028)。利用者が選んだときは categoryManual: true。指定がなければ変えない
+    ...(category !== undefined ? { p_category: category, p_category_manual: Boolean(categoryManual) } : {}),
     p_icon: extras.icon,
     p_items: pItems.map((r) => ({ ...r })),
     // 手順を編集しない(URL から取り込んだレシピ)ときは送らない = 変えない

@@ -17,7 +17,9 @@ export function MakeableBadge({ status }) {
       : status.level === 'substitutable'
         ? '代替で作れます'
         : status.level === 'check'
-          ? status.pendingCount > 0
+          ? status.noRequired
+            ? '必須材料なし'
+            : status.pendingCount > 0
             ? '材料を確認'
             : '分量を確認'
           : status.level === 'empty'

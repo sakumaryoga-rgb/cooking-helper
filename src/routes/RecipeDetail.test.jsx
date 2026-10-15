@@ -115,8 +115,8 @@ describe('RecipeDetail', () => {
       expect(supabase.rpc).toHaveBeenCalledWith('cook_recipe_v2', {
         p_recipe_id: 'r1',
         p_items: [
-          { ingredient_id: 'chicken', quantity: 150, substitute_for: null },
-          { ingredient_id: 'egg', quantity: 2, substitute_for: null },
+          { ingredient_id: 'chicken', quantity: 150, substitute_for: null, kind: 'required' },
+          { ingredient_id: 'egg', quantity: 2, substitute_for: null, kind: 'required' },
         ],
         p_request_id: expect.stringMatching(/^[0-9a-f-]{36}$/),
       })
@@ -172,7 +172,7 @@ describe('RecipeDetail', () => {
     expect(within(dialog).getByText('卵')).toBeInTheDocument()
     await userEvent.click(within(dialog).getByRole('button', { name: '確定' }))
     await waitFor(() =>
-      expect(supabase.rpc).toHaveBeenCalledWith('cook_recipe_v2', expect.objectContaining({ p_items: [{ ingredient_id: 'chicken', quantity: 200, substitute_for: null }] }))
+      expect(supabase.rpc).toHaveBeenCalledWith('cook_recipe_v2', expect.objectContaining({ p_items: [{ ingredient_id: 'chicken', quantity: 200, substitute_for: null, kind: 'required' }] }))
     )
   })
 
@@ -276,7 +276,7 @@ describe('RecipeDetail', () => {
       expect(screen.getByLabelText('豚こま切れ肉を使う')).toBeChecked()
       await userEvent.click(screen.getByRole('checkbox', { name: /次から「1パック」を 200g として覚える/ }))
       await userEvent.click(screen.getByRole('button', { name: '確定' }))
-      expect(supabase.rpc).toHaveBeenCalledWith('cook_recipe_v2', expect.objectContaining({ p_items: [{ ingredient_id: 'pork', quantity: 200, substitute_for: null }] }))
+      expect(supabase.rpc).toHaveBeenCalledWith('cook_recipe_v2', expect.objectContaining({ p_items: [{ ingredient_id: 'pork', quantity: 200, substitute_for: null, kind: 'required' }] }))
       await waitFor(() => expect(remember).toHaveBeenCalledWith('pork', 'パック', 200))
     })
 
@@ -395,5 +395,87 @@ describe('RecipeDetail', () => {
       renderAt('/recipes/zz', [recipe])
       expect(screen.getByRole('link', { name: 'レシピ一覧へ' })).toHaveAttribute('href', '/recipes')
     })
+  })
+})
+
+describe('任意の材料と、今回だけ追加した食材', () => {
+  const optRecipe = {
+    id: 'r1',
+    title: '肉じゃが',
+    url: null,
+    recipe_ingredients: [
+      { id: 'm1', ingredient_id: 'beef', required_quantity: 200, ingredient: { id: 'beef', name: '牛こま切れ肉', unit: 'g' } },
+      { id: 'm2', ingredient_id: 'peas', required_quantity: 5, optional: true, ingredient: { id: 'peas', name: 'さやえんどう', unit: '本' } },
+      { id: 'm3', ingredient_id: 'konnyaku', required_quantity: 1, optional: true, ingredient: { id: 'konnyaku', name: '糸こんにゃく', unit: '袋' } },
+    ],
+  }
+  const fridge = [
+    { id: 'beef', name: '牛こま切れ肉', unit: 'g', quantity: 300 },
+    { id: 'peas', name: 'さやえんどう', unit: '本', quantity: 10 },
+    { id: 'shimeji', name: 'しめじ', unit: 'パック', quantity: 2 },
+    { id: 'salt', name: '塩', unit: 'g', quantity: 0, is_staple: true },
+  ]
+  function setupOpt() {
+    useIngredients.mockReturnValue({ ingredients: fridge, refresh: refreshIngredients })
+    useRecipes.mockReturnValue({ recipes: [optRecipe], loading: false, refresh: vi.fn() })
+    return render(
+      <MemoryRouter initialEntries={['/recipes/r1']}>
+        <Routes>
+          <Route path="/recipes/:id" element={<RecipeDetail groupId="g1" />} />
+        </Routes>
+      </MemoryRouter>
+    )
+  }
+  beforeEach(() => {
+    supabase.rpc.mockReset()
+    supabase.rpc.mockResolvedValue({ data: 'log1', error: null })
+  })
+  afterEach(() => __resetForTests())
+
+  it('任意の材料が足りなくても作れる。任意の材料は在庫の有無を表示する', () => {
+    setupOpt()
+    expect(screen.getByText('作れます')).toBeInTheDocument()
+    expect(screen.getByText('任意・在庫あり')).toBeInTheDocument()
+    expect(screen.getByText('任意・在庫なし')).toBeInTheDocument()
+    expect(screen.queryByText(/不足:/)).not.toBeInTheDocument()
+    expect(screen.getByText('和食')).toBeInTheDocument()
+  })
+
+  it('任意の材料は、使うと選ばなければ在庫から引かない', async () => {
+    setupOpt()
+    await userEvent.click(screen.getByRole('button', { name: /これを作る/ }))
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByLabelText('さやえんどうを今回は使う')).not.toBeChecked()
+    await userEvent.click(within(dialog).getByRole('button', { name: '確定' }))
+    await waitFor(() => expect(supabase.rpc).toHaveBeenCalled())
+    expect(supabase.rpc.mock.calls[0][1].p_items).toEqual([{ ingredient_id: 'beef', quantity: 200, substitute_for: null, kind: 'required' }])
+  })
+
+  it('使うと選んだ任意の材料と、今回だけ追加した食材を引く(レシピの材料は変えない)', async () => {
+    setupOpt()
+    await userEvent.click(screen.getByRole('button', { name: /これを作る/ }))
+    const dialog = await screen.findByRole('dialog')
+    await userEvent.click(within(dialog).getByLabelText('さやえんどうを今回は使う'))
+
+    await userEvent.click(within(dialog).getByRole('button', { name: '今回だけ食材を追加' }))
+    const select = within(dialog).getByLabelText('追加する食材')
+    // 常備品・すでに確認の画面にある食材は選べない
+    const names = within(select).getAllByRole('option').map((o) => o.textContent)
+    expect(names.some((n) => n.startsWith('しめじ'))).toBe(true)
+    expect(names.some((n) => n.startsWith('塩') || n.startsWith('牛こま') || n.startsWith('さやえんどう'))).toBe(false)
+    await userEvent.selectOptions(select, 'shimeji')
+    await userEvent.type(within(dialog).getByLabelText('追加する食材の使用量'), '1')
+    await userEvent.click(within(dialog).getByRole('button', { name: '追加する' }))
+    expect(within(dialog).getByText('今回だけ追加(レシピの材料は変わりません)')).toBeInTheDocument()
+
+    await userEvent.click(within(dialog).getByRole('button', { name: '確定' }))
+    await waitFor(() => expect(supabase.rpc).toHaveBeenCalled())
+    expect(supabase.rpc.mock.calls[0][1].p_items).toEqual([
+      { ingredient_id: 'beef', quantity: 200, substitute_for: null, kind: 'required' },
+      { ingredient_id: 'peas', quantity: 5, substitute_for: null, kind: 'optional' },
+      { ingredient_id: 'shimeji', quantity: 1, substitute_for: null, kind: 'extra' },
+    ])
+    // レシピの材料は書き換えない(recipe_ingredients を更新・追加しない)
+    expect(supabase.from).not.toHaveBeenCalledWith('recipe_ingredients')
   })
 })

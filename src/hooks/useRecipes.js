@@ -5,7 +5,7 @@ import { debounce, useSharedKitchen } from '@/hooks/kitchenData'
 // 材料の列は、画面と保存(update_recipe)で使うものをすべて読む。
 // amount_text・source_name・note が欠けると、確認待ちの材料の名前が空になり、編集の保存で分量の表記が消える
 export const RECIPE_SELECT =
-  '*, recipe_ingredients(id, ingredient_id, required_quantity, raw_text, amount_text, source_name, note, ingredient:ingredients(id, name, unit))'
+  '*, recipe_ingredients(id, ingredient_id, required_quantity, raw_text, amount_text, source_name, note, optional, ingredient:ingredients(id, name, unit))'
 
 // グループの保存レシピ一覧を取得し、他メンバーの変更をリアルタイムに反映する
 export function useRecipes(groupId) {

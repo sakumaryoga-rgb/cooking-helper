@@ -18,6 +18,8 @@ import { parseRecipeUrl } from '@/lib/recipeImport/sites'
 import { importIngredientLines } from '@/lib/recipeImport/match'
 import { findDuplicate, saveRecipe } from '@/lib/recipeImport/save'
 import { emptyStep } from '@/lib/recipeSteps'
+import { classifyRecipe } from '@/lib/recipeCategory'
+import { RecipeCategoryField } from '@/components/RecipeCategoryField'
 
 const HOW_IT_WORKS = ['レシピサイトでページの URL をコピー', 'ここに貼って「読み込む」', '材料を確かめて保存']
 
@@ -28,7 +30,9 @@ export function RecipeNew({ groupId, userId }) {
   const [mode, setMode] = useState('url')
   const [title, setTitle] = useState('')
   const [url, setUrl] = useState('')
-  const [source, setSource] = useState(null) // { sourceKey, site, servings, yieldText }
+  const [source, setSource] = useState(null) // { sourceKey, site, servings, yieldText, cuisine, categories, keywords }
+  // 利用者が選んだ料理のカテゴリ(null は自動の分類)
+  const [category, setCategory] = useState(null)
   const [items, setItems] = useState([])
   const [steps, setSteps] = useState(() => [emptyStep()])
   const [extras, setExtras] = useState({ icon: '', servings: '', instructions: '', memo: '' })
@@ -42,6 +46,16 @@ export function RecipeNew({ groupId, userId }) {
 
   const supported = useMemo(() => parseRecipeUrl(url), [url])
   const original = mode === 'original'
+  // 料理名・材料・(取り込んだときは)サイトの構造化データから自動で分類する
+  const autoCategory = useMemo(
+    () =>
+      classifyRecipe({
+        title,
+        ingredientNames: items.filter((i) => i.include).map((i) => i.name),
+        ...(original || !source ? {} : { cuisine: source.cuisine, categories: source.categories, keywords: source.keywords }),
+      }),
+    [title, items, original, source]
+  )
   const imported = Boolean(source)
 
   async function pasteFromClipboard() {
@@ -78,7 +92,16 @@ export function RecipeNew({ groupId, userId }) {
     }
     setUrl(recipe.url)
     if (!title.trim()) setTitle(recipe.title)
-    setSource({ sourceKey: recipe.sourceKey, site: recipe.site, servings: recipe.servings, yieldText: recipe.yieldText })
+    setSource({
+      sourceKey: recipe.sourceKey,
+      site: recipe.site,
+      servings: recipe.servings,
+      yieldText: recipe.yieldText,
+      // 料理ジャンルの手がかり(サイトの構造化データ)
+      cuisine: recipe.cuisine ?? [],
+      categories: recipe.categories ?? [],
+      keywords: recipe.keywords ?? [],
+    })
     if (recipe.servings && !extras.servings) setExtras((prev) => ({ ...prev, servings: String(recipe.servings) }))
     // 見出しの除外 → 複数の食材の分割 → 照合(lib/recipeImport/match の共通の処理)
     const rows = importIngredientLines(recipe.ingredients, { ingredients, catalog, aliases })
@@ -114,6 +137,8 @@ export function RecipeNew({ groupId, userId }) {
       extras: normalizeExtras(extras),
       // 作り方は、自分で考えたレシピだけ(URL のレシピは元のページで見る)
       steps: original ? steps : undefined,
+      category: category ?? autoCategory,
+      categoryManual: category != null,
     })
     setSaving(false)
     if (result.error) {
@@ -234,6 +259,8 @@ export function RecipeNew({ groupId, userId }) {
           />
           {!original && source?.yieldText && <p className="text-xs text-muted-foreground">分量: {source.yieldText}</p>}
         </div>
+
+        {(original || imported || title.trim()) && <RecipeCategoryField value={category} auto={autoCategory} onChange={setCategory} />}
 
         <RecipeItemsEditor
           groupId={groupId}

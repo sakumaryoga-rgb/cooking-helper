@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, Trash2 } from 'lucide-react'
 import { supabase } from '@/supabaseClient'
@@ -15,6 +15,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { updateRecipe } from '@/lib/recipeImport/save'
+import { classifyRecipe } from '@/lib/recipeCategory'
+import { RecipeCategoryField } from '@/components/RecipeCategoryField'
 import {
   AlertDialog,
   AlertDialogContent,
@@ -56,6 +58,7 @@ function RecipeEditForm({ recipe, groupId, ingredients, catalog = [], aliases = 
         rawText: ri.raw_text ?? undefined,
         include: true,
         needsCheck: ri.required_quantity == null && Boolean(ri.amount_text),
+        optional: Boolean(ri.optional),
       }
       if (!ri.ingredient_id) {
         // 確認待ちの材料: 候補を出す(このまま保存しても確認待ちのまま)
@@ -83,6 +86,12 @@ function RecipeEditForm({ recipe, groupId, ingredients, catalog = [], aliases = 
     instructions: recipe.instructions ?? '',
     memo: recipe.memo ?? '',
   })
+  // 料理のカテゴリ: 利用者が選んだもの(null は自動の分類)
+  const [category, setCategory] = useState(recipe.category_manual ? recipe.category : null)
+  const autoCategory = useMemo(
+    () => classifyRecipe({ title, ingredientNames: items.filter((i) => i.include).map((i) => i.name) }),
+    [title, items]
+  )
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -115,6 +124,13 @@ function RecipeEditForm({ recipe, groupId, ingredients, catalog = [], aliases = 
       fridge: ingredients,
       extras: normalizeExtras(extras),
       steps: original ? steps : undefined,
+      // 選んだカテゴリは手動として保存する。「自動に戻す」を選んだら手動の指定を外す。
+      // 自動の分類は、サーバー側でも手動のカテゴリを上書きしない
+      ...(category != null
+        ? { category, categoryManual: true }
+        : recipe.category_manual
+          ? { category: null, categoryManual: true }
+          : { category: autoCategory, categoryManual: false }),
     })
     setSaving(false)
     if (result.error) {
@@ -152,6 +168,8 @@ function RecipeEditForm({ recipe, groupId, ingredients, catalog = [], aliases = 
           <Label htmlFor="recipe-title">料理名</Label>
           <Input id="recipe-title" value={title} onChange={(e) => setTitle(e.target.value)} required maxLength={200} />
         </div>
+
+        <RecipeCategoryField value={category} auto={autoCategory} onChange={setCategory} />
 
         <RecipeItemsEditor
           groupId={groupId}
