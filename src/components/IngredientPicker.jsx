@@ -353,7 +353,8 @@ export function IngredientPicker({ open, onOpenChange, groupId, ingredients, onS
     setError(null)
 
     // 同名のマスタ食材(共通、または自分の家庭の品目)が既にあればそちらの単位・カテゴリを優先して使う
-    const pickSameName = (rows) => rows?.find((c) => c.group_id) ?? rows?.find((c) => !c.group_id) ?? null
+    // ほかの家(自分が所属する別の家)の品目は使わない
+    const pickSameName = (rows) => rows?.find((c) => c.group_id && c.group_id === groupId) ?? rows?.find((c) => !c.group_id) ?? null
     const { data: sameName } = await supabase.from('ingredient_catalog').select('*').eq('name', trimmedSearch)
     let catalogItem = pickSameName(sameName)
 

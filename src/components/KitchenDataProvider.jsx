@@ -16,9 +16,9 @@ export function KitchenDataProvider({ groupId, children }) {
   const ingredients = useIngredientsSource(groupId)
   const recipes = useRecipesSource(groupId)
   const batches = useIngredientBatchesSource(groupId)
-  const catalog = useIngredientCatalogSource()
+  const catalog = useIngredientCatalogSource(groupId)
   const substitutions = useSubstitutionsSource(groupId)
-  const aliases = useIngredientAliasesSource()
+  const aliases = useIngredientAliasesSource(groupId)
   const conversions = useUnitConversionsSource(groupId)
 
   // アプリに戻った・通信が戻ったときに、すべて読み直す。

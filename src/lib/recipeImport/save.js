@@ -8,7 +8,8 @@ const DUPLICATE_MESSAGE = 'このレシピはすでに保存されています'
 // 食材マスタにない食材は、家庭専用の品目として登録する(冷蔵庫の「食材を選択」でカテゴリの中に出るように)
 async function ensureCatalogItem(supabase, groupId, name, unit) {
   const { data: same } = await supabase.from('ingredient_catalog').select('*').eq('name', name)
-  const existing = same?.find((c) => c.group_id) ?? same?.find((c) => !c.group_id)
+  // 選んでいる家の品目か共通の品目だけ(自分が所属する別の家の品目は使わない)
+  const existing = same?.find((c) => c.group_id && c.group_id === groupId) ?? same?.find((c) => !c.group_id)
   if (existing) return existing
   const category = guessCategory(name)
   const { data: last } = await supabase
@@ -26,7 +27,7 @@ async function ensureCatalogItem(supabase, groupId, name, unit) {
   if (!error) return data
   // 同時に同じ名前が登録された
   const { data: raced } = await supabase.from('ingredient_catalog').select('*').eq('name', name)
-  return raced?.find((c) => c.group_id) ?? raced?.[0] ?? null
+  return raced?.find((c) => c.group_id === groupId) ?? raced?.find((c) => !c.group_id) ?? null
 }
 
 // 保存先の食材(冷蔵庫の行)を用意する。ない食材は在庫0で作る(手動の材料選択と同じ扱い)。
