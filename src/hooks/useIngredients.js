@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '@/supabaseClient'
-import { debounce, useSharedKitchen } from '@/hooks/kitchenData'
+import { debounce, resyncOnRejoin, useSharedKitchen } from '@/hooks/kitchenData'
 
 // グループの冷蔵庫の中身を取得し、他メンバーの変更をリアルタイムに反映する
 export function useIngredients(groupId) {
@@ -72,7 +72,7 @@ export function useIngredientsSource(groupId) {
         { event: '*', schema: 'public', table: 'ingredients', filter: `group_id=eq.${groupId}` },
         () => reload()
       )
-      .subscribe()
+      .subscribe(resyncOnRejoin(reload))
 
     return () => {
       reload.cancel()

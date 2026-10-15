@@ -23,3 +23,14 @@ export function debounce(fn, ms = 150) {
   run.cancel = () => clearTimeout(timer)
   return run
 }
+
+// リアルタイムの購読の状態を見て、切れたあとにつなぎ直したら読み直す
+// (iPhone のホーム画面アプリは裏に回ると接続が切れ、その間の変更の通知は届かないため)
+export function resyncOnRejoin(reload) {
+  let joined = false
+  return (status) => {
+    if (status !== 'SUBSCRIBED') return
+    if (joined) reload()
+    joined = true
+  }
+}

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '@/supabaseClient'
-import { debounce, useSharedKitchen } from '@/hooks/kitchenData'
+import { debounce, resyncOnRejoin, useSharedKitchen } from '@/hooks/kitchenData'
 
 // 材料の列は、画面と保存(update_recipe)で使うものをすべて読む。
 // amount_text・source_name・note が欠けると、確認待ちの材料の名前が空になり、編集の保存で分量の表記が消える
@@ -59,7 +59,7 @@ export function useRecipesSource(groupId) {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'recipe_ingredients' }, () =>
         reload()
       )
-      .subscribe()
+      .subscribe(resyncOnRejoin(reload))
 
     return () => {
       reload.cancel()
