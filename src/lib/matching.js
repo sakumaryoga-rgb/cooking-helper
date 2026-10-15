@@ -309,7 +309,7 @@ export function buildCookPlan(status) {
     if (line.amountUnknown || line.vague) {
       rows.push({
         optional: line.optional,
-        key: `o:${line.ingredientId}`,
+        key: `o:${line.ingredientId}${line.optional ? ':opt' : ''}`,
         ingredientId: line.ingredientId,
         name: line.name,
         unit: line.unit,
@@ -327,7 +327,7 @@ export function buildCookPlan(status) {
     const originalQuantity = line.substitutes.length > 0 ? line.fromOriginal : line.requiredQuantity
     if (originalQuantity > 0 || line.substitutes.length === 0) {
       rows.push({
-        key: `o:${line.ingredientId}`,
+        key: `o:${line.ingredientId}${line.optional ? ':opt' : ''}`,
         ingredientId: line.ingredientId,
         name: line.name,
         unit: line.unit,

@@ -135,10 +135,52 @@ begin
   -- 他の家の食材は、今回だけの追加にもできない(在庫は変わらない)
   assert pg_temp.err(format('select cook_recipe_v2(%L, %L, %L)', r,
     jsonb_build_array(jsonb_build_object('ingredient_id', current_setting('test.other'), 'quantity', 1, 'kind', 'extra')), gen_random_uuid())) = '権限がありません';
-  -- kind のない古いアプリの送り方も、従来どおり動く
+  -- kind のない古いアプリの送り方も、必須の材料なら従来どおり動く
   log2 := cook_recipe_v2(r, jsonb_build_array(jsonb_build_object('ingredient_id', potato, 'quantity', 1)), gen_random_uuid());
   assert (select kind is null from cook_log_items where cook_log_id = log2);
   assert (select quantity from ingredients where id = potato) = 3;
+  -- 任意の材料を知らない古いアプリ(kind なし)が任意の材料を送ってきたら、何も引かずに更新を求める
+  assert pg_temp.err(format('select cook_recipe_v2(%L, %L, %L)', r,
+    jsonb_build_array(jsonb_build_object('ingredient_id', beef, 'quantity', 10), jsonb_build_object('ingredient_id', peas, 'quantity', 5)), gen_random_uuid()))
+    = 'アプリを最新版に更新してください(任意の材料に対応していません)';
+  assert (select quantity from ingredients where id = peas) = 5, '古いアプリからは任意の材料を引かない';
+  assert (select quantity from ingredients where id = beef) = 100, '一緒に送った必須の材料も引かない(まとめて拒否)';
+  -- 旧版の cook_recipe(v1)は任意の材料を引かない
+  perform cook_recipe(r);
+  assert (select quantity from ingredients where id = peas) = 5, '旧版の作ったでも任意の材料は引かない';
+  perform set_config('test.beef', beef::text, false);
+  perform set_config('test.peas', peas::text, false);
+end $$;
+
+-- 同じ食材を必須と任意の両方で指定した: 1つの材料(必須)にまとめ、二重・過剰に引かない
+-- (recipe_ingredients は1レシピに同じ食材を1行まで。unique(recipe_id, ingredient_id))
+select set_config('request.jwt.claim.sub', '00000000-0000-4000-8000-0000000ff201', false);
+do $$
+declare
+  r uuid;
+  egg uuid;
+  log1 uuid;
+begin
+  insert into ingredients (group_id, name, unit, quantity) values (my_group_id(), '卵', '個', 0) returning id into egg;
+  perform adjust_ingredient_quantity(egg, 3, true);
+  insert into recipes (group_id, title) values (my_group_id(), '卵とじ') returning id into r;
+  perform update_recipe(r, '卵とじ', 2, null, null, null, jsonb_build_array(
+    jsonb_build_object('ingredient_id', egg, 'required_quantity', 2, 'optional', false),
+    jsonb_build_object('ingredient_id', egg, 'required_quantity', 1, 'optional', true)));
+  assert (select count(*) from recipe_ingredients where recipe_id = r) = 1;
+  assert (select required_quantity = 3 and not optional from recipe_ingredients where recipe_id = r), 'どれかが必須なら必須(分量は合計)';
+
+  -- 同じ食材を複数の行で送っても(必須 + 任意・合計4個)、在庫(3個)より多くは引かず、記録は1行
+  log1 := cook_recipe_v2(r, jsonb_build_array(
+    jsonb_build_object('ingredient_id', egg, 'quantity', 2, 'kind', 'required'),
+    jsonb_build_object('ingredient_id', egg, 'quantity', 2, 'kind', 'optional')), gen_random_uuid());
+  assert (select quantity from ingredients where id = egg) = 0;
+  assert (select count(*) from cook_log_items where cook_log_id = log1) = 1, '同じ食材は1行にまとめて記録する';
+  assert (select used_quantity from cook_log_items where cook_log_id = log1) = 3;
+  assert (select kind from cook_log_items where cook_log_id = log1) = 'required';
+  assert undo_cook(log1);
+  assert (select quantity from ingredients where id = egg) = 3, '取り消すと元に戻る';
+  assert (select sum(quantity) from ingredient_batches where ingredient_id = egg) = 3, 'ロットも戻る';
 end $$;
 
 -- 他の家の人(Q)は、P家のレシピのカテゴリ・材料を変えられず、作ったことにもできない

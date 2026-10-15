@@ -11,7 +11,10 @@
 --    旧 update_recipe(8引数)は消して、同じ名前の10引数(最後の2つは省略可)にする。名前付きの8引数の呼び出しもそのまま動く
 -- 4. cook_recipe_v2: 材料ごとの kind(required / optional / substitute / extra)を確かめて記録する。
 --    required・optional はこのレシピの材料だけ。extra(今回だけ追加)は自分の家の食材なら何でもよい(レシピは変えない)。
---    kind がない(古いアプリ)ときは従来どおり。取り消し(undo_cook)は記録した使用量をそのまま戻すので変更しない
+--    kind がない(古いアプリ)ときは従来どおり。ただし、任意の材料を kind なしで送ってきたら拒否する
+--    (任意の材料を知らない古いアプリが、使うと選んでいない任意の材料を引かないように。最低対応バージョン 1.31.0 と二重の守り)。
+--    取り消し(undo_cook)は記録した使用量をそのまま戻すので変更しない
+-- 5. cook_recipe(v1.13 以前の旧版用): 任意の材料は引かない
 
 alter table recipes add column if not exists category text;
 alter table recipes add column if not exists category_manual boolean not null default false;
@@ -236,6 +239,19 @@ begin
   ) then
     raise exception 'このレシピの材料ではありません';
   end if;
+  -- 任意の材料を知らない古いアプリ(kind なし)からの、任意の材料の減算は受け付けない(更新を求める)
+  if exists (
+    select 1 from jsonb_array_elements(p_items) e
+    where not (e ? 'kind')
+      and exists (
+        select 1 from recipe_ingredients ri
+        where ri.recipe_id = p_recipe_id and ri.ingredient_id = (e ->> 'ingredient_id')::uuid and ri.optional)
+      and not exists (
+        select 1 from recipe_ingredients ri
+        where ri.recipe_id = p_recipe_id and ri.ingredient_id = (e ->> 'ingredient_id')::uuid and not ri.optional)
+  ) then
+    raise exception 'アプリを最新版に更新してください(任意の材料に対応していません)';
+  end if;
 
   -- 同じ request_id の再送・連打は、最初の1回分だけ(2回目以降は在庫を変えない)
   insert into cook_logs (group_id, recipe_id, recipe_title, request_id, cooked_by)
@@ -279,3 +295,38 @@ $$;
 
 revoke all on function cook_recipe_v2(uuid, jsonb, uuid) from public, anon;
 grant execute on function cook_recipe_v2(uuid, jsonb, uuid) to authenticated;
+
+-- ------------------------------------------------------------
+-- 作った(旧版のアプリ用・015 と同じ): 任意の材料は引かない
+-- ------------------------------------------------------------
+create or replace function cook_recipe(p_recipe_id uuid, p_used jsonb default '{}'::jsonb)
+returns void
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+declare
+  r recipe_ingredients%rowtype;
+  v_group uuid := my_group_id();
+  v_recipe_group uuid;
+  v_current numeric;
+  v_use numeric;
+begin
+  select group_id into v_recipe_group from recipes where id = p_recipe_id;
+  if v_recipe_group is null or v_recipe_group <> v_group then
+    raise exception '権限がありません';
+  end if;
+
+  for r in select * from recipe_ingredients where recipe_id = p_recipe_id and not optional order by ingredient_id loop
+    select quantity into v_current from ingredients where id = r.ingredient_id and group_id = v_group for update;
+    if not found then
+      continue;
+    end if;
+    v_use := least(greatest(coalesce((p_used ->> r.ingredient_id::text)::numeric, r.required_quantity), 0), v_current);
+    if v_use > 0 then
+      perform consume_ingredient_batches(r.ingredient_id, v_use, null);
+      update ingredients set quantity = quantity - v_use where id = r.ingredient_id;
+    end if;
+  end loop;
+end;
+$$;
