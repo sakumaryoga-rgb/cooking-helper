@@ -43,17 +43,80 @@ export function setUpdateFn(fn) {
   updateFn = fn
 }
 
-// workbox-window は「登録した時点で既に SW に制御されていたページ」でしか自動リロードしない。
-// 初回訪問のセッション中に更新が来た場合は、新しい SW が有効になってもリロードされず、
-// 更新ダイアログが出たままになる(ローカル検証で確認)。そのため controllerchange を
-// 自分でも待ち受け、制御が新しい SW に移った時点で必ずリロードする。
+// 「更新する」: 待機中の新しい SW があれば有効にしてから、なければすぐに読み直す。
+// - workbox-window は「登録した時点で既に SW に制御されていたページ」でしか自動リロードしないので、
+//   controllerchange を自分でも待ち受ける
+// - 端末によっては(iPhone のホーム画面アプリなど)待機中の SW が有効にならず、制御も移らないことがある。
+//   その場合も一定時間後に必ず読み直す(「更新する」を押しても何も起きない状態を作らない)
+// - 前回の「更新する」から2分以内にもう一度押された = 前回の更新で直らなかった。
+//   SW の登録とキャッシュを消して、ネットワークから最新版を読み直す(更新の画面から抜け出せなくなるのを防ぐ)。
+//   ログイン状態や選んでいる家(localStorage)は消さない
+const LAST_ATTEMPT_KEY = 'cookdoor:updateAttemptAt'
+const RETRY_WINDOW_MS = 2 * 60 * 1000
+const FALLBACK_RELOAD_MS = 4000
 let reloadScheduled = false
-export function applyUpdate({ serviceWorker = globalThis.navigator?.serviceWorker, reload = () => window.location.reload() } = {}) {
-  if (serviceWorker && !reloadScheduled) {
-    reloadScheduled = true
-    serviceWorker.addEventListener('controllerchange', () => reload(), { once: true })
+
+function storage() {
+  try {
+    return globalThis.localStorage ?? null
+  } catch {
+    return null
   }
+}
+
+export async function hardReload({ serviceWorker = globalThis.navigator?.serviceWorker, cacheStorage = globalThis.caches, reload = () => window.location.reload() } = {}) {
+  try {
+    const regs = (await serviceWorker?.getRegistrations?.()) ?? []
+    await Promise.all(regs.map((r) => r.unregister()))
+  } catch {
+    /* 消せなくても読み直す */
+  }
+  try {
+    const keys = (await cacheStorage?.keys?.()) ?? []
+    await Promise.all(keys.map((k) => cacheStorage.delete(k)))
+  } catch {
+    /* 消せなくても読み直す */
+  }
+  reload()
+}
+
+export async function applyUpdate({
+  serviceWorker = globalThis.navigator?.serviceWorker,
+  cacheStorage = globalThis.caches,
+  reload = () => window.location.reload(),
+  now = Date.now,
+  setTimer = (fn, ms) => setTimeout(fn, ms),
+} = {}) {
+  const store = storage()
+  const last = Number(store?.getItem(LAST_ATTEMPT_KEY)) || 0
+  try {
+    store?.setItem(LAST_ATTEMPT_KEY, String(now()))
+  } catch {
+    /* 覚えられなくても更新はする */
+  }
+  if (last && now() - last < RETRY_WINDOW_MS) {
+    await hardReload({ serviceWorker, cacheStorage, reload })
+    return
+  }
+  if (reloadScheduled) return
+  reloadScheduled = true
+  let reloaded = false
+  const reloadOnce = () => {
+    if (reloaded) return
+    reloaded = true
+    reload()
+  }
+  serviceWorker?.addEventListener?.('controllerchange', reloadOnce, { once: true })
   updateFn?.(true)
+  let waiting = null
+  try {
+    waiting = (await serviceWorker?.getRegistration?.())?.waiting ?? null
+  } catch {
+    waiting = null
+  }
+  // workbox に頼らず、待機中の SW に直接「有効になって」と伝える
+  waiting?.postMessage?.({ type: 'SKIP_WAITING' })
+  setTimer(reloadOnce, waiting ? FALLBACK_RELOAD_MS : 0)
 }
 
 export function setCheckFn(fn) {
@@ -82,4 +145,9 @@ export function __resetForTests() {
   busyKeys.clear()
   listeners.clear()
   reloadScheduled = false
+  try {
+    globalThis.localStorage?.removeItem(LAST_ATTEMPT_KEY)
+  } catch {
+    /* noop */
+  }
 }

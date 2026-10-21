@@ -32,6 +32,9 @@ export default defineConfig({
         // clientsClaim がないと、skipWaiting 後も開いているタブが新しい SW に引き継がれず、
         // controllerchange が発火しないため「更新する」を押してもリロードされない。
         clientsClaim: true,
+        // インストールしたらすぐ有効にする。「待機中」の SW が有効にならない端末(iPhone のホーム画面アプリなど)で、
+        // 更新の画面が繰り返し出て開けなくなるのを防ぐ(v1.33.1)。開いている画面の読み直しは UpdatePrompt で行う
+        skipWaiting: true,
         cleanupOutdatedCaches: true,
       },
       // manifest のアイコンは自動でプリキャッシュされる。ファイル名を変えたので、古いアイコンは

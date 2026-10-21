@@ -40,6 +40,20 @@ const updateSW = registerSW({
 })
 setUpdateFn(updateSW)
 
+// 新しい SW はインストールされるとすぐ有効になる(vite.config.js の skipWaiting)。
+// 開いている画面が古いままなら「新しいバージョンがあります」を出し、入力が終わってから読み直してもらう
+if ('serviceWorker' in navigator) {
+  const hadController = Boolean(navigator.serviceWorker.controller)
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (hadController) setNeedRefresh(true)
+  })
+}
+// 古い画面が、新しい版で消えたファイル(画面ごとの JS)を読み込めなかったら、新しい版として読み直す
+window.addEventListener('vite:preloadError', (event) => {
+  event.preventDefault?.()
+  setNeedRefresh(true)
+})
+
 createRoot(document.getElementById('root')).render(
   leavingLine ? (
     // 外部ブラウザへ移るあいだ(LINE のまま残ったときは、外部ブラウザで開くと出るはずの案内をここに)
