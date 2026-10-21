@@ -43,8 +43,10 @@ navigator.serviceWorker.controller;  // このページを制御している SW
    画面下に「入力が終わったら更新できます」のバナーだけが出て、入力を続けられる。
 3. **入力終了で自動的に切り替わる**: 2 の状態から画面を離れる、またはダイアログを閉じると、
    追加の操作なしにブロッキングのダイアログに変わる。
-4. **「更新する」で実際にリロードされる**: 押す前後で `reg.waiting` が消え、`controllerchange` が発火し、
-   `document.querySelectorAll('script[src*="index-"]')` の JS ファイル名のハッシュが変わる。
+4. **「更新する」で実際にリロードされる**: v1.33.1 から新しい SW はインストールされるとすぐ有効になる
+   (`skipWaiting: true`)。新バージョン検知時に `controllerchange` が発火してダイアログが出て、`reg.waiting` は残らない。
+   「更新する」で `document.querySelectorAll('script[src*="index-"]')` の JS ファイル名のハッシュが変わる。
+   2分以内にもう一度押すと、SW の登録とキャッシュ(Cache Storage)を消して読み直す(ログイン状態は残る)。
 5. **minSupportedVersion による強制更新**: `public/version.json` の `minSupportedVersion` を
    `package.json` の `version` より大きくすると、入力中でも「重要な更新が必要です」が出る。
    検証後は必ず元の値に戻す。
@@ -94,3 +96,14 @@ v1.0.0 のビルドを配信して SW を有効にした後、同じ URL の配�
   拡張機能経由のクリックが働かない。前面に出すか、ページの再読み込みで起動時のチェックを使う。
 - `vite preview` の既定ポート 4173 は BASKETBALL STATS の検証と共有され、別アプリの SW が
   残っていることがある。COOKDOOR の検証では別のポート(例: 4391)を使う。
+
+## v1.33.1: 更新の画面が繰り返し出て開けなくなる不具合
+
+`registerType: 'prompt'` だけでは、新しい SW が「待機中」のまま有効にならない端末(iPhone のホーム画面アプリなど)で、
+起動のたびに「新しいバージョンがあります」が出て、「更新する」を押しても抜け出せなかった。
+- `workbox.skipWaiting: true`: インストールしたらすぐ有効にする。待機中の SW が残っている古い端末も、次の版の sw.js が
+  インストールされた時点で有効になり、次の起動で新しい版が開く(ローカルで「待機中のまま」を再現して確認)
+- `src/main.jsx`: 制御が新しい SW に移ったら(更新時だけ)ダイアログを出す。古い画面が消えたファイルを読み込めなかったとき
+  (`vite:preloadError`)もダイアログを出す
+- `src/lib/swUpdate.js` の `applyUpdate`: 待機中の SW に直接 SKIP_WAITING を送り、切り替わらなくても4秒後に必ず読み直す。
+  2分以内の2回目は `hardReload`(SW の登録とキャッシュを消して読み直す)
