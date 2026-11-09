@@ -7,6 +7,8 @@ import { extractRecipe } from '../src/lib/recipeImport/jsonld.js'
 const MAX_BYTES = 3 * 1024 * 1024
 const TIMEOUT_MS = 8000
 const USER_AGENT = 'Mozilla/5.0 (compatible; COOKDOOR/1.3; +https://cookdoor.app)'
+// 取り込みの回数の上限(1人あたり)。外部サイトへの大量のアクセスと、関数の使いすぎを防ぐ
+export const RATE_LIMIT = { max: 30, windowMs: 60 * 60 * 1000 }
 
 function json(res, status, body) {
   res.statusCode = status
@@ -50,9 +52,31 @@ async function verifyUser(authorization) {
       headers: { apikey: anonKey, Authorization: authorization },
       signal: AbortSignal.timeout(5000),
     })
-    return { configured: true, ok: r.ok }
+    if (!r.ok) return { configured: true, ok: false }
+    const user = await r.json().catch(() => null)
+    return { configured: true, ok: true, userId: typeof user?.id === 'string' ? user.id : null }
   } catch {
     return { configured: true, ok: false }
+  }
+}
+
+// この1時間の取り込みの回数(記録は recipe_import_runs。利用者は自分の記録を読めないので、サーバー専用の鍵で数える)。
+// 数えられないとき(鍵が未設定・通信の失敗)は null を返し、取り込みは止めない
+export async function countRecentRuns(userId, { now = Date.now(), fetchImpl = fetch } = {}) {
+  const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!url || !serviceKey || !/^[0-9a-f-]{36}$/i.test(userId ?? '')) return null
+  const since = new Date(now - RATE_LIMIT.windowMs).toISOString()
+  try {
+    const r = await fetchImpl(`${url}/rest/v1/recipe_import_runs?select=id&user_id=eq.${userId}&created_at=gte.${encodeURIComponent(since)}`, {
+      headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}`, Prefer: 'count=exact', Range: '0-0' },
+      signal: AbortSignal.timeout(3000),
+    })
+    if (!r.ok && r.status !== 206) return null
+    const total = Number((r.headers.get('content-range') ?? '').split('/')[1])
+    return Number.isFinite(total) ? total : null
+  } catch {
+    return null
   }
 }
 
@@ -86,6 +110,11 @@ export default async function handler(req, res) {
   const auth = await verifyUser(req.headers.authorization)
   if (!auth.configured) return json(res, 503, { error: 'not_configured' })
   if (!auth.ok) return json(res, 401, { error: 'unauthorized' })
+  const recent = await countRecentRuns(auth.userId)
+  if (recent != null && recent >= RATE_LIMIT.max) {
+    res.setHeader('Retry-After', String(Math.ceil(RATE_LIMIT.windowMs / 1000)))
+    return json(res, 429, { error: 'rate_limited' })
+  }
 
   const body = typeof req.body === 'string' ? safeParse(req.body) : req.body
   const parsed = parseRecipeUrl(body?.url)
