@@ -8,6 +8,8 @@ import { FeatureChips, HouseArt } from '@/components/HouseArt'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { HouseList } from '@/components/HouseGate'
+import { getLoginMemory, rememberInvite } from '@/lib/loginMemory'
 
 function ChoiceCard({ active, Icon, title, sub, onClick }) {
   return (
@@ -84,6 +86,24 @@ export function Onboarding({ onGroupChanged, notice }) {
       setError('招待リンクが無効か、期限が切れています。家族に新しい招待リンクを発行してもらってください')
       return
     }
+    rememberInvite({ groupId: data.id, name: data.name, token })
+    await onGroupChanged(data.id)
+    navigate('/fridge', { replace: true })
+  }
+
+  // 以前この端末で招待から入った家(今は入っていない)。控えてある招待リンクで、選ぶだけで入り直す
+  const remembered = getLoginMemory().invites
+  async function handleRejoin(groupId) {
+    const entry = remembered.find((i) => i.groupId === groupId)
+    if (!entry) return
+    setSaving(true)
+    setError('')
+    const { data, error: rpcError } = await supabase.rpc('join_group_with_invite', { p_token: entry.token })
+    setSaving(false)
+    if (rpcError || !data?.id) {
+      setError(`「${entry.name}」の招待リンクは期限が切れたか、発行し直されています。家族に新しい招待リンクをもらってください`)
+      return
+    }
     await onGroupChanged(data.id)
     navigate('/fridge', { replace: true })
   }
@@ -103,6 +123,16 @@ export function Onboarding({ onGroupChanged, notice }) {
           </p>
           <FeatureChips />
         </section>
+
+        {remembered.length > 0 && (
+          <section className="flex flex-col gap-2" aria-label="以前この端末で入った家">
+            <div>
+              <p className="text-sm font-bold">以前この端末で入った家</p>
+              <p className="text-[11px] text-muted-foreground">選ぶだけで入り直せます(招待リンクの期限内だけ)</p>
+            </div>
+            <HouseList houses={remembered.map((i) => ({ id: i.groupId, name: i.name || '家' }))} onSelect={handleRejoin} disabled={saving} />
+          </section>
+        )}
 
         <div className="flex gap-3" role="group" aria-label="はじめ方">
           <ChoiceCard active={mode === 'create'} Icon={HousePlus} title="家を建てる" sub="はじめて使う" onClick={() => choose('create')} />

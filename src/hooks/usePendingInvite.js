@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { supabase } from '@/supabaseClient'
 import { takePendingInvite } from '@/lib/invite'
+import { rememberInvite } from '@/lib/loginMemory'
 
 export const INVITE_MESSAGES = {
   invalid: '招待リンクが無効か、期限が切れています。グループのメンバーに新しい招待リンクを発行してもらってください',
@@ -34,6 +35,7 @@ export function usePendingInvite({ ready, onJoined, checkKey }) {
         setNotice({ kind: 'error', text: INVITE_MESSAGES.invalid })
         return
       }
+      rememberInvite({ groupId: data.id, name: data.name, token })
       await onJoined(data.id)
       setNotice({ kind: 'joined', text: `「${data.name}」に参加しました。この家に切り替えています` })
     })()

@@ -92,3 +92,36 @@ describe('招待の自動参加があとから失敗したとき', () => {
     expect(screen.getByText('招待リンクが無効か、期限が切れています。')).toBeInTheDocument()
   })
 })
+
+describe('以前この端末で入った家', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    supabase.rpc.mockReset()
+  })
+
+  it('控えてある招待リンクで、選ぶだけで入り直せる', async () => {
+    localStorage.setItem('cookdoor.loginMemory', JSON.stringify({ invites: [{ groupId: 'g9', name: '実家', token: TOKEN }] }))
+    supabase.rpc.mockResolvedValue({ data: { id: 'g9', name: '実家' }, error: null })
+    const changed = renderOnboarding()
+    await userEvent.click(screen.getByRole('button', { name: /実家/ }))
+    expect(supabase.rpc).toHaveBeenCalledWith('join_group_with_invite', { p_token: TOKEN })
+    expect(changed).toHaveBeenCalledWith('g9')
+  })
+
+  it('招待リンクの期限が切れていたら、新しいリンクをもらうよう案内する', async () => {
+    localStorage.setItem('cookdoor.loginMemory', JSON.stringify({ invites: [{ groupId: 'g9', name: '実家', token: TOKEN }] }))
+    supabase.rpc.mockResolvedValue({ data: null, error: null })
+    renderOnboarding()
+    await userEvent.click(screen.getByRole('button', { name: /実家/ }))
+    expect(await screen.findByText(/「実家」の招待リンクは期限が切れた/)).toBeInTheDocument()
+  })
+
+  it('招待リンクで入ったら、その家と招待リンクを控える', async () => {
+    supabase.rpc.mockResolvedValue({ data: { id: 'g1', name: 'A家' }, error: null })
+    renderOnboarding()
+    await userEvent.click(screen.getByRole('button', { name: /^招待で入る.*家族から/ }))
+    await userEvent.type(screen.getByLabelText(/招待リンク/), `https://cookdoor.app/#invite=${TOKEN}`)
+    await userEvent.click(screen.getByRole('button', { name: /家に入る/ }))
+    expect(JSON.parse(localStorage.getItem('cookdoor.loginMemory')).invites).toEqual([{ groupId: 'g1', name: 'A家', token: TOKEN }])
+  })
+})

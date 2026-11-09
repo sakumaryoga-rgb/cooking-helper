@@ -479,3 +479,39 @@ describe('任意の材料と、今回だけ追加した食材', () => {
     expect(supabase.from).not.toHaveBeenCalledWith('recipe_ingredients')
   })
 })
+
+describe('必須・任意の切り替え(レシピの画面)', () => {
+  it('材料を「必須の材料」「任意の材料」に分けて出し、2択のスイッチで切り替えられる', async () => {
+    const r = {
+      id: 'r1',
+      title: '肉じゃが',
+      url: null,
+      recipe_ingredients: [
+        { id: 'm1', ingredient_id: 'beef', required_quantity: 200, ingredient: { id: 'beef', name: '牛こま切れ肉', unit: 'g' } },
+        { id: 'm2', ingredient_id: 'peas', required_quantity: 5, optional: true, ingredient: { id: 'peas', name: 'さやえんどう', unit: '本' } },
+      ],
+    }
+    useIngredients.mockReturnValue({ ingredients: [{ id: 'beef', name: '牛こま切れ肉', unit: 'g', quantity: 300 }], refresh: vi.fn() })
+    useRecipes.mockReturnValue({ recipes: [r], loading: false, refresh: vi.fn() })
+    supabase.from.mockClear()
+    update.mockClear()
+    updateEq.mockClear()
+    render(
+      <MemoryRouter initialEntries={['/recipes/r1']}>
+        <Routes>
+          <Route path="/recipes/:id" element={<RecipeDetail groupId="g1" />} />
+        </Routes>
+      </MemoryRouter>
+    )
+    const required = screen.getByRole('region', { name: '必須の材料' })
+    const optional = screen.getByRole('region', { name: '任意の材料' })
+    expect(required).toHaveTextContent('牛こま切れ肉')
+    expect(optional).toHaveTextContent('さやえんどう')
+    const beefToggle = within(required).getByRole('radiogroup', { name: '牛こま切れ肉は必須か任意か' })
+    expect(within(beefToggle).getByRole('radio', { name: '必須' })).toHaveAttribute('aria-checked', 'true')
+    await userEvent.click(within(beefToggle).getByRole('radio', { name: '任意' }))
+    expect(supabase.from).toHaveBeenCalledWith('recipe_ingredients')
+    expect(update).toHaveBeenCalledWith({ optional: true })
+    expect(updateEq).toHaveBeenCalledWith('id', 'm1')
+  })
+})
