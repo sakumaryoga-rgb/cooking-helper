@@ -74,3 +74,46 @@ describe('/api/recipe-import', () => {
     expect((await call({ url: 'https://delishkitchen.tv/recipes/194135459369058708' })).status).toBe(200)
   })
 })
+
+describe('/api/recipe-import の回数の上限', () => {
+  const uid = '11111111-2222-4333-8444-555555555555'
+  function stubWithCount(total) {
+    vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'service')
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url, init) => {
+        const u = String(url)
+        if (u.endsWith('/auth/v1/user')) return new Response(JSON.stringify({ id: uid }), { status: 200 })
+        if (u.includes('/rest/v1/recipe_import_runs?')) return new Response('[]', { status: 206, headers: { 'content-range': `0-0/${total}` } })
+        if (u.endsWith('/rest/v1/recipe_import_runs')) return new Response(null, { status: 201 })
+        if (u === 'https://delishkitchen.tv/recipes/194135459369058708') return new Response(page, { headers: { 'content-type': 'text/html' } })
+        return new Response('not found', { status: 404, statusText: String(init?.method) })
+      })
+    )
+  }
+
+  it('この1時間に30回取り込んだ人は、外部サイトにアクセスせずに断る', async () => {
+    stubWithCount(30)
+    const { status, json } = await call({ url: 'https://delishkitchen.tv/recipes/194135459369058708' })
+    expect(status).toBe(429)
+    expect(json).toEqual({ error: 'rate_limited' })
+    expect(fetch.mock.calls.some(([u]) => String(u).startsWith('https://delishkitchen.tv'))).toBe(false)
+    // 本人の記録だけを、サーバー専用の鍵で数える
+    const count = fetch.mock.calls.find(([u]) => String(u).includes('/rest/v1/recipe_import_runs?'))
+    expect(String(count[0])).toContain(`user_id=eq.${uid}`)
+    expect(count[1].headers.Authorization).toBe('Bearer service')
+  })
+
+  it('上限より少なければ取り込める', async () => {
+    stubWithCount(29)
+    const { status } = await call({ url: 'https://delishkitchen.tv/recipes/194135459369058708' })
+    expect(status).toBe(200)
+  })
+
+  it('数えられないとき(鍵が未設定)は、取り込みを止めない', async () => {
+    stubWithCount(999)
+    vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', '')
+    const { status } = await call({ url: 'https://delishkitchen.tv/recipes/194135459369058708' })
+    expect(status).toBe(200)
+  })
+})

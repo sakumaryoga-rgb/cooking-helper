@@ -1,0 +1,22 @@
+# 依存ライブラリの更新の提案(Dependabot)。脆弱性の修正版は、この設定とは別にすぐ PR が来る(security updates)
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Asia/Tokyo
+    open-pull-requests-limit: 5
+    groups:
+      # 小さな更新はまとめて1つの PR にする(マージ前に CI とプレビューで確かめる)
+      minor-and-patch:
+        update-types: [minor, patch]
+    labels: [dependencies]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+      timezone: Asia/Tokyo
+    labels: [dependencies]

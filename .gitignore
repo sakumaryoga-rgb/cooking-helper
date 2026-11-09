@@ -26,3 +26,8 @@ dist-ssr
 # DB backups (contain personal data; keep outside the repository)
 *.dump
 backups/
+
+# 環境変数(秘密情報)。見本の .env.example だけはリポジトリに入れる
+.env
+.env.*
+!.env.example
