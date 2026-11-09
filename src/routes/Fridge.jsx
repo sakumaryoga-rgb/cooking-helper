@@ -23,12 +23,25 @@ function stepFor(unit) {
   return STEP_BY_UNIT[unit] ?? 1
 }
 
-// 個数系の食材を、1より細かく使ったとき(半分・4分の1など)の量。開いた食材の中にだけ出す(一覧のボタンは増やさない)
-const PARTIAL_USES = [
-  { label: '¼', value: 0.25 },
-  { label: '½', value: 0.5 },
-  { label: '¾', value: 0.75 },
-]
+// 使った量のボタン(各行に常に出す)。単位と残りの量で変える
+// - g・ml など: 50・100・全部
+// - 個数系で残りが少ない(3以下): ¼・½・1(キャベツ1玉の半分など)
+// - 個数系で残りが多い: 1・2・3(卵など)
+// 残りより多いボタンは出さない。「全部」は残りすべて
+const BULK_UNITS = new Set(['g', 'ml', 'cc'])
+const FRACTION_LABEL = { 0.25: '¼', 0.5: '½', 0.75: '¾' }
+export function quickUses(unit, quantity) {
+  const q = Number(quantity) || 0
+  if (q <= 0) return []
+  if (BULK_UNITS.has(unit)) {
+    const steps = [50, 100].filter((v) => v < q).map((v) => ({ label: `−${v}${unit}`, value: v }))
+    return [...steps, { label: '全部', value: q, all: true }]
+  }
+  const steps = q <= 3 ? [0.25, 0.5, 1] : [1, 2, 3]
+  return steps
+    .filter((v) => v <= q + 1e-9)
+    .map((v) => ({ label: `−${FRACTION_LABEL[v] ?? v}`, value: v, all: Math.abs(v - q) < 1e-9 }))
+}
 
 // 冷蔵庫に新しく入れるとき、最初から「常備品(数えない)」を選んでおくカテゴリ
 const STAPLE_CATEGORIES = new Set(['調味料・油'])
@@ -267,6 +280,24 @@ export function Fridge({ groupId }) {
               </Button>
             </div>
           </div>
+          {quickUses(ingredient.unit, ingredient.quantity).length > 0 && (
+            // 使った量をワンタップで減らす(開かなくても押せる)
+            <div className="flex flex-wrap items-center gap-1.5 px-3 pb-2.5 pl-[3.875rem]" role="group" aria-label={`${ingredient.name}を使った量`}>
+              {quickUses(ingredient.unit, ingredient.quantity).map((u) => (
+                <button
+                  key={u.label}
+                  type="button"
+                  className={`rounded-full border px-3 py-1 text-xs font-semibold tabular-nums transition-colors active:scale-95 ${
+                    u.all ? 'border-destructive/30 text-destructive hover:bg-destructive/5' : 'bg-background hover:border-primary hover:bg-primary/10'
+                  }`}
+                  onClick={() => adjustQuantity(ingredient, -u.value)}
+                  aria-label={u.all ? `全部使った(${ingredient.name})` : `${u.label.slice(1)}${BULK_UNITS.has(ingredient.unit) ? '' : ingredient.unit}使った(${ingredient.name})`}
+                >
+                  {u.label}
+                </button>
+              ))}
+            </div>
+          )}
         </SwipeToDelete>
         {expandedId === ingredient.id && renderLots(ingredient)}
       </li>
@@ -299,22 +330,6 @@ export function Fridge({ groupId }) {
           <li className="text-muted-foreground">
             {formatQuantity(unrecorded)}
             {ingredient.unit}・ロットの記録なし
-          </li>
-        )}
-        {!STEP_BY_UNIT[ingredient.unit] && Number(ingredient.quantity) > 0 && (
-          <li className="flex flex-wrap items-center gap-1.5 pt-1">
-            <span className="text-muted-foreground">少しだけ使った</span>
-            {PARTIAL_USES.map((u) => (
-              <button
-                key={u.label}
-                type="button"
-                className="rounded-full border bg-background px-2.5 py-1 font-medium tabular-nums hover:border-primary"
-                onClick={() => adjustQuantity(ingredient, -u.value)}
-                aria-label={`${ingredient.name}を${u.label}${ingredient.unit}減らす`}
-              >
-                −{u.label}
-              </button>
-            ))}
           </li>
         )}
         <li className="pt-1">

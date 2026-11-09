@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { RecipeEdit } from './RecipeEdit'
@@ -138,7 +138,7 @@ describe('レシピのカスタマイズ', () => {
     expect(screen.getByRole('radio', { name: /和食/ })).toHaveAttribute('aria-checked', 'true')
     expect(screen.getByText(/自動で「和食」にしました/)).toBeInTheDocument()
     await userEvent.click(screen.getByRole('radio', { name: /洋食/ }))
-    await userEvent.click(screen.getByRole('button', { name: '卵を任意の材料にする' }))
+    await userEvent.click(within(screen.getByRole('radiogroup', { name: '卵は必須か任意か' })).getByRole('radio', { name: '任意' }))
     await userEvent.click(screen.getByRole('button', { name: '保存する' }))
     expect(updateRecipe).toHaveBeenCalledWith(expect.objectContaining({ category: 'western', categoryManual: true }))
     expect(vi.mocked(updateRecipe).mock.calls[0][0].items[0]).toMatchObject({ name: '卵', optional: true })

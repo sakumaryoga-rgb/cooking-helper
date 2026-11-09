@@ -5,6 +5,7 @@ import { applyChoice, normalizeName } from '@/lib/recipeImport/match'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { QuantityInput } from '@/components/QuantityInput'
+import { RequiredToggle } from '@/components/RequiredToggle'
 import { useCommonConversions } from '@/hooks/useCommonConversions'
 import { parseAmount } from '@/lib/recipeImport/ingredientLine'
 import { describeEstimate, resolveConversion } from '@/lib/unitConversion'
@@ -193,20 +194,7 @@ export function RecipeItemsEditor({ groupId, ingredients, items, setItems, empty
               {item.include && (
                 <div className="flex flex-wrap items-center gap-1.5 pl-6">
                   {/* 必須・任意(既定は必須)。任意の材料は「作れる」の判定に入れず、作るときに使うか選べる */}
-                  <button
-                    type="button"
-                    aria-pressed={Boolean(item.optional)}
-                    aria-label={item.optional ? `${item.name}を必須の材料に戻す` : `${item.name}を任意の材料にする`}
-                    title={item.optional ? 'あれば使う材料です。押すと必須に戻します' : '押すと「任意(あれば使う)」にします'}
-                    className={`rounded-full border px-2.5 py-0.5 text-xs font-medium ${
-                      item.optional
-                        ? 'border-sky-300 bg-sky-100 text-sky-800 dark:border-sky-800 dark:bg-sky-950 dark:text-sky-300'
-                        : 'bg-background text-muted-foreground hover:border-sky-300 hover:text-sky-700'
-                    }`}
-                    onClick={() => updateItem(item.key, { optional: !item.optional })}
-                  >
-                    {item.optional ? '任意' : '必須'}
-                  </button>
+                  <RequiredToggle name={item.name} size="xs" optional={Boolean(item.optional)} onChange={(v) => updateItem(item.key, { optional: v })} />
                   {item.optional && <span className="text-xs text-muted-foreground">あれば使う(なくても作れる)</span>}
                   {isSeasoning(item) && (
                   <button

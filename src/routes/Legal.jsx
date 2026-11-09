@@ -225,7 +225,7 @@ export function Privacy() {
       </Section>
       <Section title="7. 端末への保存">
         <p>
-          ログイン状態、選んでいる家、開いた招待リンク、案内を閉じたことなどを、端末のブラウザ(localStorage・sessionStorage)に保存します。広告や追跡のための Cookie は使いません。
+          ログイン状態、選んでいる家、開いた招待リンク、案内を閉じたこと、次回のログインを簡単にするためのメールアドレスと入っていた家の名前などを、端末のブラウザ(localStorage・sessionStorage)に保存します(サーバーには送りません。ログイン画面の「別のメールアドレスでログインする」で消せます)。広告や追跡のための Cookie は使いません。
         </p>
       </Section>
       <Section title="8. 開示・訂正・削除のご依頼">

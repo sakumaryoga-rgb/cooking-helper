@@ -9,9 +9,19 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { InstallGuide } from '@/components/InstallGuide'
+import { HouseList } from '@/components/HouseGate'
+import { forgetLoginMemory, getLoginMemory, rememberEmail } from '@/lib/loginMemory'
+import { getStoredGroupId, setActiveGroupId } from '@/lib/activeGroup'
 
 export function Login() {
-  const [email, setEmail] = useState('')
+  // この端末で前にログインしたときのメールアドレスと家(どの家に入るかを一目で出す)
+  const [memory, setMemory] = useState(() => getLoginMemory())
+  const [email, setEmail] = useState(() => memory.email)
+  const [houseId, setHouseId] = useState(() => {
+    const stored = getStoredGroupId()
+    return memory.houses.some((h) => h.id === stored) ? stored : null
+  })
+  const chosenHouse = memory.houses.find((h) => h.id === houseId)
   const [status, setStatus] = useState('idle') // idle | sending | sent | error
   const [errorMessage, setErrorMessage] = useState('')
   const [code, setCode] = useState('')
@@ -33,6 +43,7 @@ export function Login() {
     e.preventDefault()
     setStatus('sending')
     setErrorMessage('')
+    rememberEmail(email)
     const { error } = await supabase.auth.signInWithOtp({
       email,
       options: { emailRedirectTo: `${window.location.origin}/auth/callback` },
@@ -100,6 +111,24 @@ export function Login() {
             </div>
           ) : (
             <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+              {memory.houses.length > 0 && (
+                // 前にこの端末で入った家。選んでおくと、ログインした後にその家に入る
+                <div className="flex flex-col gap-2">
+                  <div>
+                    <p className="text-sm font-bold">{chosenHouse ? `ログインすると「${chosenHouse.name}」に入ります` : 'どの家に入りますか?'}</p>
+                    <p className="text-[11px] text-muted-foreground">この端末で使っていた家です。タップで入る家を変えられます</p>
+                  </div>
+                  <HouseList
+                    houses={memory.houses}
+                    currentId={houseId}
+                    currentLabel="ここに入る"
+                    onSelect={(id) => {
+                      setHouseId(id)
+                      setActiveGroupId(id)
+                    }}
+                  />
+                </div>
+              )}
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="email">メールアドレス</Label>
                 <Input
@@ -111,6 +140,21 @@ export function Login() {
                   placeholder="you@example.com"
                 />
                 <p className="text-[11px] text-muted-foreground">パスワード不要。届いたメールのリンクかコードで入れます</p>
+                {memory.email && (
+                  <button
+                    type="button"
+                    className="self-start text-[11px] text-muted-foreground underline underline-offset-2"
+                    onClick={() => {
+                      // 別のアカウントでログインする: この端末で覚えた家とメールアドレスを消す
+                      forgetLoginMemory()
+                      setMemory(getLoginMemory())
+                      setEmail('')
+                      setHouseId(null)
+                    }}
+                  >
+                    別のメールアドレスでログインする
+                  </button>
+                )}
               </div>
               {status === 'error' && <p className="text-destructive text-sm">{errorMessage}</p>}
               <Button type="submit" size="lg" disabled={status === 'sending'}>

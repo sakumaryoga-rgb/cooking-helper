@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, within, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { Fridge } from './Fridge'
@@ -244,19 +244,29 @@ describe('常備品と分数の在庫', () => {
     expect(supabase.rpc).not.toHaveBeenCalled()
   })
 
-  it('個数の食材は、開くと ¼・½・¾ だけ減らせる(一覧のボタンは増やさない。g・ml には出さない)', async () => {
+  it('使った量のボタンを各行に常に出し、ワンタップで減らす(単位と残りの量でボタンが変わる)', async () => {
     setup([
       { id: 'o', name: '玉ねぎ', unit: '個', quantity: 2 },
+      { id: 'e', name: '卵', unit: '個', quantity: 6 },
       { id: 'm', name: '牛乳', unit: 'ml', quantity: 500 },
     ])
-    expect(screen.queryByRole('button', { name: /½/ })).not.toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: /玉ねぎ/ }))
-    await userEvent.click(screen.getByRole('button', { name: '玉ねぎを½個減らす' }))
+    // 開かなくても押せる
+    const onion = within(screen.getByRole('group', { name: '玉ねぎを使った量' }))
+    expect(onion.getAllByRole('button').map((b) => b.textContent)).toEqual(['−¼', '−½', '−1'])
+    await userEvent.click(onion.getByRole('button', { name: '½個使った(玉ねぎ)' }))
     expect(supabase.rpc).toHaveBeenCalledWith('adjust_stock', expect.objectContaining({ p_ingredient_id: 'o', p_delta: -0.5 }))
-    await userEvent.click(screen.getByRole('button', { name: '玉ねぎを¼個減らす' }))
-    expect(supabase.rpc).toHaveBeenCalledWith('adjust_stock', expect.objectContaining({ p_ingredient_id: 'o', p_delta: -0.25 }))
-    await userEvent.click(screen.getByRole('button', { name: /牛乳/ }))
-    expect(screen.queryByRole('button', { name: /牛乳を.*減らす/ })).not.toBeInTheDocument()
+    // 残りが多い個数の食材は 1・2・3
+    expect(within(screen.getByRole('group', { name: '卵を使った量' })).getAllByRole('button').map((b) => b.textContent)).toEqual(['−1', '−2', '−3'])
+    // g・ml は 50・100・全部
+    const milk = within(screen.getByRole('group', { name: '牛乳を使った量' }))
+    expect(milk.getAllByRole('button').map((b) => b.textContent)).toEqual(['−50ml', '−100ml', '全部'])
+    await userEvent.click(milk.getByRole('button', { name: '全部使った(牛乳)' }))
+    expect(supabase.rpc).toHaveBeenCalledWith('adjust_stock', expect.objectContaining({ p_ingredient_id: 'm', p_delta: -500 }))
+  })
+
+  it('残りより多い量のボタンは出さない', async () => {
+    setup([{ id: 'c', name: 'キャベツ', unit: '玉', quantity: 0.5 }])
+    expect(within(screen.getByRole('group', { name: 'キャベツを使った量' })).getAllByRole('button').map((b) => b.textContent)).toEqual(['−¼', '−½'])
   })
 
   it('じゃがいも 1/2 は 0.5 として在庫に入る', async () => {

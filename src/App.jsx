@@ -21,6 +21,7 @@ import { useTelemetry } from '@/hooks/useTelemetry'
 import { capturePendingInvite } from '@/lib/invite'
 import { OpenInBrowserGate, CONTINUE_KEY } from '@/components/OpenInBrowserGate'
 import { detectInAppBrowser } from '@/lib/inAppBrowser'
+import { ConnectionProblem, HouseChooser } from '@/components/HouseGate'
 
 // めったに開かない画面は、開いたときに読み込む(起動時に読み込む量を減らす)
 const Onboarding = lazy(() => import('@/routes/Onboarding').then((m) => ({ default: m.Onboarding })))
@@ -59,7 +60,7 @@ export default function App() {
 
 function AppMain() {
   const { session, loading: sessionLoading } = useSession()
-  const { groups, group, loading: groupLoading, refresh: refreshGroup, selectGroup } = useGroup(session)
+  const { groups, group, loading: groupLoading, error: groupError, needsChoice, refresh: refreshGroup, selectGroup } = useGroup(session)
   const location = useLocation()
   const consent = useConsent(session?.user?.id ?? null)
 
@@ -111,6 +112,11 @@ function AppMain() {
           <Route path="*" element={<Navigate to="/login" replace />} />
         ) : groupLoading ? (
           <Route path="*" element={<FullScreenLoader />} />
+        ) : !group && groupError ? (
+          // 家の一覧を読めなかった: ログイン画面や「家を建てる」には戻さず、つながるまで待つ
+          <Route path="*" element={<ConnectionProblem onRetry={() => refreshGroup()} />} />
+        ) : !group && needsChoice ? (
+          <Route path="*" element={<HouseChooser groups={groups} onSelect={selectGroup} />} />
         ) : !group ? (
           <>
             <Route path="/onboarding" element={<Onboarding onGroupChanged={refreshGroup} notice={invite.notice} />} />

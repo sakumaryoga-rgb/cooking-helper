@@ -27,6 +27,7 @@ import { usableIngredientsById } from '@/lib/shelfLife'
 import { useCommonConversions } from '@/hooks/useCommonConversions'
 import { CookedCelebration } from '@/components/CookedCelebration'
 import { ExtraIngredientAdder } from '@/components/ExtraIngredientAdder'
+import { RequiredToggle } from '@/components/RequiredToggle'
 import { categoryInfo, categoryOf } from '@/lib/recipeCategory'
 
 
@@ -141,11 +142,25 @@ export function RecipeDetail({ groupId }) {
         type="button"
         className="inline-flex items-center gap-1 rounded-full border bg-background px-2.5 py-1 text-xs font-medium text-muted-foreground hover:border-destructive/50 hover:text-destructive"
         onClick={() => removeLine(ri)}
+        aria-label="この材料は使わない"
       >
         <Ban className="size-3.5" />
-        この材料は使わない
+        使わない
       </button>
     )
+  }
+
+  // 材料の必須・任意を切り替える(任意 = あれば使う。「作れる」の判定に入れない)
+  async function setOptional(ri, optional) {
+    setResolvingId(ri.id)
+    setResolveError('')
+    const { error } = await supabase.from('recipe_ingredients').update({ optional }).eq('id', ri.id)
+    setResolvingId(null)
+    if (error) {
+      setResolveError('材料の必須・任意を変えられませんでした。選んでいる家のレシピか確かめてください')
+      return
+    }
+    await refreshRecipes?.()
   }
 
   // 塩・しょうゆなどを常備品にすると、在庫の数量に関係なく「ある」とみなす(家庭ごと)
@@ -283,6 +298,142 @@ export function RecipeDetail({ groupId }) {
     )
   }
 
+  // レシピの材料の1行(必須・任意のどちらの欄でも同じ)
+  function renderIngredient(ri) {
+      const plainName = ri.ingredient?.name ?? ingredientsById.get(ri.ingredient_id)?.name ?? ri.source_name
+      if (isNotStocked(plainName)) {
+        // 水・お湯など: 食材として数えない(在庫と比べず、調理でも引かない)
+        return (
+          <li key={ri.id} className="flex items-center justify-between gap-3 px-3 py-2.5">
+            <span className="flex items-center gap-2 min-w-0">
+              <span className="size-4 shrink-0" />
+              <span className="text-sm truncate text-muted-foreground">{plainName}</span>
+            </span>
+            <span className="text-xs text-muted-foreground">
+              {ri.amount_text || (ri.required_quantity != null ? `${formatQuantity(ri.required_quantity)}${ri.ingredient?.unit ?? ''}` : '')}
+            </span>
+          </li>
+        )
+      }
+      if (!ri.ingredient_id) {
+        // 確認待ち(どの食材か未確定): 候補を1タップで選ぶ
+        const match = matchIngredientName(ri.source_name, nameIndex, { notes: ri.note ? ri.note.split('・') : [] })
+        const options = match.status === 'auto' ? [match.option] : match.candidates
+        return (
+          <li key={ri.id} className="flex flex-col gap-1.5 bg-violet-50/60 px-3 py-2.5 dark:bg-violet-950/30">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-sm">
+                <span className="mr-1 rounded-full bg-violet-100 px-1.5 py-px text-[10px] font-semibold text-violet-800 dark:bg-violet-950 dark:text-violet-300">確認待ち</span>
+                {ri.source_name}
+              </span>
+              <span className="text-xs text-muted-foreground">{ri.amount_text}</span>
+            </div>
+            <p className="text-xs text-muted-foreground">どの食材ですか?(選ぶと次から自動で決まります)</p>
+            <div className="flex flex-wrap gap-1.5">
+              {options.map((option) => (
+                <Button
+                  key={option.kind + (option.ingredient?.id ?? option.catalogItem?.id)}
+                  size="sm"
+                  variant="outline"
+                  className="h-7 rounded-full text-xs"
+                  disabled={resolvingId === ri.id}
+                  onClick={() => resolvePending(ri, option)}
+                >
+                  {option.name}
+                </Button>
+              ))}
+              {ri.source_name && (
+                <Button size="sm" variant="ghost" className="h-7 rounded-full text-xs" disabled={resolvingId === ri.id} onClick={() => resolvePending(ri, { kind: 'new', name: ri.source_name })}>
+                  新しい食材「{ri.source_name}」として登録
+                </Button>
+              )}
+            </div>
+            <div className="flex items-center justify-between gap-1.5">
+              <RequiredToggle name={ri.source_name ?? '材料'} optional={Boolean(ri.optional)} disabled={resolvingId === ri.id} onChange={(v) => setOptional(ri, v)} />
+              {removeLineControl(ri, ri.source_name ?? '材料')}
+            </div>
+          </li>
+        )
+      }
+      const current = ingredientsById.get(ri.ingredient_id)
+      const staple = Boolean(current?.is_staple)
+      const line = status.lines.find((l) => l.ingredientId === ri.ingredient_id)
+      const shortfall = status.shortfalls.find((s) => s.ingredientId === ri.ingredient_id)
+      const optional = Boolean(ri.optional)
+      // 任意の材料は不足にしない(在庫があるかだけを見せる)
+      const enough = optional ? line?.optionalStock === 'enough' : !shortfall
+      const unit = ri.ingredient?.unit ?? current?.unit ?? ''
+      return (
+        <li key={ri.id} className="flex flex-col gap-1 px-3 py-2.5">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 min-w-0">
+              {enough ? (
+                <Check className={`size-4 shrink-0 ${optional ? 'text-sky-600' : 'text-emerald-600'}`} />
+              ) : optional ? (
+                <span className="size-2 shrink-0 rounded-full border border-muted-foreground/60" />
+              ) : (
+                <span className="size-2 shrink-0 rounded-full bg-destructive" />
+              )}
+              <span className="text-sm truncate">{ri.ingredient?.name ?? current?.name}</span>
+              {optional && (
+                <span className="shrink-0 rounded-full bg-sky-100 px-1.5 py-px text-[10px] font-semibold text-sky-800 dark:bg-sky-950 dark:text-sky-300">
+                  任意・{line?.optionalStock === 'enough' ? '在庫あり' : line?.optionalStock === 'partial' ? '在庫が少ない' : '在庫なし'}
+                </span>
+              )}
+            </div>
+            <span className={`text-xs text-right ${enough || optional ? 'text-muted-foreground' : 'text-destructive'}`}>
+              {staple ? (
+                '常備品'
+              ) : line?.amountUnknown || line?.vague ? (
+                // 数で分からない分量(1パック・少々): 元の表記のまま。在庫と比べられない
+                <>
+                  {ri.amount_text || '分量不明'}
+                  {line.amountUnknown && <span className="ml-1 text-violet-700 dark:text-violet-400">・分量を確認</span>}
+                  {' '}/ 在庫 {formatQuantity(current?.quantity ?? 0)}
+                  {unit}
+                  {line.estimate && <span className="block text-[11px] text-muted-foreground">{line.estimate.text}</span>}
+                </>
+              ) : (
+                <>
+                  {line?.converted && <span className="text-violet-700 dark:text-violet-400">{ri.amount_text}≈</span>}
+                  必要 {formatQuantity(line?.converted ? line.requiredQuantity : ri.required_quantity)}
+                  {unit} / 在庫 {formatQuantity(current?.quantity ?? 0)}
+                  {unit}
+                  {shortfall && (
+                    <span className="font-medium">
+                      {' '}
+                      ・不足 {formatQuantity(shortfall.missingQuantity)}
+                      {unit}
+                    </span>
+                  )}
+                </>
+              )}
+            </span>
+          </div>
+          <div className="flex flex-wrap items-center justify-end gap-1.5 pt-1">
+            <RequiredToggle name={ri.ingredient?.name ?? current?.name ?? '材料'} optional={optional} disabled={resolvingId === ri.id} onChange={(v) => setOptional(ri, v)} />
+            <span className="flex-1" />
+            {current && (
+              <button
+                type="button"
+                className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium ${
+                  staple
+                    ? 'border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-900 dark:bg-violet-950 dark:text-violet-300'
+                    : 'bg-background text-muted-foreground hover:border-violet-300 hover:text-violet-700'
+                }`}
+                onClick={() => toggleStaple(current)}
+              >
+                <InfinityIcon className="size-3.5" />
+                {staple ? '常備品から外す' : '常備品にする'}
+              </button>
+            )}
+            {removeLineControl(ri, ri.ingredient?.name ?? current?.name ?? '材料')}
+          </div>
+          {ri.note && <p className="text-xs text-muted-foreground">状態: {ri.note}</p>}
+          {ri.raw_text && <p className="text-xs text-muted-foreground">元の表記: {ri.raw_text}</p>}
+        </li>
+      )
+  }
   if (loading) return <p className="text-sm text-muted-foreground">読み込み中...</p>
   if (!recipe)
     return (
@@ -379,140 +530,22 @@ export function RecipeDetail({ groupId }) {
       )}
       {resolveError && <p className="text-sm text-destructive">{resolveError}</p>}
 
-      <ul className="flex flex-col divide-y divide-border rounded-lg border bg-card">
-        {scaled.recipe_ingredients.map((ri) => {
-          const plainName = ri.ingredient?.name ?? ingredientsById.get(ri.ingredient_id)?.name ?? ri.source_name
-          if (isNotStocked(plainName)) {
-            // 水・お湯など: 食材として数えない(在庫と比べず、調理でも引かない)
-            return (
-              <li key={ri.id} className="flex items-center justify-between gap-3 px-3 py-2.5">
-                <span className="flex items-center gap-2 min-w-0">
-                  <span className="size-4 shrink-0" />
-                  <span className="text-sm truncate text-muted-foreground">{plainName}</span>
-                </span>
-                <span className="text-xs text-muted-foreground">
-                  {ri.amount_text || (ri.required_quantity != null ? `${formatQuantity(ri.required_quantity)}${ri.ingredient?.unit ?? ''}` : '')}
-                </span>
-              </li>
-            )
-          }
-          if (!ri.ingredient_id) {
-            // 確認待ち(どの食材か未確定): 候補を1タップで選ぶ
-            const match = matchIngredientName(ri.source_name, nameIndex, { notes: ri.note ? ri.note.split('・') : [] })
-            const options = match.status === 'auto' ? [match.option] : match.candidates
-            return (
-              <li key={ri.id} className="flex flex-col gap-1.5 bg-violet-50/60 px-3 py-2.5 dark:bg-violet-950/30">
-                <div className="flex items-center justify-between gap-3">
-                  <span className="text-sm">
-                    <span className="mr-1 rounded-full bg-violet-100 px-1.5 py-px text-[10px] font-semibold text-violet-800 dark:bg-violet-950 dark:text-violet-300">確認待ち</span>
-                    {ri.source_name}
-                  </span>
-                  <span className="text-xs text-muted-foreground">{ri.amount_text}</span>
-                </div>
-                <p className="text-xs text-muted-foreground">どの食材ですか?(選ぶと次から自動で決まります)</p>
-                <div className="flex flex-wrap gap-1.5">
-                  {options.map((option) => (
-                    <Button
-                      key={option.kind + (option.ingredient?.id ?? option.catalogItem?.id)}
-                      size="sm"
-                      variant="outline"
-                      className="h-7 rounded-full text-xs"
-                      disabled={resolvingId === ri.id}
-                      onClick={() => resolvePending(ri, option)}
-                    >
-                      {option.name}
-                    </Button>
-                  ))}
-                  {ri.source_name && (
-                    <Button size="sm" variant="ghost" className="h-7 rounded-full text-xs" disabled={resolvingId === ri.id} onClick={() => resolvePending(ri, { kind: 'new', name: ri.source_name })}>
-                      新しい食材「{ri.source_name}」として登録
-                    </Button>
-                  )}
-                </div>
-                <div className="self-end">
-                  {removeLineControl(ri, ri.source_name ?? '材料')}
-                </div>
-              </li>
-            )
-          }
-          const current = ingredientsById.get(ri.ingredient_id)
-          const staple = Boolean(current?.is_staple)
-          const line = status.lines.find((l) => l.ingredientId === ri.ingredient_id)
-          const shortfall = status.shortfalls.find((s) => s.ingredientId === ri.ingredient_id)
-          const optional = Boolean(ri.optional)
-          // 任意の材料は不足にしない(在庫があるかだけを見せる)
-          const enough = optional ? line?.optionalStock === 'enough' : !shortfall
-          const unit = ri.ingredient?.unit ?? current?.unit ?? ''
-          return (
-            <li key={ri.id} className="flex flex-col gap-1 px-3 py-2.5">
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2 min-w-0">
-                  {enough ? (
-                    <Check className={`size-4 shrink-0 ${optional ? 'text-sky-600' : 'text-emerald-600'}`} />
-                  ) : optional ? (
-                    <span className="size-2 shrink-0 rounded-full border border-muted-foreground/60" />
-                  ) : (
-                    <span className="size-2 shrink-0 rounded-full bg-destructive" />
-                  )}
-                  <span className="text-sm truncate">{ri.ingredient?.name ?? current?.name}</span>
-                  {optional && (
-                    <span className="shrink-0 rounded-full bg-sky-100 px-1.5 py-px text-[10px] font-semibold text-sky-800 dark:bg-sky-950 dark:text-sky-300">
-                      任意・{line?.optionalStock === 'enough' ? '在庫あり' : line?.optionalStock === 'partial' ? '在庫が少ない' : '在庫なし'}
-                    </span>
-                  )}
-                </div>
-                <span className={`text-xs text-right ${enough || optional ? 'text-muted-foreground' : 'text-destructive'}`}>
-                  {staple ? (
-                    '常備品'
-                  ) : line?.amountUnknown || line?.vague ? (
-                    // 数で分からない分量(1パック・少々): 元の表記のまま。在庫と比べられない
-                    <>
-                      {ri.amount_text || '分量不明'}
-                      {line.amountUnknown && <span className="ml-1 text-violet-700 dark:text-violet-400">・分量を確認</span>}
-                      {' '}/ 在庫 {formatQuantity(current?.quantity ?? 0)}
-                      {unit}
-                      {line.estimate && <span className="block text-[11px] text-muted-foreground">{line.estimate.text}</span>}
-                    </>
-                  ) : (
-                    <>
-                      {line?.converted && <span className="text-violet-700 dark:text-violet-400">{ri.amount_text}≈</span>}
-                      必要 {formatQuantity(line?.converted ? line.requiredQuantity : ri.required_quantity)}
-                      {unit} / 在庫 {formatQuantity(current?.quantity ?? 0)}
-                      {unit}
-                      {shortfall && (
-                        <span className="font-medium">
-                          {' '}
-                          ・不足 {formatQuantity(shortfall.missingQuantity)}
-                          {unit}
-                        </span>
-                      )}
-                    </>
-                  )}
-                </span>
-              </div>
-              <div className="flex flex-wrap items-center justify-end gap-1.5 pt-1">
-                {current && (
-                  <button
-                    type="button"
-                    className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium ${
-                      staple
-                        ? 'border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-900 dark:bg-violet-950 dark:text-violet-300'
-                        : 'bg-background text-muted-foreground hover:border-violet-300 hover:text-violet-700'
-                    }`}
-                    onClick={() => toggleStaple(current)}
-                  >
-                    <InfinityIcon className="size-3.5" />
-                    {staple ? '常備品から外す' : '常備品にする'}
-                  </button>
-                )}
-                {removeLineControl(ri, ri.ingredient?.name ?? current?.name ?? '材料')}
-              </div>
-              {ri.note && <p className="text-xs text-muted-foreground">状態: {ri.note}</p>}
-              {ri.raw_text && <p className="text-xs text-muted-foreground">元の表記: {ri.raw_text}</p>}
-            </li>
-          )
-        })}
-      </ul>
+      {[
+        { key: 'required', title: '必須の材料', note: 'そろうと「作れます」になります', rows: scaled.recipe_ingredients.filter((ri) => !ri.optional) },
+        { key: 'optional', title: '任意の材料', note: 'あれば使う材料です。なくても作れます', rows: scaled.recipe_ingredients.filter((ri) => ri.optional) },
+      ]
+        .filter((sec) => sec.rows.length > 0)
+        .map((sec) => (
+          <section key={sec.key} className="flex flex-col gap-1.5" aria-label={sec.title}>
+            <h2 className="flex items-baseline gap-2 px-1 text-sm font-semibold">
+              {sec.title}
+              <span className="text-xs font-normal text-muted-foreground">{sec.rows.length}品・{sec.note}</span>
+            </h2>
+            <ul className={`flex flex-col divide-y divide-border rounded-lg border bg-card ${sec.key === 'optional' ? 'border-sky-200 dark:border-sky-900' : ''}`}>
+              {sec.rows.map(renderIngredient)}
+            </ul>
+          </section>
+        ))}
 
       {recipe.url && (
         // URL から取り込んだレシピ: 作り方は元のページで見る
