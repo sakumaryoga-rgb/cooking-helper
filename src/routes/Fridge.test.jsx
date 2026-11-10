@@ -75,25 +75,21 @@ describe('Fridge の数量変更', () => {
     supabase.rpc.mockResolvedValue({ data: [{ new_quantity: 1, deleted: false }], error: null })
   })
 
-  it('g の食材は＋で10増やし、追加日を今日として記録する', async () => {
+  it('＋は量と期限を入れる画面を出す(押しただけでは増やさない)', async () => {
     setup([{ id: 'i1', name: '鶏もも肉', unit: 'g', quantity: 200 }])
     await userEvent.click(screen.getByRole('button', { name: '増やす' }))
-    expect(supabase.rpc).toHaveBeenCalledWith('adjust_stock', {
-      p_ingredient_id: 'i1',
-      p_delta: 10,
-      p_dated_today: true,
-      p_best_before: null,
-      p_use_by: null,
-    })
-    supabase.rpc.mockResolvedValueOnce({ data: [{ new_quantity: 210, deleted: false }], error: null })
-    await userEvent.click(screen.getByRole('button', { name: '増やす' }))
-    // 増やした後の量がゲージの満タン
-    await waitFor(() => expect(patchLocal).toHaveBeenCalledWith('i1', { quantity: 210, full_quantity: 210 }))
+    expect(supabase.rpc).not.toHaveBeenCalled()
+    expect(await screen.findByLabelText('量')).toHaveValue('10')
+    expect(screen.queryByRole('button', { name: '期限を入れて増やす' })).not.toBeInTheDocument()
   })
 
   it('個の食材は－で1減らす', async () => {
     setup([{ id: 'i2', name: '卵', unit: '個', quantity: 4 }])
     await userEvent.click(screen.getByRole('button', { name: '減らす' }))
+    // 在庫を消費するか確かめてから減らす
+    expect(screen.getByRole('alertdialog', { name: '在庫を消費しますか?' })).toHaveTextContent('卵を 1個 使います(残り 4個 → 3個)')
+    expect(supabase.rpc).not.toHaveBeenCalled()
+    await userEvent.click(screen.getByRole('button', { name: '消費する' }))
     expect(supabase.rpc).toHaveBeenCalledWith('adjust_stock', {
       p_ingredient_id: 'i2',
       p_delta: -1,
@@ -107,6 +103,7 @@ describe('Fridge の数量変更', () => {
     supabase.rpc.mockResolvedValue({ data: [{ new_quantity: 0, deleted: true }], error: null })
     setup([{ id: 'i3', name: '大葉', unit: '枚', quantity: 1 }])
     await userEvent.click(screen.getByRole('button', { name: '減らす' }))
+    await userEvent.click(screen.getByRole('button', { name: '消費する' }))
     await waitFor(() => expect(dropLocal).toHaveBeenCalledWith('i3'))
     expect(removeIngredient).not.toHaveBeenCalled()
   })
@@ -116,6 +113,7 @@ describe('Fridge の数量変更', () => {
     supabase.rpc.mockResolvedValue({ data: null, error: { message: 'boom' } })
     setup([{ id: 'i3', name: '大葉', unit: '枚', quantity: 1 }])
     await userEvent.click(screen.getByRole('button', { name: '減らす' }))
+    await userEvent.click(screen.getByRole('button', { name: '消費する' }))
     await waitFor(() => expect(supabase.rpc).toHaveBeenCalled())
     expect(removeIngredient).not.toHaveBeenCalled()
     expect(dropLocal).not.toHaveBeenCalled()
@@ -183,7 +181,7 @@ describe('Fridge の数量変更', () => {
     expect(screen.queryByText('追加日を購入日にする')).not.toBeInTheDocument()
   })
 
-  it('期限切れ・推定・未設定を区別して表示し、期限の近い順に並べ、ロットを開ける', async () => {
+  it('期限切れ・推定・未設定を区別して表示し、名前の順で固定して並べ、ロットを開ける', async () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(new Date('2026-10-08T12:00:00'))
     useIngredientBatches.mockReturnValue({
@@ -205,9 +203,12 @@ describe('Fridge の数量変更', () => {
     useIngredientCatalog.mockReturnValue({ catalog: [] })
     render(<MemoryRouter><Fridge groupId="g1" /></MemoryRouter>)
     const names = screen.getAllByRole('button', { expanded: false }).map((b) => b.textContent)
-    expect(names[0]).toMatch(/^牛乳.*消費期限 10\/7・期限切れ/)
-    expect(names[1]).toMatch(/^卵.*推定 10\/14・あと6日/)
-    expect(names[2]).toMatch(/^米.*期限未設定/)
+    // 名前の順(期限の近さでは入れ替えない)
+    const order = ['卵', '牛乳', '米'].sort((a, b) => a.localeCompare(b, 'ja'))
+    expect(names.map((n) => order.find((o) => n.startsWith(o)))).toEqual(order)
+    expect(names.find((n) => n.startsWith('牛乳'))).toMatch(/消費期限 10\/7・期限切れ/)
+    expect(names.find((n) => n.startsWith('卵'))).toMatch(/推定 10\/14・あと6日/)
+    expect(names.find((n) => n.startsWith('米'))).toMatch(/期限未設定/)
     await userEvent.click(screen.getByRole('button', { name: /^卵/ }))
     expect(screen.getByRole('list', { name: '卵のロット' })).toHaveTextContent('6個・10/7購入')
     vi.useRealTimers()
@@ -265,6 +266,8 @@ describe('常備品と分数の在庫', () => {
     expect(onion.getAllByRole('button').map((b) => b.textContent)).toEqual(['−¼個', '−½個', '−1個', '全部'])
     supabase.rpc.mockResolvedValueOnce({ data: [{ new_quantity: 1.5, deleted: false }], error: null })
     await userEvent.click(onion.getByRole('button', { name: '½個使った(玉ねぎ)' }))
+    expect(screen.getByRole('alertdialog', { name: '在庫を消費しますか?' })).toHaveTextContent('玉ねぎを 0.5個 使います(残り 2個 → 1.5個)')
+    await userEvent.click(screen.getByRole('button', { name: '消費する' }))
     expect(supabase.rpc).toHaveBeenCalledWith('adjust_stock', expect.objectContaining({ p_ingredient_id: 'o', p_delta: -0.5 }))
     // 読み直しを待たずに、減った量をすぐ画面(ゲージ)に出す。満タンの量は変えない
     expect(patchLocal).toHaveBeenCalledWith('o', { quantity: 1.5, full_quantity: 3 })
@@ -382,6 +385,7 @@ describe('常備品と分数の在庫', () => {
   it('残りとほぼ同じ量を減らすときは、端数を残さず使い切る', async () => {
     setup([{ id: 'p', name: 'じゃがいも', unit: '個', quantity: 1.000001 }])
     await userEvent.click(screen.getByRole('button', { name: '減らす' }))
+    await userEvent.click(screen.getByRole('button', { name: '消費する' }))
     expect(supabase.rpc).toHaveBeenCalledWith('adjust_stock', expect.objectContaining({ p_delta: -1.000001 }))
   })
 })

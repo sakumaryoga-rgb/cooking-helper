@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams, Link } from 'react-router-dom'
-import { Plus, Minus, Search, CalendarPlus, ChevronDown, Infinity as InfinityIcon, ShoppingCart, X } from 'lucide-react'
+import { Plus, Minus, Search, ChevronDown, Infinity as InfinityIcon, ShoppingCart, X } from 'lucide-react'
 import { useIngredients } from '@/hooks/useIngredients'
 import { useIngredientBatches } from '@/hooks/useIngredientBatches'
 import { useIngredientCatalog } from '@/hooks/useIngredientCatalog'
 import { IngredientPicker } from '@/components/IngredientPicker'
 import { SwipeToDelete } from '@/components/SwipeToDelete'
 import { Button } from '@/components/ui/button'
+import { AlertDialog, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
 import { Input } from '@/components/ui/input'
 import { supabase } from '@/supabaseClient'
 import { formatQuantity } from '@/lib/format'
@@ -90,10 +91,8 @@ const STATE_PILL = {
 }
 
 // 期限切れ → 期限の近い順 → 期限未設定 の順。期限切れの食材も勝手には消さない
+// 並びは名前の順で固定する(使って期限や量が変わっても入れ替わらない)。期限の近いものは「期限が近い」で絞り込める
 function compareRows(a, b) {
-  if (a.expiry && b.expiry) return a.expiry.daysLeft - b.expiry.daysLeft
-  if (a.expiry) return -1
-  if (b.expiry) return 1
   return a.ingredient.name.localeCompare(b.ingredient.name, 'ja')
 }
 
@@ -131,6 +130,8 @@ export function Fridge({ groupId }) {
   const [query, setQuery] = useState('')
   // 「全部」を押して、在庫を0にするのを待っている食材({ id, name })。待っている間は一覧に出さない
   const [pendingAll, setPendingAll] = useState(null)
+  // 使った量のボタン・－を押したとき、在庫を消費するか確かめる({ ingredient, value })
+  const [confirmUse, setConfirmUse] = useState(null)
 
   const catalogById = useMemo(() => new Map(catalog.map((c) => [c.id, c])), [catalog])
 
@@ -281,21 +282,9 @@ export function Fridge({ groupId }) {
             <div className="flex items-center gap-1">
               <Button
                 size="icon"
-                variant="ghost"
-                className="size-8 rounded-full"
-                onClick={() => {
-                  setStockOffer(false)
-                  setStockTarget(ingredient)
-                }}
-                aria-label="期限を入れて増やす"
-              >
-                <CalendarPlus className="size-3.5" />
-              </Button>
-              <Button
-                size="icon"
                 variant="outline"
                 className="size-8 rounded-full"
-                onClick={() => adjustQuantity(ingredient, -stepFor(ingredient.unit))}
+                onClick={() => askUse(ingredient, stepFor(ingredient.unit))}
                 aria-label="減らす"
               >
                 <Minus className="size-3.5" />
@@ -303,7 +292,11 @@ export function Fridge({ groupId }) {
               <Button
                 size="icon"
                 className="size-8 rounded-full"
-                onClick={() => adjustQuantity(ingredient, stepFor(ingredient.unit))}
+                onClick={() => {
+                  // 増やすときは、量と期限を入れる画面を出す(押し間違いで在庫やゲージの満タンが変わらないように)
+                  setStockOffer(false)
+                  setStockTarget(ingredient)
+                }}
                 aria-label="増やす"
               >
                 <Plus className="size-3.5" />
@@ -320,7 +313,7 @@ export function Fridge({ groupId }) {
                     key={u.label}
                     type="button"
                     className="rounded-full border bg-background px-3 py-1 text-xs font-semibold tabular-nums transition-colors hover:border-primary hover:bg-primary/10 active:scale-95"
-                    onClick={() => adjustQuantity(ingredient, -u.value)}
+                    onClick={() => askUse(ingredient, u.value)}
                     aria-label={`${u.amount}使った(${ingredient.name})`}
                   >
                     {u.label}
@@ -436,6 +429,15 @@ export function Fridge({ groupId }) {
   }
   // 画面を離れるときは、待っている「全部」をすぐ反映する
   useEffect(() => () => flushPendingAll(), []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  function askUse(ingredient, value) {
+    setConfirmUse({ ingredient, value })
+  }
+  function consumeConfirmed() {
+    const target = confirmUse
+    setConfirmUse(null)
+    if (target) adjustQuantity(target.ingredient, -target.value)
+  }
 
   async function adjustQuantity(ingredient, rawDelta) {
     // 1/3 を3回減らしたときなどに 0.000001 のような端数を残さない
@@ -651,6 +653,31 @@ export function Fridge({ groupId }) {
           }}
         />
       )}
+      <AlertDialog open={Boolean(confirmUse)} onOpenChange={(open) => !open && setConfirmUse(null)}>
+        <AlertDialogContent>
+          {confirmUse && (
+            <>
+              <AlertDialogHeader>
+                <AlertDialogTitle>在庫を消費しますか?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  {confirmUse.ingredient.name}を {formatQuantity(confirmUse.value)}
+                  {confirmUse.ingredient.unit} 使います(残り {formatQuantity(confirmUse.ingredient.quantity)}
+                  {confirmUse.ingredient.unit} → {formatQuantity(Math.max(0, Math.round((Number(confirmUse.ingredient.quantity) - confirmUse.value) * 100) / 100))}
+                  {confirmUse.ingredient.unit})
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <Button type="button" variant="outline" onClick={() => setConfirmUse(null)}>
+                  やめる
+                </Button>
+                <Button type="button" onClick={consumeConfirmed}>
+                  消費する
+                </Button>
+              </AlertDialogFooter>
+            </>
+          )}
+        </AlertDialogContent>
+      </AlertDialog>
       {pendingAll && (
         <div
           role="status"
