@@ -128,10 +128,11 @@ export function Fridge({ groupId }) {
   const { catalog } = useIngredientCatalog()
   const [pickerOpen, setPickerOpen] = useState(false)
   const [query, setQuery] = useState('')
-  // 「全部」を押して、在庫を0にするのを待っている食材({ id, name })。待っている間は一覧に出さない
-  const [pendingAll, setPendingAll] = useState(null)
-  // 使った量のボタン・－を押したとき、在庫を消費するか確かめる({ ingredient, value })
+  // 使った量のボタン・－・「全部」を押したとき、在庫を消費するか確かめる({ ingredient, value, all })
   const [confirmUse, setConfirmUse] = useState(null)
+  // 消費して、取り消せる間(5秒)の食材({ token, id, name, unit, value, all })。
+  // この間は DB を変えず、画面だけ減らして見せる(「全部」は一覧から消す)。取り消せば元どおり
+  const [pendingUse, setPendingUse] = useState(null)
 
   const catalogById = useMemo(() => new Map(catalog.map((c) => [c.id, c])), [catalog])
 
@@ -144,8 +145,16 @@ export function Fridge({ groupId }) {
     return map
   }, [batches])
 
+  // 取り消せる間の消費を、画面の在庫に反映する
+  const shownIngredients = useMemo(() => {
+    if (!pendingUse) return ingredients
+    return ingredients.map((i) =>
+      i.id === pendingUse.id ? { ...i, quantity: pendingUse.all ? 0 : Math.max(0, Math.round((Number(i.quantity) - pendingUse.value) * 1e6) / 1e6) } : i
+    )
+  }, [ingredients, pendingUse])
+
   const rows = useMemo(() => {
-    const list = ingredients
+    const list = shownIngredients
       .filter((i) => i.name.includes(query.trim()))
       .map((ingredient) => ({
         ingredient,
@@ -155,7 +164,7 @@ export function Fridge({ groupId }) {
     list.sort(compareRows)
 
     return list
-  }, [ingredients, query, batchesByIngredient, catalogById])
+  }, [shownIngredients, query, batchesByIngredient, catalogById])
 
   // 在庫0の食材(レシピの材料として残っているもの)は折りたたむ。検索中はすべて出す
   const categoryOf = (ingredient) => catalogById.get(ingredient.catalog_id)?.category ?? 'その他'
@@ -171,7 +180,7 @@ export function Fridge({ groupId }) {
   const staples = filtered.filter((r) => r.ingredient.is_staple)
   const counted = filtered.filter((r) => !r.ingredient.is_staple)
   // 在庫0の食材(レシピの材料として残っている行など)は、検索中も含めて冷蔵庫には出さない
-  const inStock = counted.filter((r) => visible(r) && r.ingredient.id !== pendingAll?.id)
+  const inStock = counted.filter(visible)
   // 数を記録している調味料(まとめて常備品にできるもの)
   const countedSeasonings = ingredients.filter((i) => !i.is_staple && Number(i.quantity) > 0 && STAPLE_CATEGORIES.has(categoryOf(i)))
 
@@ -322,7 +331,7 @@ export function Fridge({ groupId }) {
                 <button
                   type="button"
                   className="ml-auto rounded-full border border-destructive/30 px-3 py-1 text-xs font-semibold text-destructive transition-colors hover:bg-destructive/5 active:scale-95"
-                  onClick={() => finishAll(ingredient)}
+                  onClick={() => askUse(ingredient, Number(ingredient.quantity), true)}
                   aria-label={`全部使った(${ingredient.name})`}
                 >
                   全部
@@ -384,92 +393,66 @@ export function Fridge({ groupId }) {
     )
   }
 
-  // 「全部」: 押したらすぐ冷蔵庫の一覧から消し、少し待ってから在庫を0にする(その間は「取り消す」で元どおり。DB は変えていない)。
-  // 0 にするときの量は、その時点の在庫(別の端末で変わっていても残りすべて)。
-  // レシピで使う食材は行が残り(在庫0は冷蔵庫に出さない)、レシピの材料・調理の記録はそのまま
+  // 在庫を消費する: 「在庫を消費しますか?」で確かめ、消費したら5秒間「取り消す」を出す。
+  // 取り消せる間は DB を変えず画面だけ減らし、5秒たったら(または次の消費・画面を離れたとき)在庫から引く。
+  // 「全部」で引くのは、その時点の在庫すべて(別の端末で変わっていても残りすべて)。
+  // レシピで使う食材は在庫0でも行が残り(冷蔵庫には出さない)、レシピの材料・調理の記録はそのまま
   const UNDO_MS = 5000
-  const pendingTimer = useRef(null)
+  const pendingTimer = useRef(null) // { timer, use }
   const latestIngredients = useRef(ingredients)
   latestIngredients.current = ingredients
 
-  async function commitAll(id) {
-    const row = latestIngredients.current.find((i) => i.id === id)
-    const qty = Number(row?.quantity) || 0
-    if (qty <= 0) return
-    const { data, error } = await supabase.rpc('adjust_stock', { p_ingredient_id: id, p_delta: -qty, p_dated_today: true, p_best_before: null, p_use_by: null })
+  function askUse(ingredient, value, all = false) {
+    setConfirmUse({ ingredient, value, all })
+  }
+  function consumeConfirmed() {
+    const target = confirmUse
+    setConfirmUse(null)
+    if (!target) return
+    flushPendingUse()
+    const use = { token: Symbol('use'), id: target.ingredient.id, name: target.ingredient.name, unit: target.ingredient.unit, value: target.value, all: target.all }
+    const timer = setTimeout(() => {
+      pendingTimer.current = null
+      commitUse(use)
+      setPendingUse((cur) => (cur?.token === use.token ? null : cur))
+    }, UNDO_MS)
+    pendingTimer.current = { timer, use }
+    setPendingUse(use)
+  }
+  function undoUse() {
+    if (pendingTimer.current) clearTimeout(pendingTimer.current.timer)
+    pendingTimer.current = null
+    setPendingUse(null)
+  }
+  // 待っている消費をすぐ在庫から引く(次の消費を押したとき・画面を離れるとき)
+  function flushPendingUse() {
+    if (!pendingTimer.current) return
+    clearTimeout(pendingTimer.current.timer)
+    const { use } = pendingTimer.current
+    pendingTimer.current = null
+    commitUse(use)
+  }
+  useEffect(() => () => flushPendingUse(), []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 在庫から引く。先に画面の在庫を減らしておき(待っていた表示と同じ)、結果で DB の値にそろえる
+  async function commitUse(use) {
+    const row = latestIngredients.current.find((i) => i.id === use.id)
+    const current = Number(row?.quantity) || 0
+    if (current <= 0) return
+    const amount = use.all ? current : snapToStock(use.value, current)
+    patchLocal?.(use.id, { quantity: Math.max(0, Math.round((current - amount) * 1e6) / 1e6) })
+    const { data, error } = await supabase.rpc('adjust_stock', { p_ingredient_id: use.id, p_delta: -amount, p_dated_today: true, p_best_before: null, p_use_by: null })
     if (error) {
       console.error('数量の更新に失敗しました', error)
       refresh()
       return
     }
-    if (data?.[0]?.deleted) dropLocal(id)
-    else refresh()
-  }
-  function flushPendingAll() {
-    if (!pendingTimer.current) return
-    clearTimeout(pendingTimer.current.timer)
-    const { id } = pendingTimer.current
-    pendingTimer.current = null
-    commitAll(id)
-  }
-  function finishAll(ingredient) {
-    flushPendingAll()
-    const timer = setTimeout(() => {
-      pendingTimer.current = null
-      setPendingAll(null)
-      commitAll(ingredient.id)
-    }, UNDO_MS)
-    pendingTimer.current = { id: ingredient.id, timer }
-    setPendingAll({ id: ingredient.id, name: ingredient.name })
-  }
-  function undoAll() {
-    if (pendingTimer.current) clearTimeout(pendingTimer.current.timer)
-    pendingTimer.current = null
-    setPendingAll(null)
-  }
-  // 画面を離れるときは、待っている「全部」をすぐ反映する
-  useEffect(() => () => flushPendingAll(), []) // eslint-disable-line react-hooks/exhaustive-deps
-
-  function askUse(ingredient, value) {
-    setConfirmUse({ ingredient, value })
-  }
-  function consumeConfirmed() {
-    const target = confirmUse
-    setConfirmUse(null)
-    if (target) adjustQuantity(target.ingredient, -target.value)
-  }
-
-  async function adjustQuantity(ingredient, rawDelta) {
-    // 1/3 を3回減らしたときなどに 0.000001 のような端数を残さない
-    const delta = rawDelta < 0 ? -snapToStock(-rawDelta, ingredient.quantity) : rawDelta
-    // 在庫の増減・ロットの記録・在庫0時の自動削除を1トランザクションで行う
-    // (以前はクライアント側で複数回に分けて処理しており、連打や複数端末からの
-    // 同時操作で更新が失われることがあった)
-    const { data, error } = await supabase.rpc('adjust_stock', {
-      p_ingredient_id: ingredient.id,
-      p_delta: delta,
-      // ＋で増やした分は今日買ったものとして記録する(期限の目安に使う)
-      p_dated_today: true,
-      p_best_before: null,
-      p_use_by: null,
-    })
-    if (error) {
-      console.error('数量の更新に失敗しました', error)
-      return
-    }
     if (data?.[0]?.deleted) {
-      dropLocal(ingredient.id)
+      dropLocal(use.id)
       return
     }
-    // 結果の数量をすぐ画面に出す(増やしたときは、増やした後の量がゲージの満タン: migration 033 と同じ)。
-    // そのあと読み直して、DB の値(ほかの端末の変更を含む)にそろえる
     const next = Number(data?.[0]?.new_quantity)
-    if (Number.isFinite(next)) {
-      patchLocal?.(ingredient.id, {
-        quantity: next,
-        full_quantity: delta > 0 ? next : Math.max(Number(ingredient.full_quantity) || Number(ingredient.quantity) || 0, next) || null,
-      })
-    }
+    if (Number.isFinite(next)) patchLocal?.(use.id, { quantity: next })
     refresh()
   }
 
@@ -660,10 +643,12 @@ export function Fridge({ groupId }) {
               <AlertDialogHeader>
                 <AlertDialogTitle>在庫を消費しますか?</AlertDialogTitle>
                 <AlertDialogDescription>
+                  {confirmUse.all ? `${confirmUse.ingredient.name}を全部使います(残り ${formatQuantity(confirmUse.ingredient.quantity)}${confirmUse.ingredient.unit} → 0)。冷蔵庫から消えます` : <>
                   {confirmUse.ingredient.name}を {formatQuantity(confirmUse.value)}
                   {confirmUse.ingredient.unit} 使います(残り {formatQuantity(confirmUse.ingredient.quantity)}
                   {confirmUse.ingredient.unit} → {formatQuantity(Math.max(0, Math.round((Number(confirmUse.ingredient.quantity) - confirmUse.value) * 100) / 100))}
                   {confirmUse.ingredient.unit})
+                  </>}
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
@@ -678,14 +663,16 @@ export function Fridge({ groupId }) {
           )}
         </AlertDialogContent>
       </AlertDialog>
-      {pendingAll && (
+      {pendingUse && (
         <div
           role="status"
           className="fixed inset-x-4 z-40 mx-auto flex max-w-md items-center justify-between gap-3 rounded-2xl bg-foreground px-4 py-3 text-sm text-background shadow-lg"
           style={{ bottom: 'calc(5.5rem + env(safe-area-inset-bottom, 0px))' }}
         >
-          <span className="min-w-0 truncate">「{pendingAll.name}」を全部使いました</span>
-          <button type="button" className="shrink-0 rounded-full bg-background px-3 py-1 text-xs font-bold text-foreground" onClick={undoAll}>
+          <span className="min-w-0 truncate">
+            {pendingUse.all ? `「${pendingUse.name}」を全部使いました` : `「${pendingUse.name}」を${formatQuantity(pendingUse.value)}${pendingUse.unit}使いました`}
+          </span>
+          <button type="button" className="shrink-0 rounded-full bg-background px-3 py-1 text-xs font-bold text-foreground" onClick={undoUse}>
             取り消す
           </button>
         </div>

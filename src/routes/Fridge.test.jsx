@@ -66,6 +66,17 @@ function mockDb({ row = { quantity: 0, is_staple: false }, recipeCount = 0 } = {
   return { deleted, updates }
 }
 
+// 「消費する」を押し、取り消せる5秒が過ぎるまで進める(このあと在庫から引く)
+async function consumeNow() {
+  vi.useFakeTimers({ shouldAdvanceTime: true })
+  try {
+    await userEvent.click(screen.getByRole('button', { name: '消費する' }))
+    await act(async () => vi.advanceTimersByTime(5000))
+  } finally {
+    vi.useRealTimers()
+  }
+}
+
 describe('Fridge の数量変更', () => {
   beforeEach(() => {
     removeIngredient.mockReset()
@@ -89,7 +100,7 @@ describe('Fridge の数量変更', () => {
     // 在庫を消費するか確かめてから減らす
     expect(screen.getByRole('alertdialog', { name: '在庫を消費しますか?' })).toHaveTextContent('卵を 1個 使います(残り 4個 → 3個)')
     expect(supabase.rpc).not.toHaveBeenCalled()
-    await userEvent.click(screen.getByRole('button', { name: '消費する' }))
+    await consumeNow()
     expect(supabase.rpc).toHaveBeenCalledWith('adjust_stock', {
       p_ingredient_id: 'i2',
       p_delta: -1,
@@ -103,7 +114,7 @@ describe('Fridge の数量変更', () => {
     supabase.rpc.mockResolvedValue({ data: [{ new_quantity: 0, deleted: true }], error: null })
     setup([{ id: 'i3', name: '大葉', unit: '枚', quantity: 1 }])
     await userEvent.click(screen.getByRole('button', { name: '減らす' }))
-    await userEvent.click(screen.getByRole('button', { name: '消費する' }))
+    await consumeNow()
     await waitFor(() => expect(dropLocal).toHaveBeenCalledWith('i3'))
     expect(removeIngredient).not.toHaveBeenCalled()
   })
@@ -113,7 +124,7 @@ describe('Fridge の数量変更', () => {
     supabase.rpc.mockResolvedValue({ data: null, error: { message: 'boom' } })
     setup([{ id: 'i3', name: '大葉', unit: '枚', quantity: 1 }])
     await userEvent.click(screen.getByRole('button', { name: '減らす' }))
-    await userEvent.click(screen.getByRole('button', { name: '消費する' }))
+    await consumeNow()
     await waitFor(() => expect(supabase.rpc).toHaveBeenCalled())
     expect(removeIngredient).not.toHaveBeenCalled()
     expect(dropLocal).not.toHaveBeenCalled()
@@ -267,21 +278,23 @@ describe('常備品と分数の在庫', () => {
     supabase.rpc.mockResolvedValueOnce({ data: [{ new_quantity: 1.5, deleted: false }], error: null })
     await userEvent.click(onion.getByRole('button', { name: '½個使った(玉ねぎ)' }))
     expect(screen.getByRole('alertdialog', { name: '在庫を消費しますか?' })).toHaveTextContent('玉ねぎを 0.5個 使います(残り 2個 → 1.5個)')
-    await userEvent.click(screen.getByRole('button', { name: '消費する' }))
+    await consumeNow()
     expect(supabase.rpc).toHaveBeenCalledWith('adjust_stock', expect.objectContaining({ p_ingredient_id: 'o', p_delta: -0.5 }))
-    // 読み直しを待たずに、減った量をすぐ画面(ゲージ)に出す。満タンの量は変えない
-    expect(patchLocal).toHaveBeenCalledWith('o', { quantity: 1.5, full_quantity: 3 })
+    // 引いた量を、読み直しを待たずに画面(ゲージ)に出す
+    expect(patchLocal).toHaveBeenLastCalledWith('o', { quantity: 1.5 })
     // 残りが多い個数の食材は 1・2・3
     expect(within(screen.getByRole('group', { name: '卵を使った量' })).getAllByRole('button').map((b) => b.textContent)).toEqual(['−1個', '−2個', '−3個', '全部'])
     expect(within(screen.getByRole('group', { name: '牛乳を使った量' })).getAllByRole('button').map((b) => b.textContent)).toEqual(['−50ml', '−100ml', '全部'])
   })
 
-  it('「全部」はどの食材にもあり、押すとすぐ冷蔵庫から消え、少し待ってから在庫を0にする', async () => {
+  it('「全部」も消費するか確かめ、消費するとすぐ冷蔵庫から消え、5秒後に在庫を0にする', async () => {
+    supabase.rpc.mockResolvedValue({ data: [{ new_quantity: 0, deleted: true }], error: null })
+    setup([{ id: 'm', name: '牛乳', unit: 'ml', quantity: 500, full_quantity: 1000 }])
+    await userEvent.click(screen.getByRole('button', { name: '全部使った(牛乳)' }))
+    expect(screen.getByRole('alertdialog', { name: '在庫を消費しますか?' })).toHaveTextContent('牛乳を全部使います(残り 500ml → 0)。冷蔵庫から消えます')
     vi.useFakeTimers({ shouldAdvanceTime: true })
     try {
-      supabase.rpc.mockResolvedValue({ data: [{ new_quantity: 0, deleted: true }], error: null })
-      setup([{ id: 'm', name: '牛乳', unit: 'ml', quantity: 500, full_quantity: 1000 }])
-      await userEvent.click(screen.getByRole('button', { name: '全部使った(牛乳)' }))
+      await userEvent.click(screen.getByRole('button', { name: '消費する' }))
       expect(screen.queryByRole('meter', { name: '牛乳の残り' })).not.toBeInTheDocument()
       expect(screen.getByRole('status')).toHaveTextContent('「牛乳」を全部使いました')
       expect(supabase.rpc).not.toHaveBeenCalled()
@@ -294,18 +307,45 @@ describe('常備品と分数の在庫', () => {
     }
   })
 
-  it('「全部」を押し間違えたら「取り消す」で元に戻る(在庫は変えない)', async () => {
+  it('「全部」の確認で「やめる」を押すと何もしない', async () => {
+    setup([{ id: 'm', name: '牛乳', unit: 'ml', quantity: 500, full_quantity: 1000 }])
+    await userEvent.click(screen.getByRole('button', { name: '全部使った(牛乳)' }))
+    await userEvent.click(screen.getByRole('button', { name: 'やめる' }))
+    expect(screen.getByRole('meter', { name: '牛乳の残り' })).toBeInTheDocument()
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    expect(supabase.rpc).not.toHaveBeenCalled()
+  })
+
+  it('½などで細かく消費しても、5秒間は「取り消す」で元に戻せる(在庫は変えない)', async () => {
+    setup([{ id: 'o', name: '玉ねぎ', unit: '個', quantity: 2, full_quantity: 3 }])
+    await userEvent.click(screen.getByRole('button', { name: '½個使った(玉ねぎ)' }))
     vi.useFakeTimers({ shouldAdvanceTime: true })
     try {
-      setup([{ id: 'm', name: '牛乳', unit: 'ml', quantity: 500, full_quantity: 1000 }])
-      await userEvent.click(screen.getByRole('button', { name: '全部使った(牛乳)' }))
+      await userEvent.click(screen.getByRole('button', { name: '消費する' }))
+      // 取り消せる間も、画面の在庫とゲージはすぐ減る
+      expect(screen.getByRole('meter', { name: '玉ねぎの残り' })).toHaveAttribute('aria-valuetext', '1.5個(50%)')
+      expect(screen.getByRole('status')).toHaveTextContent('「玉ねぎ」を0.5個使いました')
       await userEvent.click(screen.getByRole('button', { name: '取り消す' }))
-      expect(screen.getByRole('meter', { name: '牛乳の残り' })).toBeInTheDocument()
+      expect(screen.getByRole('meter', { name: '玉ねぎの残り' })).toHaveAttribute('aria-valuetext', '2個(67%)')
       await act(async () => vi.advanceTimersByTime(6000))
       expect(supabase.rpc).not.toHaveBeenCalled()
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  it('取り消せる間に次の消費をすると、前の消費はすぐ在庫から引く', async () => {
+    setup([
+      { id: 'o', name: '玉ねぎ', unit: '個', quantity: 2, full_quantity: 3 },
+      { id: 'e', name: '卵', unit: '個', quantity: 6 },
+    ])
+    await userEvent.click(screen.getByRole('button', { name: '½個使った(玉ねぎ)' }))
+    await userEvent.click(screen.getByRole('button', { name: '消費する' }))
+    await userEvent.click(screen.getByRole('button', { name: '1個使った(卵)' }))
+    await userEvent.click(screen.getByRole('button', { name: '消費する' }))
+    expect(supabase.rpc).toHaveBeenCalledWith('adjust_stock', expect.objectContaining({ p_ingredient_id: 'o', p_delta: -0.5 }))
+    expect(supabase.rpc).not.toHaveBeenCalledWith('adjust_stock', expect.objectContaining({ p_ingredient_id: 'e' }))
+    expect(screen.getByRole('status')).toHaveTextContent('「卵」を1個使いました')
   })
 
   it('残り以上の量のボタンは出さない(残りすべては「全部」)', async () => {
@@ -385,7 +425,7 @@ describe('常備品と分数の在庫', () => {
   it('残りとほぼ同じ量を減らすときは、端数を残さず使い切る', async () => {
     setup([{ id: 'p', name: 'じゃがいも', unit: '個', quantity: 1.000001 }])
     await userEvent.click(screen.getByRole('button', { name: '減らす' }))
-    await userEvent.click(screen.getByRole('button', { name: '消費する' }))
+    await consumeNow()
     expect(supabase.rpc).toHaveBeenCalledWith('adjust_stock', expect.objectContaining({ p_delta: -1.000001 }))
   })
 })
