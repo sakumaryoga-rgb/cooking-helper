@@ -23,7 +23,15 @@ vi.mock('@/supabaseClient', () => {
 vi.mock('@/hooks/useIngredients', () => ({ useIngredients: () => ({ ingredients: [{ id: 'i1', name: 'きゅうり', unit: '本', quantity: 2 }] }) }))
 vi.mock('@/hooks/useIngredientCatalog', () => ({ useIngredientCatalog: () => ({ catalog: [{ id: 'c1', name: '鶏むね肉', unit: 'g' }] }) }))
 vi.mock('@/hooks/useIngredientAliases', () => ({ useIngredientAliases: () => ({ aliases: [{ alias: '鶏胸肉', catalog_id: 'c1', group_id: null }] }) }))
-vi.mock('@/components/IngredientPicker', () => ({ IngredientPicker: () => null }))
+// 開いたときだけ、にんじん(冷蔵庫にまだない食材)を選ぶボタンを出す
+vi.mock('@/components/IngredientPicker', () => ({
+  IngredientPicker: ({ open, title, onSelect }) =>
+    open ? (
+      <button type="button" onClick={() => onSelect({ id: 'i9', name: 'にんじん', unit: '本', quantity: 0 })}>
+        {title}: にんじん
+      </button>
+    ) : null,
+}))
 vi.mock('@/lib/recipeImport/client', () => ({ fetchRecipeFromUrl: vi.fn() }))
 vi.mock('@/lib/recipeImport/save', () => ({ findDuplicate: vi.fn(), saveRecipe: vi.fn() }))
 
@@ -209,5 +217,43 @@ describe('保存のときの「家にある材料」', () => {
     await userEvent.click(screen.getByRole('button', { name: '戻る' }))
     expect(screen.queryByRole('dialog', { name: '家にある材料' })).not.toBeInTheDocument()
     expect(saveRecipe).not.toHaveBeenCalled()
+  })
+})
+
+describe('作り方から材料を足す', () => {
+  beforeEach(() => {
+    updates.length = 0
+    supabase.rpc.mockClear()
+    vi.mocked(saveRecipe).mockImplementation(async (args) => ({ recipeId: 'r1', ingredientIds: new Map(args.items.map((i) => [i.key, i.ingredient?.id ?? 'id-x'])) }))
+  })
+
+  it('手順で上の材料にない食材を選ぶと、上の材料と手順に入り、保存時の「家にある材料」にも出る', async () => {
+    renderPage()
+    await userEvent.click(screen.getByRole('tab', { name: '自分で考える' }))
+    await userEvent.type(screen.getByLabelText('料理名'), 'にんじんしりしり')
+    await userEvent.type(screen.getByLabelText('手順1'), 'にんじんを細切りにする')
+    await userEvent.selectOptions(screen.getByLabelText('手順1で使う材料を追加'), '__new__')
+    await userEvent.click(screen.getByRole('button', { name: '手順で使う材料を選ぶ: にんじん' }))
+    // 上の材料に入る
+    expect(screen.getByLabelText('にんじんの分量')).toBeInTheDocument()
+    // この手順で使う材料にもなり、量を入れると上の分量にすぐ反映する
+    await userEvent.type(screen.getByLabelText('手順1のにんじんの量'), '2')
+    expect(screen.getByLabelText('にんじんの分量')).toHaveValue('2')
+    // 2つ目の手順では、上の材料として選べる(重ねて足さない)
+    await userEvent.click(screen.getByRole('button', { name: '手順を追加' }))
+    await userEvent.selectOptions(screen.getByLabelText('手順2で使う材料を追加'), 'にんじん')
+    expect(screen.getAllByLabelText('にんじんの分量')).toHaveLength(1)
+
+    await userEvent.click(screen.getByRole('button', { name: 'レシピ帳に保存' }))
+    const dialog = screen.getByRole('dialog', { name: '家にある材料' })
+    const carrot = within(dialog).getByRole('radiogroup', { name: 'にんじんは家にあるか' })
+    await userEvent.click(within(carrot).getByRole('radio', { name: '家にある' }))
+    await userEvent.clear(within(dialog).getByLabelText('にんじんの今ある量'))
+    await userEvent.type(within(dialog).getByLabelText('にんじんの今ある量'), '3')
+    await userEvent.click(within(dialog).getByRole('button', { name: 'この内容で保存' }))
+    const saved = vi.mocked(saveRecipe).mock.calls.at(-1)[0]
+    expect(saved.items).toEqual([expect.objectContaining({ name: 'にんじん', requiredQuantity: '2' })])
+    expect(saved.steps[0].uses).toEqual([expect.objectContaining({ quantity: '2' })])
+    expect(supabase.rpc).toHaveBeenCalledWith('adjust_stock', { p_ingredient_id: 'i9', p_delta: 3, p_dated_today: true, p_best_before: null, p_use_by: null })
   })
 })

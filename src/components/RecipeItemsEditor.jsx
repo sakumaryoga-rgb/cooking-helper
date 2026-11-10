@@ -18,6 +18,8 @@ import { SPOONS, spoonPatch, spoonReference, unspoonPatch } from '@/lib/spoon'
 
 let nextKey = 0
 export const keyOf = () => `item-${nextKey++}`
+// 食材を選んで足したときの材料の行(上の材料・作り方のどちらから足しても同じ)
+export const pickedItem = (ingredient) => ({ key: keyOf(), kind: 'existing', ingredient, name: ingredient.name, unit: ingredient.unit, requiredQuantity: 1, include: true, needsCheck: false })
 
 // レシピの材料の一覧(追加・編集で共通)。items は resolveIngredient の結果か、冷蔵庫から選んだ食材
 // 分量を数にできなかった材料に、全体共通の目安を出す(押したときだけ入れる。勝手には入れない)
@@ -55,7 +57,7 @@ export function RecipeItemsEditor({ groupId, ingredients, items, setItems, empty
       setReplaceKey(null)
       return
     }
-    const added = { key: keyOf(), kind: 'existing', ingredient, name: ingredient.name, unit: ingredient.unit, requiredQuantity: 1, include: true, needsCheck: false }
+    const added = pickedItem(ingredient)
     if (altForKey) {
       setItems((prev) => addAlternative(prev, altForKey, added))
       setAltForKey(null)

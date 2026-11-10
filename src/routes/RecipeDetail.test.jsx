@@ -594,7 +594,7 @@ describe('レシピの評価', () => {
   })
   afterEach(() => __resetForTests())
 
-  it('星の半分で 0.5 刻みに評価を付け、同じ評価をもう一度押すと外す', async () => {
+  it('星を押すとその数、同じ星をもう一度押すと半分、「外す」で評価を外す', async () => {
     const refresh = vi.fn()
     useIngredients.mockReturnValue({ ingredients: [], refresh: refreshIngredients })
     useRecipes.mockReturnValue({ recipes: [{ ...recipe, rating: 3 }], loading: false, refresh })
@@ -606,13 +606,18 @@ describe('レシピの評価', () => {
       </MemoryRouter>
     )
     const group = screen.getByRole('radiogroup', { name: 'このレシピの評価' })
-    expect(within(group).getAllByRole('radio')).toHaveLength(10)
-    expect(within(group).getByRole('radio', { name: '評価 3' })).toHaveAttribute('aria-checked', 'true')
-    await userEvent.click(within(group).getByRole('radio', { name: '評価 4.5' }))
-    expect(update).toHaveBeenCalledWith({ rating: 4.5 })
+    expect(within(group).getAllByRole('radio')).toHaveLength(5)
+    expect(within(group).getByRole('radio', { name: '星3つ' })).toHaveAttribute('aria-checked', 'true')
+    await userEvent.click(within(group).getByRole('radio', { name: '星5つ' }))
+    expect(update).toHaveBeenLastCalledWith({ rating: 5 })
     expect(updateEq).toHaveBeenCalledWith('id', 'r1')
     await waitFor(() => expect(refresh).toHaveBeenCalled())
-    await userEvent.click(within(group).getByRole('radio', { name: '評価 3' }))
+    await userEvent.click(within(group).getByRole('radio', { name: '星5つ' }))
+    expect(update).toHaveBeenLastCalledWith({ rating: 4.5 })
+    expect(within(group).getByRole('radio', { name: '星5つ' })).toHaveAttribute('aria-checked', 'true')
+    await userEvent.click(within(group).getByRole('radio', { name: '星5つ' }))
+    expect(update).toHaveBeenLastCalledWith({ rating: 5 })
+    await userEvent.click(screen.getByRole('button', { name: '外す' }))
     expect(update).toHaveBeenLastCalledWith({ rating: null })
   })
 })

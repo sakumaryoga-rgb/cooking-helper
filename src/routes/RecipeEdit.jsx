@@ -185,7 +185,7 @@ function RecipeEditForm({ recipe, groupId, ingredients, catalog = [], aliases = 
         />
 
         {original ? (
-          <RecipeStepsEditor steps={steps} setSteps={setSteps} items={items} onUsesChanged={(next, keys) => setItems((prev) => applyStepTotals(prev, next, keys))} />
+          <RecipeStepsEditor steps={steps} setSteps={setSteps} items={items} setItems={setItems} groupId={groupId} ingredients={ingredients} onUsesChanged={(next, keys) => setItems((prev) => applyStepTotals(prev, next, keys))} />
         ) : (
           <p className="rounded-2xl bg-muted/60 px-3 py-2 text-xs text-muted-foreground">
             作り方は元のレシピのページで見られます(このレシピの画面の「元のレシピで作り方を見る」から)

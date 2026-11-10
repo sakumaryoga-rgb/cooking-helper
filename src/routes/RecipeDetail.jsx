@@ -66,9 +66,9 @@ export function RecipeDetail({ groupId }) {
   const { conversions, remember } = useUnitConversions(groupId)
   const [resolvingId, setResolvingId] = useState(null)
   const [resolveError, setResolveError] = useState('')
-  // 評価(保存中は押した値を先に見せる)
+  // 評価(押した値を先に見せる)
   const [ratingDraft, setRatingDraft] = useState(undefined)
-  const [ratingSaving, setRatingSaving] = useState(false)
+  const ratingSeq = useRef(0)
   const [ratingError, setRatingError] = useState('')
   // 「どれか1つ」の材料で、使うと選んだ候補(choice_group → ingredientId)。選ばなければ在庫が足りる候補を自動で選ぶ
   const [groupChoices, setGroupChoices] = useState(() => new Map())
@@ -92,6 +92,12 @@ export function RecipeDetail({ groupId }) {
 
   const ingredientsById = useMemo(() => new Map(ingredients.map((i) => [i.id, i])), [ingredients])
   const recipe = recipes.find((r) => r.id === id)
+  // 保存した評価が届いた(または別の端末で変わった)ら、押した値ではなく保存された値を見せる
+  const [ratingBase, setRatingBase] = useState(recipe?.rating)
+  if (recipe && recipe.rating !== ratingBase) {
+    setRatingBase(recipe.rating)
+    setRatingDraft(undefined)
+  }
   const catalogById = useMemo(() => new Map(catalog.map((c) => [c.id, c])), [catalog])
   const baseServings = recipe?.servings ?? null
   const factor = baseServings && servings ? servings / baseServings : 1
@@ -179,19 +185,19 @@ export function RecipeDetail({ groupId }) {
   }
 
   // 材料の必須・任意を切り替える(任意 = あれば使う。「作れる」の判定に入れない)
+  // 押した値をすぐ表示する(同じ星を続けて押して半分にできるよう、保存中も押せる。最後に押した値が残る)
   async function saveRating(value) {
+    const seq = ++ratingSeq.current
     setRatingDraft(value)
-    setRatingSaving(true)
     setRatingError('')
     const { error } = await supabase.from('recipes').update({ rating: value }).eq('id', recipe.id)
+    if (seq !== ratingSeq.current) return
     if (error) {
       setRatingError('評価を保存できませんでした。もう一度お試しください')
       setRatingDraft(undefined)
-    } else {
-      await refreshRecipes?.()
-      setRatingDraft(undefined)
+      return
     }
-    setRatingSaving(false)
+    await refreshRecipes?.()
   }
 
   async function setOptional(ri, optional) {
@@ -565,7 +571,7 @@ export function RecipeDetail({ groupId }) {
 
       {/* 家で1つの評価。評価の高いレシピがホームで先に出る */}
       <section className="flex flex-col gap-0.5" aria-label="評価">
-        <StarRatingInput value={ratingDraft !== undefined ? ratingDraft : recipe.rating ?? null} onChange={saveRating} disabled={ratingSaving} />
+        <StarRatingInput value={ratingDraft !== undefined ? ratingDraft : recipe.rating ?? null} onChange={saveRating} />
         {ratingError && <p className="text-xs text-destructive">{ratingError}</p>}
       </section>
 
