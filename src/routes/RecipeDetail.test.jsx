@@ -91,6 +91,23 @@ describe('RecipeDetail', () => {
     }
   })
 
+  it('常備品の適量(調味料)でも参考量メモを出し、量のない手順の材料にもメモを目安として出す', () => {
+    recipe.recipe_ingredients.push({ id: 'l8', ingredient_id: 'soy', required_quantity: null, amount_text: '適量(大さじ1)', ingredient: { id: 'soy', name: 'しょうゆ', unit: 'ml' } })
+    recipe.steps = [{ text: 'かける', uses: [{ ingredient_id: 'soy', quantity: null }] }]
+    try {
+      setup([
+        { id: 'chicken', name: '鶏もも肉', unit: 'g', quantity: 300 },
+        { id: 'egg', name: '卵', unit: '個', quantity: 4 },
+        { id: 'soy', name: 'しょうゆ', unit: 'ml', quantity: 0, is_staple: true },
+      ])
+      expect(screen.getByText('メモ(参考): 大さじ1')).toBeInTheDocument()
+      expect(within(screen.getByRole('list', { name: '手順1で使う材料' })).getByText('しょうゆ 適量(大さじ1)')).toBeInTheDocument()
+    } finally {
+      recipe.recipe_ingredients.pop()
+      delete recipe.steps
+    }
+  })
+
   it('水・お湯は食材として数えず、在庫や不足を出さない', () => {
     recipe.recipe_ingredients.push({ id: 'l9', ingredient_id: 'water', required_quantity: 300, ingredient: { id: 'water', name: '水', unit: 'ml' } })
     try {
