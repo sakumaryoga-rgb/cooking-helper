@@ -12,7 +12,7 @@ import { describeEstimate, resolveConversion } from '@/lib/unitConversion'
 import { useIngredientCatalog } from '@/hooks/useIngredientCatalog'
 import { supabase } from '@/supabaseClient'
 import { addAlternative, dissolveSingletons } from '@/lib/choiceGroups'
-import { VAGUE_AMOUNT, fridgeRowOfItem, isSeasoningItem, isVagueAmount } from '@/lib/recipeItems'
+import { MEMO_UNITS, fridgeRowOfItem, isSeasoningItem, isVagueAmount, memoText, parseMemo, vagueMemo, vagueText } from '@/lib/recipeItems'
 import { SPOONS, spoonPatch, spoonReference, unspoonPatch } from '@/lib/spoon'
 
 
@@ -105,15 +105,43 @@ export function RecipeItemsEditor({ groupId, ingredients, items, setItems, empty
 
   const isStaple = (item) => Boolean(item.stapleOnSave || fridgeRowOf(item)?.is_staple)
 
-  function setVague(item) {
-    updateItem(item.key, { requiredQuantity: '', amountText: VAGUE_AMOUNT, needsCheck: false, spoon: null, spoonCount: '' })
+  function setVague(item, memo = item.memoDraft) {
+    updateItem(item.key, { requiredQuantity: '', amountText: vagueText(memo), needsCheck: false, spoon: null, spoonCount: '' })
+  }
+
+  // 分量のメモ(200g・大さじ1 など)。単位が決まっている食材でも、状況に合わせた量を残せる。
+  // メモを入れると「適量」になり(在庫は「あれば足りる」とみなす)、レシピの画面ではメモを見て量を決められる
+  const [memoKey, setMemoKey] = useState(null)
+  function memoParts(item) {
+    if (item.memoUnit) return { unit: item.memoUnit, count: item.memoCount ?? '' }
+    return parseMemo(isVagueAmount(item) ? vagueMemo(item.amountText) : item.memoDraft) ?? { unit: 'g', count: '' }
+  }
+  function setMemo(item, count, unit) {
+    const memo = memoText(count, unit)
+    const patch = { memoCount: count, memoUnit: unit, memoDraft: memo }
+    if (isVagueAmount(item)) {
+      updateItem(item.key, { ...patch, amountText: vagueText(memo) })
+      return
+    }
+    if (!memo) {
+      updateItem(item.key, patch)
+      return
+    }
+    // 調味料で常備品でなければ、適量にする前に常備品にするか確かめる(適量のボタンと同じ)
+    if (!isSeasoning(item) || isStaple(item)) {
+      updateItem(item.key, { ...patch, requiredQuantity: '', amountText: vagueText(memo), needsCheck: false, spoon: null, spoonCount: '' })
+    } else {
+      updateItem(item.key, patch)
+      setStapleAskKey(item.key)
+    }
   }
 
   // 適量は具体的な量を在庫から引けないので、常備品(数えない)の登録を必須にする
   function toggleVague(item) {
     setStapleError('')
     if (isVagueAmount(item)) {
-      updateItem(item.key, { requiredQuantity: 1, amountText: '', stapleOnSave: false })
+      updateItem(item.key, { requiredQuantity: 1, amountText: '', stapleOnSave: false, memoDraft: '', memoCount: '', memoUnit: undefined })
+      if (memoKey === item.key) setMemoKey(null)
       return
     }
     // 調味料以外(ねぎ適量など)は、在庫があれば足りているとみなすだけなので常備品にしなくてよい
@@ -126,7 +154,7 @@ export function RecipeItemsEditor({ groupId, ingredients, items, setItems, empty
     const row = fridgeRowOf(item)
     if (!row) {
       // この家にまだない調味料: レシピを保存するときに、冷蔵庫の行を作って常備品にする
-      updateItem(item.key, { requiredQuantity: '', amountText: VAGUE_AMOUNT, needsCheck: false, stapleOnSave: true, spoon: null, spoonCount: '' })
+      updateItem(item.key, { requiredQuantity: '', amountText: vagueText(item.memoDraft), needsCheck: false, stapleOnSave: true, spoon: null, spoonCount: '' })
       setStapleAskKey(null)
       return
     }
@@ -218,7 +246,7 @@ export function RecipeItemsEditor({ groupId, ingredients, items, setItems, empty
                     placeholder={item.amountText || ''}
                     value={item.requiredQuantity}
                     onChange={(v) =>
-                      updateItem(item.key, { requiredQuantity: v, needsCheck: false, ...(item.amountText === VAGUE_AMOUNT && Number(v) > 0 ? { amountText: '' } : {}) })
+                      updateItem(item.key, { requiredQuantity: v, needsCheck: false, ...(isVagueAmount(item) && Number(v) > 0 ? { amountText: '', memoDraft: '', memoCount: '', memoUnit: undefined } : {}) })
                     }
                     aria-label={`${item.name}の分量`}
                   />
@@ -298,6 +326,45 @@ export function RecipeItemsEditor({ groupId, ingredients, items, setItems, empty
                     適量
                   </button>
                   )}
+                  {!item.needsChoice && (
+                    <button
+                      type="button"
+                      aria-expanded={memoKey === item.key}
+                      className={`rounded-full border px-2.5 py-0.5 text-xs font-medium ${
+                        isVagueAmount(item) && vagueMemo(item.amountText)
+                          ? 'border-violet-300 bg-violet-50 text-violet-800 dark:border-violet-800 dark:bg-violet-950 dark:text-violet-300'
+                          : 'bg-background text-muted-foreground hover:border-violet-300 hover:text-violet-700'
+                      }`}
+                      onClick={() => setMemoKey((cur) => (cur === item.key ? null : item.key))}
+                      aria-label={`${item.name}の分量メモ`}
+                    >
+                      {isVagueAmount(item) && vagueMemo(item.amountText) ? `参考量: ${vagueMemo(item.amountText)}` : '参考量メモ'}
+                    </button>
+                  )}
+                  {memoKey === item.key && (
+                    <span className="flex w-full flex-wrap items-center gap-1.5 rounded-xl bg-violet-50 px-2 py-1.5 text-xs dark:bg-violet-950/40">
+                      <span className="text-muted-foreground">参考の量</span>
+                      <QuantityInput
+                        className="h-7 w-16 bg-background"
+                        value={memoParts(item).count}
+                        onChange={(v) => setMemo(item, v, memoParts(item).unit)}
+                        aria-label={`${item.name}のメモの量`}
+                      />
+                      <select
+                        className="h-7 rounded-md border bg-background px-1 text-xs"
+                        value={memoParts(item).unit}
+                        onChange={(e) => setMemo(item, memoParts(item).count, e.target.value)}
+                        aria-label={`${item.name}のメモの単位`}
+                      >
+                        {MEMO_UNITS.map((u) => (
+                          <option key={u} value={u}>
+                            {u}
+                          </option>
+                        ))}
+                      </select>
+                      <span className="w-full text-muted-foreground">入れると分量は「適量」になり、この量は作るときの参考として表示するだけです。在庫から自動で引くことはありません(作るときに使った量を入れたときだけ引きます)</span>
+                    </span>
+                  )}
                   {isSeasoning(item) && isVagueAmount(item) && (
                     <span className="text-xs text-muted-foreground">
                       {item.stapleOnSave ? '保存すると常備品に登録します。作ったときに在庫から引きません' : '常備品なので、作ったときに在庫から引きません'}
@@ -315,7 +382,15 @@ export function RecipeItemsEditor({ groupId, ingredients, items, setItems, empty
               {stapleAskKey === item.key && !isVagueAmount(item) && (
                 <div role="alertdialog" aria-label="常備品に登録しますか" className="ml-6 flex flex-col gap-1.5 rounded-xl border border-violet-200 bg-violet-50 p-2.5 dark:border-violet-900 dark:bg-violet-950/40">
                   <p className="text-xs">
-                    適量は量を数えられないため、常備品(在庫を数えない食材)にする必要があります。「{item.name}」を常備品に登録しますか?
+                    調味料を適量にするには、常備品にする必要があります。「{item.name}」を常備品にすると:
+                  </p>
+                  <ul className="list-disc pl-4 text-xs text-muted-foreground">
+                    <li>冷蔵庫では数を数えず、いつも「ある」とみなします(今の在庫の数は残ります)</li>
+                    <li>このレシピを作っても、在庫から引きません</li>
+                    <li>なくなったら、冷蔵庫の常備品から買い物リストに入れられます。あとで常備品から外すこともできます</li>
+                  </ul>
+                  <p className="text-xs font-medium">
+                    常備品に登録しますか?
                   </p>
                   <div className="flex flex-wrap gap-1.5">
                     <Button type="button" size="sm" className="h-7 rounded-full text-xs" disabled={stapleBusy} onClick={() => registerStapleAndSetVague(item)}>

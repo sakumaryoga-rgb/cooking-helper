@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams, Link } from 'react-router-dom'
 import { Plus, Minus, Search, CalendarPlus, ChevronDown, Infinity as InfinityIcon, ShoppingCart, X } from 'lucide-react'
 import { useIngredients } from '@/hooks/useIngredients'
@@ -23,24 +23,50 @@ function stepFor(unit) {
   return STEP_BY_UNIT[unit] ?? 1
 }
 
-// 使った量のボタン(各行に常に出す)。単位と残りの量で変える
-// - g・ml など: 50・100・全部
+// 使った量のボタン(各行に常に出す)。単位と残りの量で変える。押すとゲージがその分だけ減る
+// - g・ml など: 50・100
 // - 個数系で残りが少ない(3以下): ¼・½・1(キャベツ1玉の半分など)
 // - 個数系で残りが多い: 1・2・3(卵など)
-// 残りより多いボタンは出さない。「全部」は残りすべて
+// 残り以上のボタンは出さない(残りすべては、どの食材でも共通の「全部」ボタン)
 const BULK_UNITS = new Set(['g', 'ml', 'cc'])
 const FRACTION_LABEL = { 0.25: '¼', 0.5: '½', 0.75: '¾' }
 export function quickUses(unit, quantity) {
   const q = Number(quantity) || 0
   if (q <= 0) return []
-  if (BULK_UNITS.has(unit)) {
-    const steps = [50, 100].filter((v) => v < q).map((v) => ({ label: `−${v}${unit}`, value: v }))
-    return [...steps, { label: '全部', value: q, all: true }]
-  }
-  const steps = q <= 3 ? [0.25, 0.5, 1] : [1, 2, 3]
-  return steps
-    .filter((v) => v <= q + 1e-9)
-    .map((v) => ({ label: `−${FRACTION_LABEL[v] ?? v}`, value: v, all: Math.abs(v - q) < 1e-9 }))
+  const steps = BULK_UNITS.has(unit) ? [50, 100] : q <= 3 ? [0.25, 0.5, 1] : [1, 2, 3]
+  return steps.filter((v) => v < q - 1e-9).map((v) => ({ label: `−${FRACTION_LABEL[v] ?? v}${unit}`, amount: `${FRACTION_LABEL[v] ?? v}${unit}`, value: v }))
+}
+
+// 在庫のゲージ: 最後に在庫を増やしたときの量(full_quantity, migration 033)を満タンとして、残りの割合を出す
+export function stockGauge(ingredient) {
+  const q = Math.max(0, Number(ingredient.quantity) || 0)
+  const full = Math.max(Number(ingredient.full_quantity) || 0, q)
+  const ratio = full > 0 ? q / full : 0
+  // 個数系で満タンが12以下なら、1つごとに目盛りを付ける(½・¼ 減ったのが見える)
+  const ticks = !BULK_UNITS.has(ingredient.unit) && full > 1 && full <= 12 && Number.isInteger(full) ? full : 0
+  return { quantity: q, full, ratio, ticks, level: ratio > 0.5 ? 'high' : ratio > 0.2 ? 'mid' : 'low' }
+}
+const GAUGE_COLOR = { high: 'bg-emerald-500', mid: 'bg-amber-400', low: 'bg-rose-500' }
+
+function StockGauge({ ingredient }) {
+  const g = stockGauge(ingredient)
+  return (
+    <div
+      className="relative h-2.5 min-w-16 flex-1 overflow-hidden rounded-full bg-muted"
+      role="meter"
+      aria-label={`${ingredient.name}の残り`}
+      aria-valuemin={0}
+      aria-valuemax={g.full}
+      aria-valuenow={g.quantity}
+      aria-valuetext={`${formatQuantity(g.quantity)}${ingredient.unit}(${Math.round(g.ratio * 100)}%)`}
+    >
+      <div className={`h-full rounded-full transition-[width] duration-300 ${GAUGE_COLOR[g.level]}`} style={{ width: `${g.ratio * 100}%` }} />
+      {g.ticks > 0 &&
+        Array.from({ length: g.ticks - 1 }, (_, i) => (
+          <span key={i} className="absolute inset-y-0 w-px bg-background/80" style={{ left: `${((i + 1) / g.ticks) * 100}%` }} aria-hidden="true" />
+        ))}
+    </div>
+  )
 }
 
 // 冷蔵庫に新しく入れるとき、最初から「常備品(数えない)」を選んでおくカテゴリ
@@ -101,6 +127,8 @@ export function Fridge({ groupId }) {
   const { catalog } = useIngredientCatalog()
   const [pickerOpen, setPickerOpen] = useState(false)
   const [query, setQuery] = useState('')
+  // 「全部」を押して、在庫を0にするのを待っている食材({ id, name })。待っている間は一覧に出さない
+  const [pendingAll, setPendingAll] = useState(null)
 
   const catalogById = useMemo(() => new Map(catalog.map((c) => [c.id, c])), [catalog])
 
@@ -140,7 +168,7 @@ export function Fridge({ groupId }) {
   const staples = filtered.filter((r) => r.ingredient.is_staple)
   const counted = filtered.filter((r) => !r.ingredient.is_staple)
   // 在庫0の食材(レシピの材料として残っている行など)は、検索中も含めて冷蔵庫には出さない
-  const inStock = counted.filter(visible)
+  const inStock = counted.filter((r) => visible(r) && r.ingredient.id !== pendingAll?.id)
   // 数を記録している調味料(まとめて常備品にできるもの)
   const countedSeasonings = ingredients.filter((i) => !i.is_staple && Number(i.quantity) > 0 && STAPLE_CATEGORIES.has(categoryOf(i)))
 
@@ -280,22 +308,31 @@ export function Fridge({ groupId }) {
               </Button>
             </div>
           </div>
-          {quickUses(ingredient.unit, ingredient.quantity).length > 0 && (
-            // 使った量をワンタップで減らす(開かなくても押せる)
-            <div className="flex flex-wrap items-center gap-1.5 px-3 pb-2.5 pl-[3.875rem]" role="group" aria-label={`${ingredient.name}を使った量`}>
-              {quickUses(ingredient.unit, ingredient.quantity).map((u) => (
+          {Number(ingredient.quantity) > 0 && (
+            // 残りのゲージと、使った量をワンタップで減らすボタン(開かなくても押せる)。「全部」はどの食材も同じで、押すと冷蔵庫から消える
+            <div className="flex flex-col gap-1.5 px-3 pb-2.5 pl-[3.875rem]">
+              <StockGauge ingredient={ingredient} />
+              <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label={`${ingredient.name}を使った量`}>
+                {quickUses(ingredient.unit, ingredient.quantity).map((u) => (
+                  <button
+                    key={u.label}
+                    type="button"
+                    className="rounded-full border bg-background px-3 py-1 text-xs font-semibold tabular-nums transition-colors hover:border-primary hover:bg-primary/10 active:scale-95"
+                    onClick={() => adjustQuantity(ingredient, -u.value)}
+                    aria-label={`${u.amount}使った(${ingredient.name})`}
+                  >
+                    {u.label}
+                  </button>
+                ))}
                 <button
-                  key={u.label}
                   type="button"
-                  className={`rounded-full border px-3 py-1 text-xs font-semibold tabular-nums transition-colors active:scale-95 ${
-                    u.all ? 'border-destructive/30 text-destructive hover:bg-destructive/5' : 'bg-background hover:border-primary hover:bg-primary/10'
-                  }`}
-                  onClick={() => adjustQuantity(ingredient, -u.value)}
-                  aria-label={u.all ? `全部使った(${ingredient.name})` : `${u.label.slice(1)}${BULK_UNITS.has(ingredient.unit) ? '' : ingredient.unit}使った(${ingredient.name})`}
+                  className="ml-auto rounded-full border border-destructive/30 px-3 py-1 text-xs font-semibold text-destructive transition-colors hover:bg-destructive/5 active:scale-95"
+                  onClick={() => finishAll(ingredient)}
+                  aria-label={`全部使った(${ingredient.name})`}
                 >
-                  {u.label}
+                  全部
                 </button>
-              ))}
+              </div>
             </div>
           )}
         </SwipeToDelete>
@@ -351,6 +388,52 @@ export function Fridge({ groupId }) {
       </ul>
     )
   }
+
+  // 「全部」: 押したらすぐ冷蔵庫の一覧から消し、少し待ってから在庫を0にする(その間は「取り消す」で元どおり。DB は変えていない)。
+  // 0 にするときの量は、その時点の在庫(別の端末で変わっていても残りすべて)。
+  // レシピで使う食材は行が残り(在庫0は冷蔵庫に出さない)、レシピの材料・調理の記録はそのまま
+  const UNDO_MS = 5000
+  const pendingTimer = useRef(null)
+  const latestIngredients = useRef(ingredients)
+  latestIngredients.current = ingredients
+
+  async function commitAll(id) {
+    const row = latestIngredients.current.find((i) => i.id === id)
+    const qty = Number(row?.quantity) || 0
+    if (qty <= 0) return
+    const { data, error } = await supabase.rpc('adjust_stock', { p_ingredient_id: id, p_delta: -qty, p_dated_today: true, p_best_before: null, p_use_by: null })
+    if (error) {
+      console.error('数量の更新に失敗しました', error)
+      refresh()
+      return
+    }
+    if (data?.[0]?.deleted) dropLocal(id)
+    else refresh()
+  }
+  function flushPendingAll() {
+    if (!pendingTimer.current) return
+    clearTimeout(pendingTimer.current.timer)
+    const { id } = pendingTimer.current
+    pendingTimer.current = null
+    commitAll(id)
+  }
+  function finishAll(ingredient) {
+    flushPendingAll()
+    const timer = setTimeout(() => {
+      pendingTimer.current = null
+      setPendingAll(null)
+      commitAll(ingredient.id)
+    }, UNDO_MS)
+    pendingTimer.current = { id: ingredient.id, timer }
+    setPendingAll({ id: ingredient.id, name: ingredient.name })
+  }
+  function undoAll() {
+    if (pendingTimer.current) clearTimeout(pendingTimer.current.timer)
+    pendingTimer.current = null
+    setPendingAll(null)
+  }
+  // 画面を離れるときは、待っている「全部」をすぐ反映する
+  useEffect(() => () => flushPendingAll(), []) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function adjustQuantity(ingredient, rawDelta) {
     // 1/3 を3回減らしたときなどに 0.000001 のような端数を残さない
@@ -554,6 +637,18 @@ export function Fridge({ groupId }) {
             refresh()
           }}
         />
+      )}
+      {pendingAll && (
+        <div
+          role="status"
+          className="fixed inset-x-4 z-40 mx-auto flex max-w-md items-center justify-between gap-3 rounded-2xl bg-foreground px-4 py-3 text-sm text-background shadow-lg"
+          style={{ bottom: 'calc(5.5rem + env(safe-area-inset-bottom, 0px))' }}
+        >
+          <span className="min-w-0 truncate">「{pendingAll.name}」を全部使いました</span>
+          <button type="button" className="shrink-0 rounded-full bg-background px-3 py-1 text-xs font-bold text-foreground" onClick={undoAll}>
+            取り消す
+          </button>
+        </div>
       )}
     </div>
   )

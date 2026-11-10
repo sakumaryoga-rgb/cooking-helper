@@ -76,6 +76,21 @@ describe('RecipeDetail', () => {
     expect(screen.getByText(/必要 200g \/ 在庫 300g/)).toBeInTheDocument()
   })
 
+  it('参考量メモつきの適量は「適量」と出し、メモは参考で自動では引かないと示す', () => {
+    recipe.recipe_ingredients.push({ id: 'l8', ingredient_id: 'onion', required_quantity: null, amount_text: '適量(150g)', ingredient: { id: 'onion', name: '玉ねぎ', unit: '個' } })
+    try {
+      setup([
+        { id: 'chicken', name: '鶏もも肉', unit: 'g', quantity: 300 },
+        { id: 'egg', name: '卵', unit: '個', quantity: 4 },
+        { id: 'onion', name: '玉ねぎ', unit: '個', quantity: 1 },
+      ])
+      expect(screen.getByText('作れます')).toBeInTheDocument()
+      expect(screen.getByText('メモ(参考): 150g・自動では引きません')).toBeInTheDocument()
+    } finally {
+      recipe.recipe_ingredients.pop()
+    }
+  })
+
   it('水・お湯は食材として数えず、在庫や不足を出さない', () => {
     recipe.recipe_ingredients.push({ id: 'l9', ingredient_id: 'water', required_quantity: 300, ingredient: { id: 'water', name: '水', unit: 'ml' } })
     try {
