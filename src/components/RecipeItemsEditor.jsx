@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { ArrowLeftRight, Infinity as InfinityIcon, Plus, X } from 'lucide-react'
 import { IngredientPicker } from '@/components/IngredientPicker'
-import { applyChoice, normalizeName } from '@/lib/recipeImport/match'
+import { applyChoice } from '@/lib/recipeImport/match'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { QuantityInput } from '@/components/QuantityInput'
@@ -9,13 +9,12 @@ import { RequiredToggle } from '@/components/RequiredToggle'
 import { useCommonConversions } from '@/hooks/useCommonConversions'
 import { parseAmount } from '@/lib/recipeImport/ingredientLine'
 import { describeEstimate, resolveConversion } from '@/lib/unitConversion'
-import { guessCategory } from '@/lib/ingredientCategory'
 import { useIngredientCatalog } from '@/hooks/useIngredientCatalog'
 import { supabase } from '@/supabaseClient'
 import { addAlternative, dissolveSingletons } from '@/lib/choiceGroups'
+import { VAGUE_AMOUNT, fridgeRowOfItem, isSeasoningItem, isVagueAmount } from '@/lib/recipeItems'
+import { SPOONS, spoonPatch, spoonReference, unspoonPatch } from '@/lib/spoon'
 
-const VAGUE_AMOUNT = '適量'
-const isVagueAmount = (item) => item.amountText === VAGUE_AMOUNT && !(Number(item.requiredQuantity) > 0)
 
 let nextKey = 0
 export const keyOf = () => `item-${nextKey++}`
@@ -35,7 +34,8 @@ function estimateFor(item, common) {
   return r && r.kind === 'common' ? { quantity: r.quantity, text: describeEstimate(r, target.unit) } : null
 }
 
-export function RecipeItemsEditor({ groupId, ingredients, items, setItems, emptyText }) {
+// stepUsage: 手順で使う量の集計(lib/recipeSteps の stepUsage)。材料ごとに「工程の合計」を添える
+export function RecipeItemsEditor({ groupId, ingredients, items, setItems, emptyText, stepUsage }) {
   const common = useCommonConversions()
   const { catalog } = useIngredientCatalog()
   const catalogById = useMemo(() => new Map(catalog.map((c) => [c.id, c])), [catalog])
@@ -80,28 +80,31 @@ export function RecipeItemsEditor({ groupId, ingredients, items, setItems, empty
   }
 
   // 調味料だけ「適量」を選べる。この家にまだない調味料(取り込みで初めて出てきたもの)も選べる
-  function isSeasoning(item) {
-    if (item.needsChoice) return false
-    if (item.kind === 'existing' && item.ingredient) {
-      return (catalogById.get(item.ingredient.catalog_id)?.category ?? guessCategory(item.ingredient.name)) === '調味料・油'
-    }
-    if (item.kind === 'catalog' && item.catalogItem) return (item.catalogItem.category ?? guessCategory(item.catalogItem.name)) === '調味料・油'
-    if (item.kind === 'new') return guessCategory(item.name) === '調味料・油'
-    return false
+  const isSeasoning = (item) => isSeasoningItem(item, catalogById)
+
+  // 手順で使う量の説明(上の分量は総量。適量の材料や、量を決めていない手順がある材料は柔軟に見せる)
+  function stepUsageNote(item) {
+    const u = stepUsage?.get(item.key)
+    if (!u) return ''
+    const unit = item.unit ?? ''
+    const parts = []
+    if (u.total > 0) parts.push(`${u.total}${unit}`)
+    if (u.blanks > 0) parts.push(`量を決めていない手順${u.blanks}つ`)
+    if (isVagueAmount(item)) return `適量(手順で ${parts.join(' + ')})`
+    if (u.total > 0 && Number(item.requiredQuantity) !== u.total) return `手順の合計 ${parts.join(' + ')}(上の分量は総量です)`
+    return u.blanks > 0 && u.total > 0 ? `手順で ${parts.join(' + ')}` : ''
   }
 
-  // 材料の冷蔵庫の行(この家にまだなければ null)。保存のときと同じく、食材マスタの品目か名前で探す
+  // 材料の冷蔵庫の行(この家にまだなければ null)
   function fridgeRowOf(item) {
     if (item.kind === 'existing') return fridgeById.get(item.ingredient?.id) ?? item.ingredient ?? null
-    const list = ingredients ?? []
-    if (item.kind === 'catalog') return list.find((i) => i.catalog_id === item.catalogItem?.id || normalizeName(i.name) === normalizeName(item.catalogItem?.name ?? '')) ?? null
-    return list.find((i) => normalizeName(i.name) === normalizeName(item.name)) ?? null
+    return fridgeRowOfItem(item, ingredients ?? [])
   }
 
   const isStaple = (item) => Boolean(item.stapleOnSave || fridgeRowOf(item)?.is_staple)
 
   function setVague(item) {
-    updateItem(item.key, { requiredQuantity: '', amountText: VAGUE_AMOUNT, needsCheck: false })
+    updateItem(item.key, { requiredQuantity: '', amountText: VAGUE_AMOUNT, needsCheck: false, spoon: null, spoonCount: '' })
   }
 
   // 適量は具体的な量を在庫から引けないので、常備品(数えない)の登録を必須にする
@@ -111,7 +114,8 @@ export function RecipeItemsEditor({ groupId, ingredients, items, setItems, empty
       updateItem(item.key, { requiredQuantity: 1, amountText: '', stapleOnSave: false })
       return
     }
-    if (isStaple(item)) setVague(item)
+    // 調味料以外(ねぎ適量など)は、在庫があれば足りているとみなすだけなので常備品にしなくてよい
+    if (!isSeasoning(item) || isStaple(item)) setVague(item)
     else setStapleAskKey(item.key)
   }
 
@@ -120,7 +124,7 @@ export function RecipeItemsEditor({ groupId, ingredients, items, setItems, empty
     const row = fridgeRowOf(item)
     if (!row) {
       // この家にまだない調味料: レシピを保存するときに、冷蔵庫の行を作って常備品にする
-      updateItem(item.key, { requiredQuantity: '', amountText: VAGUE_AMOUNT, needsCheck: false, stapleOnSave: true })
+      updateItem(item.key, { requiredQuantity: '', amountText: VAGUE_AMOUNT, needsCheck: false, stapleOnSave: true, spoon: null, spoonCount: '' })
       setStapleAskKey(null)
       return
     }
@@ -197,17 +201,47 @@ export function RecipeItemsEditor({ groupId, ingredients, items, setItems, empty
                   {item.name}
                   {item.kind === 'new' && !item.needsChoice && <span className="ml-1 text-xs text-muted-foreground">(新しい食材)</span>}
                 </span>
-                <QuantityInput
-                  className="w-20 h-8"
-                  // 数で分からない分量は空のまま保存できる(元の表記を表示)。1/2 や ½ も入れられる
-                  placeholder={item.amountText || ''}
-                  value={item.requiredQuantity}
-                  onChange={(v) =>
-                    updateItem(item.key, { requiredQuantity: v, needsCheck: false, ...(item.amountText === VAGUE_AMOUNT && Number(v) > 0 ? { amountText: '' } : {}) })
-                  }
-                  aria-label={`${item.name}の分量`}
-                />
-                <span className="text-xs text-muted-foreground w-10">{item.unit}</span>
+                {item.spoon ? (
+                  // 大さじ・小さじで入れる(調味料)。保存するのは「大さじ2」の表記と、ml などに直せるときはその数
+                  <QuantityInput
+                    className="w-20 h-8"
+                    value={item.spoonCount ?? ''}
+                    onChange={(v) => updateItem(item.key, spoonPatch(item, item.spoon, v))}
+                    aria-label={`${item.name}の分量`}
+                  />
+                ) : (
+                  <QuantityInput
+                    className="w-20 h-8"
+                    // 数で分からない分量は空のまま保存できる(元の表記を表示)。1/2 や ½ も入れられる
+                    placeholder={item.amountText || ''}
+                    value={item.requiredQuantity}
+                    onChange={(v) =>
+                      updateItem(item.key, { requiredQuantity: v, needsCheck: false, ...(item.amountText === VAGUE_AMOUNT && Number(v) > 0 ? { amountText: '' } : {}) })
+                    }
+                    aria-label={`${item.name}の分量`}
+                  />
+                )}
+                {isSeasoning(item) && !isVagueAmount(item) ? (
+                  <select
+                    className="h-8 w-16 shrink-0 rounded-md border bg-background px-1 text-xs"
+                    value={item.spoon ?? ''}
+                    onChange={(e) => {
+                      const next = e.target.value
+                      if (!next) updateItem(item.key, unspoonPatch(item))
+                      else updateItem(item.key, spoonPatch(item, next, item.spoon ? item.spoonCount : '1'))
+                    }}
+                    aria-label={`${item.name}の単位`}
+                  >
+                    <option value="">{item.unit || '単位'}</option>
+                    {SPOONS.map((sp) => (
+                      <option key={sp} value={sp}>
+                        {sp}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <span className="text-xs text-muted-foreground w-10">{item.unit}</span>
+                )}
                 <Button
                   type="button"
                   size="icon"
@@ -248,7 +282,7 @@ export function RecipeItemsEditor({ groupId, ingredients, items, setItems, empty
                     </button>
                   )}
                   {item.optional && <span className="text-xs text-muted-foreground">あれば使う(なくても作れる)</span>}
-                  {isSeasoning(item) && (
+                  {!item.needsChoice && (
                   <button
                     type="button"
                     aria-pressed={isVagueAmount(item)}
@@ -267,6 +301,13 @@ export function RecipeItemsEditor({ groupId, ingredients, items, setItems, empty
                       {item.stapleOnSave ? '保存すると常備品に登録します。作ったときに在庫から引きません' : '常備品なので、作ったときに在庫から引きません'}
                     </span>
                   )}
+                  {!isSeasoning(item) && isVagueAmount(item) && (
+                    <span className="text-xs text-muted-foreground">在庫があれば足りるとみなします(作ったときは量を入れたときだけ引きます)</span>
+                  )}
+                  {item.spoon && spoonReference(item, common) && (
+                    <span className="w-full text-xs text-muted-foreground">参考: {spoonReference(item, common)}</span>
+                  )}
+                  {stepUsageNote(item) && <span className="w-full text-xs text-sky-800 dark:text-sky-300">{stepUsageNote(item)}</span>}
                 </div>
               )}
               {stapleAskKey === item.key && !isVagueAmount(item) && (

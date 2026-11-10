@@ -29,6 +29,7 @@ import { CookedCelebration } from '@/components/CookedCelebration'
 import { ExtraIngredientAdder } from '@/components/ExtraIngredientAdder'
 import { RequiredToggle } from '@/components/RequiredToggle'
 import { categoryInfo, categoryOf } from '@/lib/recipeCategory'
+import { StarRatingInput } from '@/components/StarRating'
 
 
 // 材料の行を、「どれか1つ」の組(候補が2つ以上)ごとにまとめる。それ以外の行は1行ずつ
@@ -65,6 +66,10 @@ export function RecipeDetail({ groupId }) {
   const { conversions, remember } = useUnitConversions(groupId)
   const [resolvingId, setResolvingId] = useState(null)
   const [resolveError, setResolveError] = useState('')
+  // 評価(保存中は押した値を先に見せる)
+  const [ratingDraft, setRatingDraft] = useState(undefined)
+  const [ratingSaving, setRatingSaving] = useState(false)
+  const [ratingError, setRatingError] = useState('')
   // 「どれか1つ」の材料で、使うと選んだ候補(choice_group → ingredientId)。選ばなければ在庫が足りる候補を自動で選ぶ
   const [groupChoices, setGroupChoices] = useState(() => new Map())
   const { catalog } = useIngredientCatalog()
@@ -174,6 +179,21 @@ export function RecipeDetail({ groupId }) {
   }
 
   // 材料の必須・任意を切り替える(任意 = あれば使う。「作れる」の判定に入れない)
+  async function saveRating(value) {
+    setRatingDraft(value)
+    setRatingSaving(true)
+    setRatingError('')
+    const { error } = await supabase.from('recipes').update({ rating: value }).eq('id', recipe.id)
+    if (error) {
+      setRatingError('評価を保存できませんでした。もう一度お試しください')
+      setRatingDraft(undefined)
+    } else {
+      await refreshRecipes?.()
+      setRatingDraft(undefined)
+    }
+    setRatingSaving(false)
+  }
+
   async function setOptional(ri, optional) {
     setResolvingId(ri.id)
     setResolveError('')
@@ -542,6 +562,12 @@ export function RecipeDetail({ groupId }) {
           編集・削除
         </Link>
       </div>
+
+      {/* 家で1つの評価。評価の高いレシピがホームで先に出る */}
+      <section className="flex flex-col gap-0.5" aria-label="評価">
+        <StarRatingInput value={ratingDraft !== undefined ? ratingDraft : recipe.rating ?? null} onChange={saveRating} disabled={ratingSaving} />
+        {ratingError && <p className="text-xs text-destructive">{ratingError}</p>}
+      </section>
 
       {baseServings && (
         <div className="flex items-center gap-2 text-sm">

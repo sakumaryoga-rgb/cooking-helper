@@ -17,15 +17,19 @@ import { fetchRecipeFromUrl } from '@/lib/recipeImport/client'
 import { parseImportUrl } from '@/lib/recipeImport/sites'
 import { importIngredientLines } from '@/lib/recipeImport/match'
 import { findDuplicate, saveRecipe } from '@/lib/recipeImport/save'
-import { emptyStep } from '@/lib/recipeSteps'
+import { emptyStep, applyStepTotals, stepUsage } from '@/lib/recipeSteps'
 import { classifyRecipe } from '@/lib/recipeCategory'
 import { RecipeCategoryField } from '@/components/RecipeCategoryField'
+import { StockOnSave } from '@/components/StockOnSave'
+import { applyStockChoices, stockCandidates } from '@/lib/stockOnSave'
+import { withSpoon } from '@/lib/spoon'
 
 const HOW_IT_WORKS = ['レシピサイトでページの URL をコピー', 'ここに貼って「読み込む」', '材料を確かめて保存']
 
 export function RecipeNew({ groupId, userId }) {
   const { ingredients } = useIngredients(groupId)
   const { catalog } = useIngredientCatalog()
+  const catalogById = useMemo(() => new Map(catalog.map((c) => [c.id, c])), [catalog])
   const { aliases } = useIngredientAliases()
   const [mode, setMode] = useState('url')
   const [title, setTitle] = useState('')
@@ -116,7 +120,8 @@ export function RecipeNew({ groupId, userId }) {
     // 見出しの除外 → 複数の食材の分割 → 照合(lib/recipeImport/match の共通の処理)
     const rows = importIngredientLines(recipe.ingredients, { ingredients, catalog, aliases })
       .filter((row) => row.item)
-      .map((row) => ({ key: keyOf(), ...row.item }))
+      // 調味料の「大さじ2」は、大さじ・小さじの入力の形にする(参考の g・ml を出す)
+      .map((row) => withSpoon({ key: keyOf(), ...row.item }, catalogById))
     setItems((prev) => [...prev.filter((i) => !i.rawText), ...rows])
     // 「材料」の見出しから推測して読んだときは、違っていないか確かめてもらう
     setImportMessage(
@@ -133,8 +138,22 @@ export function RecipeNew({ groupId, userId }) {
     if (source && parseImportUrl(value)?.url !== source.url) setSource(null)
   }
 
-  async function handleSubmit(e) {
+  // 保存の前に「家にある材料」を聞く(冷蔵庫にまだない材料があるときだけ)。null は聞いていない
+  const [stockRows, setStockRows] = useState(null)
+
+  function handleSubmit(e) {
     e.preventDefault()
+    setError('')
+    // タイトル・材料の確認は saveRecipe で行う(足りなければ聞かずに理由を出す)
+    const candidates = title.trim() && items.some((i) => i.include) ? stockCandidates(items, ingredients, catalogById) : []
+    if (candidates.length > 0) {
+      setStockRows(candidates)
+      return
+    }
+    save([])
+  }
+
+  async function save(stockChoices) {
     setError('')
     setSaving(true)
     const result = await saveRecipe({
@@ -155,11 +174,14 @@ export function RecipeNew({ groupId, userId }) {
       category: category ?? autoCategory,
       categoryManual: category != null,
     })
-    setSaving(false)
     if (result.error) {
+      setSaving(false)
       setError(result.error)
       return
     }
+    const failed = await applyStockChoices(supabase, stockChoices, result.ingredientIds ?? new Map())
+    setSaving(false)
+    if (failed > 0) console.error(`冷蔵庫・常備品に入れられなかった材料: ${failed}件`)
     // 追加画面を履歴から外して詳細へ(戻ると一覧に戻る)。詳細で「保存しました」と一覧への導線を出す
     navigate(`/recipes/${result.recipeId}`, { replace: true, state: { saved: 'created' } })
   }
@@ -284,20 +306,31 @@ export function RecipeNew({ groupId, userId }) {
         <RecipeItemsEditor
           groupId={groupId}
           ingredients={ingredients}
+          stepUsage={original ? stepUsage(steps) : undefined}
           items={items}
           setItems={setItems}
           emptyText={original ? 'まだ材料がありません。「材料を選択」から追加してください' : imported ? '材料がありません' : 'URLを読み込むと、ここに材料が並びます。手動で追加することもできます'}
         />
 
-        {original && <RecipeStepsEditor steps={steps} setSteps={setSteps} items={items} />}
+        {original && <RecipeStepsEditor steps={steps} setSteps={setSteps} items={items} onUsesChanged={(next, keys) => setItems((prev) => applyStepTotals(prev, next, keys))} />}
 
         <RecipeExtrasFields value={extras} onChange={(patch) => setExtras((prev) => ({ ...prev, ...patch }))} />
 
         {error && <p className="text-destructive text-sm">{error}</p>}
 
-        <Button type="submit" className="h-11 text-base" disabled={saving}>
-          {saving ? '保存中...' : 'レシピ帳に保存'}
-        </Button>
+        {stockRows ? (
+          <StockOnSave
+            rows={stockRows}
+            saving={saving}
+            onChange={(key, patch) => setStockRows((prev) => prev.map((r) => (r.key === key ? { ...r, ...patch } : r)))}
+            onConfirm={() => save(stockRows)}
+            onBack={() => setStockRows(null)}
+          />
+        ) : (
+          <Button type="submit" className="h-11 text-base" disabled={saving}>
+            {saving ? '保存中...' : 'レシピ帳に保存'}
+          </Button>
+        )}
       </form>
     </div>
   )

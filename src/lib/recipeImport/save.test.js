@@ -56,7 +56,7 @@ describe('取り込んだレシピの保存', () => {
       sourceKey: 'delishkitchen:1', sourceSite: 'DELISH KITCHEN', servings: 2, fridge,
       items: [item('鶏むね肉 1枚(250g)'), item('きゅうり 1本'), item('塩 少々'), item('水 100ml')],
     })
-    expect(result).toEqual({ recipeId: 'r1' })
+    expect(result).toMatchObject({ recipeId: 'r1' })
     const inserts = supabase.calls.filter((c) => c.op === 'insert')
     expect(inserts[0]).toMatchObject({ table: 'ingredients', row: { group_id: 'g1', name: '鶏むね肉', unit: 'g', quantity: 0, catalog_id: 'c1' } })
     expect(inserts.find((c) => c.table === 'recipes')).toMatchObject({ row: { source_key: 'delishkitchen:1', servings: 2, url: 'https://delishkitchen.tv/recipes/1' } })
@@ -103,7 +103,7 @@ describe('レシピのカスタマイズの保存', () => {
       ],
       extras: { icon: '🥗', servings: 2, instructions: '和える', memo: null },
     })
-    expect(result).toEqual({ recipeId: 'r1' })
+    expect(result).toMatchObject({ recipeId: 'r1' })
     expect(supabase.calls.filter((c) => c.table === 'ingredients')).toHaveLength(1)
     expect(supabase.rpc).toHaveBeenCalledWith('update_recipe', {
       p_recipe_id: 'r1', p_title: 'わが家のバンバンジー', p_servings: 2, p_instructions: '和える', p_memo: null, p_icon: '🥗',
@@ -264,7 +264,7 @@ describe('取り込みで初めて出てきた調味料の「適量」', () => {
       supabase, groupId: 'g1', userId: 'u1', title: '煮物', url: null, fridge,
       items: [{ key: 'a', kind: 'new', name: 'みりん', unit: 'ml', requiredQuantity: '', amountText: '適量', include: true, needsChoice: false, stapleOnSave: true }],
     })
-    expect(result).toEqual({ recipeId: 'r1' })
+    expect(result).toMatchObject({ recipeId: 'r1' })
     const created = supabase.calls.find((c) => c.table === 'ingredients' && c.op === 'insert')
     expect(created.row).toMatchObject({ name: 'みりん', quantity: 0 })
     const staple = supabase.calls.find((c) => c.table === 'ingredients' && c.op === 'update')

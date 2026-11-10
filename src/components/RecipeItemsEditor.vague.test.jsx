@@ -25,10 +25,14 @@ function Harness({ fridge }) {
   return <RecipeItemsEditor groupId="g1" ingredients={fridge} items={items} setItems={setItems} emptyText="" />
 }
 
-describe('材料の「適量」(調味料だけ)', () => {
-  it('調味料だけに「適量」を出す', () => {
+describe('材料の「適量」', () => {
+  it('どの材料にも「適量」を出す。調味料以外は常備品にしなくても適量にできる', async () => {
     render(<Harness fridge={[soy, onion]} />)
-    expect(screen.getAllByRole('button', { name: '適量' })).toHaveLength(1)
+    expect(screen.getAllByRole('button', { name: '適量' })).toHaveLength(2)
+    await userEvent.click(screen.getAllByRole('button', { name: '適量' })[1])
+    expect(latest[1]).toMatchObject({ requiredQuantity: '', amountText: '適量' })
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+    expect(screen.getByText(/在庫があれば足りるとみなします/)).toBeInTheDocument()
   })
 
   it('常備品なら、そのまま適量にできる(分量は空、表記は「適量」)', async () => {
@@ -116,5 +120,21 @@ describe('この家にまだない調味料の「適量」(取り込みで初め
     expect(update).toHaveBeenCalledWith({ is_staple: true })
     expect(eq).toHaveBeenCalledWith('id', 'i-mirin')
     await waitFor(() => expect(latestNew[0]).toMatchObject({ amountText: '適量' }))
+  })
+})
+
+describe('調味料の大さじ・小さじ', () => {
+  it('単位を大さじにすると数を大さじで入れ、ml を参考に出す。表記「大さじ2」と ml の数を持つ', async () => {
+    render(<Harness fridge={[soy, onion]} />)
+    // 調味料以外には単位の切り替えを出さない
+    expect(screen.queryByLabelText('玉ねぎの単位')).not.toBeInTheDocument()
+    await userEvent.selectOptions(screen.getByLabelText('しょうゆの単位'), '大さじ')
+    const input = screen.getByLabelText('しょうゆの分量')
+    await userEvent.clear(input)
+    await userEvent.type(input, '2')
+    expect(latest[0]).toMatchObject({ spoon: '大さじ', spoonCount: '2', amountText: '大さじ2', requiredQuantity: '30' })
+    expect(screen.getByText('参考: = 30ml')).toBeInTheDocument()
+    await userEvent.selectOptions(screen.getByLabelText('しょうゆの単位'), '')
+    expect(latest[0]).toMatchObject({ spoon: null, amountText: '', requiredQuantity: '30' })
   })
 })

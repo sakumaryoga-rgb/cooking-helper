@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { savedUsageMismatches, stepsFromInstructions, stepsFromSaved, stepsToInstructions, stepsToSaved } from './recipeSteps'
+import { applyStepTotals, savedUsageMismatches, stepUsage, stepsFromInstructions, stepsFromSaved, stepsToInstructions, stepsToSaved } from './recipeSteps'
 
 const items = [
   { key: 'a', name: '玉ねぎ', ingredient: { id: 'i-onion' }, include: true, requiredQuantity: 1 },
@@ -32,5 +32,33 @@ describe('手順の保存の形', () => {
     const steps = [{ uses: [{ ingredient_id: 'i-onion', quantity: 1 }] }, { uses: [{ ingredient_id: 'i-onion', quantity: 1 }] }]
     expect(savedUsageMismatches(steps, [{ ingredient_id: 'i-onion', required_quantity: 1 }])).toEqual([{ ingredientId: 'i-onion', stepsTotal: 2, recipeQuantity: 1 }])
     expect(savedUsageMismatches(steps, [{ ingredient_id: 'i-onion', required_quantity: 2 }])).toEqual([])
+  })
+})
+
+describe('手順の量を上の材料の分量にそろえる', () => {
+  const items = [
+    { key: 'soy', name: 'しょうゆ', unit: 'ml', requiredQuantity: '10', include: true },
+    { key: 'salt', name: '塩', unit: 'g', requiredQuantity: '', amountText: '適量', include: true },
+    { key: 'pork', name: '豚肉', unit: 'g', requiredQuantity: '200', include: true },
+  ]
+  const steps = [
+    { id: 's1', text: '下味', uses: [{ itemKey: 'soy', quantity: '5' }, { itemKey: 'salt', quantity: '1' }] },
+    { id: 's2', text: '仕上げ', uses: [{ itemKey: 'soy', quantity: '15' }, { itemKey: 'salt', quantity: '' }] },
+  ]
+
+  it('手順の合計を総量にする。適量の材料・変わっていない材料はそのまま', () => {
+    const next = applyStepTotals(items, steps, ['soy', 'salt'])
+    expect(next[0]).toMatchObject({ requiredQuantity: '20', needsCheck: false })
+    expect(next[1]).toBe(items[1])
+    expect(next[2]).toBe(items[2])
+  })
+
+  it('量を入れた手順がなければ変えない', () => {
+    expect(applyStepTotals(items, [{ id: 's', text: '', uses: [{ itemKey: 'pork', quantity: '' }] }], ['pork'])[2]).toBe(items[2])
+  })
+
+  it('材料ごとに、量を入れた手順の合計と量を決めていない手順の数を数える', () => {
+    expect(stepUsage(steps).get('salt')).toEqual({ total: 1, blanks: 1, steps: 2 })
+    expect(stepUsage(steps).get('soy')).toEqual({ total: 20, blanks: 0, steps: 2 })
   })
 })

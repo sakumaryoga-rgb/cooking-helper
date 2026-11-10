@@ -106,7 +106,7 @@ describe('設定画面', () => {
       { alias: '男爵', catalog_id: 'c-potato', group_id: 'g-other' },
     ]
     render(<MemoryRouter><Settings group={group} email="me@example.com" userId="u1" /></MemoryRouter>)
-    const link = screen.getByRole('link', { name: /覚えた食材の別名/ })
+    const link = screen.getByRole('link', { name: /食材の別名・まとめる/ })
     expect(link).toHaveAttribute('href', '/settings/aliases')
     expect(within(link).getByText('1件')).toBeInTheDocument()
     expect(screen.queryByText(/メークイン/)).not.toBeInTheDocument()

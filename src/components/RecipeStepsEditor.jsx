@@ -6,7 +6,8 @@ import { QuantityInput } from '@/components/QuantityInput'
 
 // 作り方(オリジナルレシピ)。手順ごとに、そのレシピの材料から使うものと量を選べる(どちらも任意)。
 // 手順の量は目安で、在庫はレシピの材料の分量で引く(手順の量では引かない)
-export function RecipeStepsEditor({ steps, setSteps, items }) {
+// onUsesChanged(nextSteps, itemKeys): 手順で使う材料・量が変わったとき(上の材料の分量を手順の合計にそろえるため)
+export function RecipeStepsEditor({ steps, setSteps, items, onUsesChanged }) {
   const available = items.filter((i) => i.include)
   const update = (id, patch) => setSteps((prev) => prev.map((s) => (s.id === id ? { ...s, ...patch } : s)))
   const move = (index, d) =>
@@ -18,10 +19,16 @@ export function RecipeStepsEditor({ steps, setSteps, items }) {
   const remove = (id) => setSteps((prev) => (prev.length === 1 ? [emptyStep()] : prev.filter((s) => s.id !== id)))
   const addUse = (step, itemKey) => {
     if (!itemKey || step.uses.some((u) => u.itemKey === itemKey)) return
-    update(step.id, { uses: [...step.uses, { itemKey, quantity: '' }] })
+    setUses(step, [...step.uses, { itemKey, quantity: '' }], itemKey)
   }
-  const setUse = (step, itemKey, quantity) => update(step.id, { uses: step.uses.map((u) => (u.itemKey === itemKey ? { ...u, quantity } : u)) })
-  const removeUse = (step, itemKey) => update(step.id, { uses: step.uses.filter((u) => u.itemKey !== itemKey) })
+  // 使う材料を変えた手順を反映し、変わった材料を知らせる(今の手順から次の手順を作る: 更新関数の中で他の状態を変えない)
+  function setUses(step, uses, itemKey) {
+    const next = steps.map((s) => (s.id === step.id ? { ...s, uses } : s))
+    setSteps(next)
+    onUsesChanged?.(next, [itemKey])
+  }
+  const setUse = (step, itemKey, quantity) => setUses(step, step.uses.map((u) => (u.itemKey === itemKey ? { ...u, quantity } : u)), itemKey)
+  const removeUse = (step, itemKey) => setUses(step, step.uses.filter((u) => u.itemKey !== itemKey), itemKey)
   const mismatches = usageMismatches(steps, items)
 
   return (

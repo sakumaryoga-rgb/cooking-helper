@@ -101,3 +101,35 @@ export function savedUsageMismatches(steps, recipeIngredients) {
   }
   return out
 }
+
+// 手順ごとの量の集計: Map<材料の行の key, { total(量を入れた手順の合計), blanks(量を入れていない手順の数), steps(使う手順の数) }>
+export function stepUsage(steps) {
+  const out = new Map()
+  for (const s of steps ?? []) {
+    for (const u of s.uses ?? []) {
+      const cur = out.get(u.itemKey) ?? { total: 0, blanks: 0, steps: 0 }
+      const q = Number(u.quantity)
+      cur.steps += 1
+      if (q > 0) cur.total = Math.round((cur.total + q) * 100) / 100
+      else cur.blanks += 1
+      out.set(u.itemKey, cur)
+    }
+  }
+  return out
+}
+
+// 手順で使う材料の量を変えたら、上の材料の分量を手順の合計(総量)にそろえる(逆向きにはそろえない)。
+// keys: 変わった材料の行。量を入れた手順がない材料と、「適量」にした材料は変えない
+export function applyStepTotals(items, steps, keys) {
+  const usage = stepUsage(steps)
+  const changed = new Set(keys)
+  return items.map((item) => {
+    if (!changed.has(item.key)) return item
+    const u = usage.get(item.key)
+    if (!u || !(u.total > 0)) return item
+    if (item.amountText === '適量' && !(Number(item.requiredQuantity) > 0)) return item
+    if (Number(item.requiredQuantity) === u.total) return item
+    // 手順の量は食材の単位で入れるので、大さじ・小さじの入力はやめて総量の数にする
+    return { ...item, requiredQuantity: String(u.total), needsCheck: false, amountText: '', spoon: null, spoonCount: '' }
+  })
+}

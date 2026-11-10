@@ -160,7 +160,9 @@ export async function saveRecipe({ supabase, groupId, userId, title, url, source
     return { error: '材料の保存に失敗しました' }
   }
   await learnAliases(supabase, groupId, items)
-  return { recipeId: recipe.id }
+  // 材料の行(key)→ 保存先の食材(冷蔵庫・常備品に入れるときに使う)
+  const ingredientIds = new Map([...ingredientRows.targets].filter(([, t]) => t.ingredient_id).map(([k, t]) => [k, t.ingredient_id]))
+  return { recipeId: recipe.id, ingredientIds }
 }
 
 // 取り込んだ材料を別の食材に付け替えたら、取り込んだときの表記をこの家の別名として覚える

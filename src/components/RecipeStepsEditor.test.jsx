@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { RecipeStepsEditor } from './RecipeStepsEditor'
+import { applyStepTotals } from '@/lib/recipeSteps'
 
 const items = [
   { key: 'k-onion', name: '玉ねぎ', unit: '個', requiredQuantity: 1, include: true },
@@ -50,5 +51,28 @@ describe('手順ごとの材料と量', () => {
     expect(latest[1].uses).toEqual([{ itemKey: 'k-onion', quantity: '' }])
     await userEvent.click(screen.getByRole('button', { name: '手順2を消す' }))
     expect(latest).toHaveLength(1)
+  })
+})
+
+describe('手順の量を上の材料にすぐ反映する', () => {
+  function Synced() {
+    const [list, setList] = useState(items)
+    const [steps, setSteps] = useState([
+      { id: 's1', text: '下ごしらえ', uses: [] },
+      { id: 's2', text: '炒める', uses: [] },
+    ])
+    latestItems = list
+    return <RecipeStepsEditor steps={steps} setSteps={setSteps} items={list} onUsesChanged={(next, keys) => setList((prev) => applyStepTotals(prev, next, keys))} />
+  }
+  let latestItems
+
+  it('量を入れると、材料の分量が手順の合計になる(材料の分量を変えても手順は変えない)', async () => {
+    render(<Synced />)
+    await userEvent.selectOptions(screen.getByLabelText('手順1で使う材料を追加'), 'k-beef')
+    await userEvent.type(screen.getByLabelText('手順1の牛こま切れ肉の量'), '120')
+    expect(latestItems.find((i) => i.key === 'k-beef').requiredQuantity).toBe('120')
+    await userEvent.selectOptions(screen.getByLabelText('手順2で使う材料を追加'), 'k-beef')
+    await userEvent.type(screen.getByLabelText('手順2の牛こま切れ肉の量'), '80')
+    expect(latestItems.find((i) => i.key === 'k-beef').requiredQuantity).toBe('200')
   })
 })

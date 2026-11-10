@@ -251,8 +251,8 @@ export function Settings({ group, groups = [group], onSelectGroup, onGroupsChang
       >
         <Tags className="size-5 shrink-0 text-muted-foreground" />
         <span className="flex min-w-0 flex-1 flex-col">
-          <span className="text-sm font-medium">覚えた食材の別名</span>
-          <span className="text-xs text-muted-foreground">レシピの取り込みで覚えた表記の確認と削除</span>
+          <span className="text-sm font-medium">食材の別名・まとめる</span>
+          <span className="text-xs text-muted-foreground">表記揺れの食材を1つにまとめる・覚えた表記の確認と削除</span>
         </span>
         <span className="text-xs text-muted-foreground">{ownAliasCount}件</span>
         <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
