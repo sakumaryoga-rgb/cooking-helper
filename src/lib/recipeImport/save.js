@@ -76,6 +76,8 @@ async function toIngredientRows(supabase, groupId, items, fridge) {
       note: row.note ? String(row.note).slice(0, 60) : null,
       // 任意の材料(あれば使う)。指定がなければ必須
       optional: Boolean(row.optional),
+      // 「どれか1つ」の組(1〜50 / null)。画面が組を扱わない行では送らない(update_recipe が今の組を引き継ぐ)
+      ...(row.choiceGroup === undefined ? {} : { choice_group: Number.isInteger(row.choiceGroup) && row.choiceGroup >= 1 && row.choiceGroup <= 50 ? row.choiceGroup : null }),
     }
     if (row.needsChoice) {
       const sourceName = String(row.sourceName || row.name).slice(0, 80)
@@ -98,6 +100,8 @@ async function toIngredientRows(supabase, groupId, items, fridge) {
       prev.note = [...new Set([prev.note, base.note].filter(Boolean))].join('・').slice(0, 60) || null
       // 同じ食材をまとめたときは、どれかが必須なら必須
       prev.optional = prev.optional && base.optional
+      // どれかが組に入っていなければ単独の材料にする(migration 030 の update_recipe と同じ)
+      if ('choice_group' in prev || 'choice_group' in base) prev.choice_group = prev.choice_group != null && base.choice_group != null ? Math.min(prev.choice_group, base.choice_group) : null
     } else {
       byIngredient.set(id, { ...base, ingredient_id: id, source_name: null })
     }

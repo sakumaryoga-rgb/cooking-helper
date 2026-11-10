@@ -12,6 +12,7 @@ import { describeEstimate, resolveConversion } from '@/lib/unitConversion'
 import { guessCategory } from '@/lib/ingredientCategory'
 import { useIngredientCatalog } from '@/hooks/useIngredientCatalog'
 import { supabase } from '@/supabaseClient'
+import { addAlternative, dissolveSingletons } from '@/lib/choiceGroups'
 
 const VAGUE_AMOUNT = '適量'
 const isVagueAmount = (item) => item.amountText === VAGUE_AMOUNT && !(Number(item.requiredQuantity) > 0)
@@ -45,6 +46,7 @@ export function RecipeItemsEditor({ groupId, ingredients, items, setItems, empty
   const [stapleError, setStapleError] = useState('')
   const [pickerOpen, setPickerOpen] = useState(false)
   const [replaceKey, setReplaceKey] = useState(null) // 付け替える材料の行(null は追加)
+  const [altForKey, setAltForKey] = useState(null) // 「代わりの材料」を足す材料の行
 
   function handlePicked(ingredient) {
     if (replaceKey) {
@@ -53,10 +55,13 @@ export function RecipeItemsEditor({ groupId, ingredients, items, setItems, empty
       setReplaceKey(null)
       return
     }
-    setItems((prev) => [
-      ...prev,
-      { key: keyOf(), kind: 'existing', ingredient, name: ingredient.name, unit: ingredient.unit, requiredQuantity: 1, include: true, needsCheck: false },
-    ])
+    const added = { key: keyOf(), kind: 'existing', ingredient, name: ingredient.name, unit: ingredient.unit, requiredQuantity: 1, include: true, needsCheck: false }
+    if (altForKey) {
+      setItems((prev) => addAlternative(prev, altForKey, added))
+      setAltForKey(null)
+      return
+    }
+    setItems((prev) => [...prev, added])
   }
 
   // どの食材かを選ぶ(候補・新しい食材・ほかの食材)
@@ -67,6 +72,11 @@ export function RecipeItemsEditor({ groupId, ingredients, items, setItems, empty
 
   function updateItem(key, patch) {
     setItems((prev) => prev.map((i) => (i.key === key ? { ...i, ...patch } : i)))
+  }
+
+  // 必須・任意は「どれか1つ」の組でそろえる(組のどれかだけ任意にはしない)
+  function setOptional(item, optional) {
+    setItems((prev) => prev.map((i) => (i.key === item.key || (item.choiceGroup != null && i.choiceGroup === item.choiceGroup) ? { ...i, optional } : i)))
   }
 
   // 調味料だけ「適量」を選べる。この家にまだない調味料(取り込みで初めて出てきたもの)も選べる
@@ -127,15 +137,31 @@ export function RecipeItemsEditor({ groupId, ingredients, items, setItems, empty
   }
 
   function removeItem(key) {
-    setItems((prev) => prev.filter((i) => i.key !== key))
+    setItems((prev) => dissolveSingletons(prev.filter((i) => i.key !== key)))
+  }
+
+  function leaveGroup(key) {
+    setItems((prev) => dissolveSingletons(prev.map((i) => (i.key === key ? { ...i, choiceGroup: null } : i))))
   }
 
   const usedIngredientIds = items.filter((i) => i.kind === 'existing' && i.key !== replaceKey).map((i) => i.ingredient.id)
 
   function openPicker(key = null) {
     setReplaceKey(key)
+    setAltForKey(null)
     setPickerOpen(true)
   }
+
+  function openAltPicker(key) {
+    setReplaceKey(null)
+    setAltForKey(key)
+    setPickerOpen(true)
+  }
+
+  const groupSizes = new Map()
+  for (const i of items) if (i.choiceGroup != null) groupSizes.set(i.choiceGroup, (groupSizes.get(i.choiceGroup) ?? 0) + 1)
+  const inGroup = (item) => item.choiceGroup != null && groupSizes.get(item.choiceGroup) >= 2
+  const firstOfGroup = (item, index) => inGroup(item) && items.findIndex((i) => i.choiceGroup === item.choiceGroup) === index
 
   return (
     <div className="flex flex-col gap-2">
@@ -151,8 +177,14 @@ export function RecipeItemsEditor({ groupId, ingredients, items, setItems, empty
         <p className="text-sm text-muted-foreground">{emptyText}</p>
       ) : (
         <ul className="flex flex-col divide-y divide-border rounded-2xl border bg-card">
-          {items.map((item) => (
-            <li key={item.key} className={`flex flex-col gap-1 px-3 py-2 ${item.include ? '' : 'opacity-60'}`}>
+          {items.map((item, index) => (
+            <li
+              key={item.key}
+              className={`flex flex-col gap-1 px-3 py-2 ${item.include ? '' : 'opacity-60'} ${inGroup(item) ? 'border-l-4 border-l-amber-400 bg-amber-50/60 dark:bg-amber-950/30' : ''}`}
+            >
+              {firstOfGroup(item, index) && (
+                <p className="text-[11px] font-bold text-amber-800 dark:text-amber-300">どれか1つ(在庫があるものを使います)</p>
+              )}
               <div className="flex items-center gap-2">
                 <input
                   type="checkbox"
@@ -194,7 +226,27 @@ export function RecipeItemsEditor({ groupId, ingredients, items, setItems, empty
               {item.include && (
                 <div className="flex flex-wrap items-center gap-1.5 pl-6">
                   {/* 必須・任意(既定は必須)。任意の材料は「作れる」の判定に入れず、作るときに使うか選べる */}
-                  <RequiredToggle name={item.name} size="xs" optional={Boolean(item.optional)} onChange={(v) => updateItem(item.key, { optional: v })} />
+                  <RequiredToggle name={item.name} size="xs" optional={Boolean(item.optional)} onChange={(v) => setOptional(item, v)} />
+                  {item.kind === 'existing' && (
+                    <button
+                      type="button"
+                      className="rounded-full border bg-background px-2.5 py-0.5 text-xs font-medium text-muted-foreground hover:border-amber-400 hover:text-amber-800"
+                      onClick={() => openAltPicker(item.key)}
+                      aria-label={`${item.name}の代わりの材料を追加`}
+                    >
+                      ＋代わりの材料
+                    </button>
+                  )}
+                  {inGroup(item) && (
+                    <button
+                      type="button"
+                      className="rounded-full px-2 py-0.5 text-xs text-muted-foreground underline underline-offset-2"
+                      onClick={() => leaveGroup(item.key)}
+                      aria-label={`${item.name}を「どれか1つ」から外す`}
+                    >
+                      組から外す
+                    </button>
+                  )}
                   {item.optional && <span className="text-xs text-muted-foreground">あれば使う(なくても作れる)</span>}
                   {isSeasoning(item) && (
                   <button
@@ -319,7 +371,10 @@ export function RecipeItemsEditor({ groupId, ingredients, items, setItems, empty
         open={pickerOpen}
         onOpenChange={(open) => {
           setPickerOpen(open)
-          if (!open) setReplaceKey(null)
+          if (!open) {
+            setReplaceKey(null)
+            setAltForKey(null)
+          }
         }}
         groupId={groupId}
         ingredients={ingredients}

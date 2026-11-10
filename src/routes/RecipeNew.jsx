@@ -14,7 +14,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { fetchRecipeFromUrl } from '@/lib/recipeImport/client'
-import { parseRecipeUrl } from '@/lib/recipeImport/sites'
+import { parseImportUrl } from '@/lib/recipeImport/sites'
 import { importIngredientLines } from '@/lib/recipeImport/match'
 import { findDuplicate, saveRecipe } from '@/lib/recipeImport/save'
 import { emptyStep } from '@/lib/recipeSteps'
@@ -44,7 +44,8 @@ export function RecipeNew({ groupId, userId }) {
   const [error, setError] = useState('')
   const navigate = useNavigate()
 
-  const supported = useMemo(() => parseRecipeUrl(url), [url])
+  // 対応サイトのレシピページ、またはそれ以外の公開ページ(汎用の読み取り)
+  const supported = useMemo(() => parseImportUrl(url), [url])
   const original = mode === 'original'
   // 料理名・材料・(取り込んだときは)サイトの構造化データから自動で分類する
   const autoCategory = useMemo(
@@ -74,10 +75,11 @@ export function RecipeNew({ groupId, userId }) {
     setError('')
     if (!supported) {
       setImportFailed(true)
-      setImportMessage('このサイトのページからは、材料を自動で読み込めません。URLを残したまま、料理名と材料を下で入れて保存できます')
+      setImportMessage('このURLからは、材料を自動で読み込めません。URLを残したまま、料理名と材料を下で入れて保存できます')
       return
     }
-    const dup = await findDuplicate(supabase, groupId, supported.sourceKey)
+    // 対応サイトは読み込む前に重複を確かめる(汎用の読み取りは、読み込んだ後にサーバーが作ったキーで確かめる)
+    const dup = supported.sourceKey ? await findDuplicate(supabase, groupId, supported.sourceKey) : null
     if (dup) {
       setDuplicate(dup)
       return
@@ -90,11 +92,19 @@ export function RecipeNew({ groupId, userId }) {
       setImportMessage(`${importError}。URLを残したまま、料理名と材料を下で入れて保存できます`)
       return
     }
+    if (supported.generic) {
+      const genericDup = await findDuplicate(supabase, groupId, recipe.sourceKey)
+      if (genericDup) {
+        setDuplicate(genericDup)
+        return
+      }
+    }
     setUrl(recipe.url)
     if (!title.trim()) setTitle(recipe.title)
     setSource({
       sourceKey: recipe.sourceKey,
       site: recipe.site,
+      url: recipe.url,
       servings: recipe.servings,
       yieldText: recipe.yieldText,
       // 料理ジャンルの手がかり(サイトの構造化データ)
@@ -108,14 +118,19 @@ export function RecipeNew({ groupId, userId }) {
       .filter((row) => row.item)
       .map((row) => ({ key: keyOf(), ...row.item }))
     setItems((prev) => [...prev.filter((i) => !i.rawText), ...rows])
-    setImportMessage(`${recipe.site} から ${rows.length} 件の材料を読み込みました`)
+    // 「材料」の見出しから推測して読んだときは、違っていないか確かめてもらう
+    setImportMessage(
+      recipe.method === 'heuristic'
+        ? `${recipe.site} のページの「材料」の欄から ${rows.length} 件を読み込みました。違う行があれば外してください`
+        : `${recipe.site} から ${rows.length} 件の材料を読み込みました`
+    )
   }
 
   function handleUrlChange(value) {
     setUrl(value)
     setImportFailed(false)
     // 別のレシピの URL に変えたら、取り込み元の情報は外す
-    if (source && parseRecipeUrl(value)?.sourceKey !== source.sourceKey) setSource(null)
+    if (source && parseImportUrl(value)?.url !== source.url) setSource(null)
   }
 
   async function handleSubmit(e) {
@@ -222,12 +237,16 @@ export function RecipeNew({ groupId, userId }) {
               </Button>
               {url.trim() && !importing && (
                 <p className="px-1 text-xs text-muted-foreground">
-                  {supported ? `${supported.site.name} のレシピとして読み込みます` : 'このURLは自動で読み込めません(URLを残して手動で登録できます)'}
+                  {!supported
+                    ? 'このURLは自動で読み込めません(URLを残して手動で登録できます)'
+                    : supported.generic
+                      ? `対応サイト以外のページです。${supported.site.name} のページにレシピの情報があれば読み込みます`
+                      : `${supported.site.name} のレシピとして読み込みます`}
                 </p>
               )}
             </div>
             <div className="rounded-2xl bg-background/80 p-3 text-foreground">
-              <p className="mb-2 text-xs font-semibold">対応しているレシピサイト</p>
+              <p className="mb-2 text-xs font-semibold">対応しているレシピサイト(ほかのサイトも読み込みを試せます)</p>
               <SupportedSites activeId={supported?.site.id} />
             </div>
           </section>

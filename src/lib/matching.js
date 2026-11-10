@@ -17,6 +17,9 @@
 // - 確認待ちの材料(どの食材か未確定): 'check' にする
 // - 任意の材料(optional): あれば使う材料。不足・確認待ち・分量の確認・品数に入れない(必須の材料だけで判定する)。
 //   在庫は必須の材料に先に割り当てる。材料がすべて任意なら、何があれば作れるか分からないので 'check'(noRequired)
+// - 「どれか1つ」の材料(choice_group が同じ候補が2つ以上): 組で1品と数える。在庫が足りる候補を1つ選んで割り当て
+//   (options.groupChoices で選んだ候補を優先)、選ばなかった候補は alternative: true の行で返す(判定・品数・調理に入れない)。
+//   足りる候補がなければ、足りない量がいちばん少ない候補の不足として数える
 // - 水・お湯など(isNotStocked)は食材として数えない(不足・確認・品数・調理の差し引きに入れない。notStocked: true の行で返す)
 
 import { parseAmount } from '@/lib/recipeImport/ingredientLine'
@@ -51,7 +54,8 @@ function round(n) {
 }
 
 // options.choices: Map<材料の ingredientId, ruleId | 'none'>(詳細画面で選んだ代替。'none' は代替しない)
-export function getRecipeStatus(recipe, ingredientsById, { substitutions = [], catalogById = new Map(), choices = new Map(), conversions = new Map(), commonConversions = null } = {}) {
+// options.groupChoices: Map<choice_group, ingredientId>(「どれか1つ」の材料で、使うと選んだ候補)
+export function getRecipeStatus(recipe, ingredientsById, { substitutions = [], catalogById = new Map(), choices = new Map(), groupChoices = new Map(), conversions = new Map(), commonConversions = null } = {}) {
   const all = recipe.recipe_ingredients ?? []
   const items = all.filter((req) => !isNotStocked(ingredientsById.get(req.ingredient_id)?.name ?? req.ingredient?.name ?? req.source_name))
   const remaining = new Map([...ingredientsById.values()].map((i) => [i.id, Number(i.quantity) || 0]))
@@ -67,11 +71,56 @@ export function getRecipeStatus(recipe, ingredientsById, { substitutions = [], c
       notStocked: true,
       amountText: req.amount_text ?? null,
     }))
-  // 必須の材料に先に在庫を割り当てる(任意の材料が必須の材料の在庫を奪わない)。並びは元のまま返す
-  const order = [...items.filter((req) => !req.optional), ...items.filter((req) => req.optional)]
+  // 「どれか1つ」の組(候補が2つ以上ある組だけ。1つなら普通の材料)
+  const groupSize = new Map()
+  for (const req of items) if (req.choice_group != null) groupSize.set(req.choice_group, (groupSize.get(req.choice_group) ?? 0) + 1)
+  const groupOf = (req) => (req.choice_group != null && groupSize.get(req.choice_group) >= 2 ? req.choice_group : null)
+  const groups = new Map()
+  for (const req of items) {
+    const g = groupOf(req)
+    if (g == null) continue
+    if (!groups.has(g)) groups.set(g, [])
+    groups.get(g).push(req)
+  }
+
+  // 必須の材料 → 「どれか1つ」の組 → 任意の材料 の順に在庫を割り当てる(任意の材料が必須の材料の在庫を奪わない)。並びは元のまま返す
+  const singles = items.filter((req) => groupOf(req) == null)
   const lineOf = new Map()
-  for (const req of order) lineOf.set(req, buildLine(req))
+  for (const req of singles.filter((r) => !r.optional)) lineOf.set(req, buildLine(req))
+  for (const [g, cands] of groups) allocateGroup(g, cands)
+  for (const req of singles.filter((r) => r.optional)) lineOf.set(req, buildLine(req))
   const lines = items.map((req) => lineOf.get(req))
+
+  // 在庫を減らさずに行を作る(候補を比べるため)
+  function dryRun(req) {
+    const saved = new Map(remaining)
+    const savedStaples = stapleCount
+    const line = buildLine(req)
+    remaining.clear()
+    for (const [k, v] of saved) remaining.set(k, v)
+    stapleCount = savedStaples
+    return line
+  }
+
+  function allocateGroup(g, cands) {
+    const trials = cands.map((req) => ({ req, line: dryRun(req) }))
+    const enough = (t) => !t.line.pending && !t.line.amountUnknown && t.line.missing <= EPSILON
+    const ratio = (t) => (t.line.pending ? Infinity : Number.isFinite(t.line.missing) ? t.line.missing / (t.line.requiredQuantity || 1) : 1e9)
+    const chosenId = groupChoices.get(g)
+    const pick =
+      (chosenId && trials.find((t) => t.req.ingredient_id === chosenId)) ||
+      trials.find(enough) ||
+      trials.find((t) => !t.line.pending && t.line.missing <= EPSILON) ||
+      [...trials].sort((a, b) => ratio(a) - ratio(b))[0]
+    for (const t of trials) {
+      const line = t === pick ? buildLine(t.req) : t.line
+      line.choiceGroup = g
+      line.chosen = t === pick
+      line.alternative = t !== pick
+      line.choiceStock = enough(t) ? 'enough' : t.line.pending ? 'unknown' : t.line.currentQuantity > 0 || t.line.staple ? 'partial' : 'none'
+      lineOf.set(t.req, line)
+    }
+  }
 
   function buildLine(req) {
     const current = ingredientsById.get(req.ingredient_id)
@@ -132,7 +181,7 @@ export function getRecipeStatus(recipe, ingredientsById, { substitutions = [], c
 
   // 2. 足りない分を、残った在庫の代替で補う(必須の材料だけ。任意の材料はなければ使わない)
   for (const line of lines) {
-    if (line.missing <= EPSILON || line.optional) continue
+    if (line.missing <= EPSILON || line.optional || line.alternative) continue
     const original = ingredientsById.get(line.ingredientId)
     const fromCatalog = original?.catalog_id ? catalogById.get(original.catalog_id) : null
     if (!original?.catalog_id || (fromCatalog && fromCatalog.unit !== original.unit)) continue
@@ -174,7 +223,8 @@ export function getRecipeStatus(recipe, ingredientsById, { substitutions = [], c
     line.missing = 0
   }
 
-  const required = lines.filter((l) => !l.optional)
+  // 判定に入れる材料(任意の材料と、「どれか1つ」で選ばなかった候補を除く)
+  const required = lines.filter((l) => !l.optional && !l.alternative)
   const shortfalls = required
     .filter((l) => !l.pending && l.missing > EPSILON)
     .map((l) => ({
@@ -192,7 +242,7 @@ export function getRecipeStatus(recipe, ingredientsById, { substitutions = [], c
   const substituted = required.some((l) => l.substitutes.length > 0)
   // 任意の材料: 在庫があるか(なくても作れる)
   for (const l of lines) {
-    if (l.optional) l.optionalStock = l.pending ? 'unknown' : l.staple || l.missing <= EPSILON ? 'enough' : l.currentQuantity > 0 ? 'partial' : 'none'
+    if (l.optional && !l.alternative) l.optionalStock = l.pending ? 'unknown' : l.staple || l.missing <= EPSILON ? 'enough' : l.currentQuantity > 0 ? 'partial' : 'none'
   }
   // 材料がすべて任意: 何があれば作れるか分からないので「作れる」と断定しない
   const noRequired = items.length > 0 && required.length === 0
@@ -222,7 +272,8 @@ export function getRecipeStatus(recipe, ingredientsById, { substitutions = [], c
     pendingCount,
     uncertainCount,
     noRequired,
-    optionalCount: lines.length - required.length,
+    optionalCount: lines.filter((l) => l.optional && !l.alternative).length,
+    choiceGroupCount: groups.size,
     readiness: required.length === 0 ? 0 : (required.length - shortfalls.length - pendingCount) / required.length,
   }
 }
@@ -265,7 +316,7 @@ export function expiringUses(status, expiryById) {
     if (!seen.has(ingredientId)) seen.set(ingredientId, { ingredientId, name, daysLeft: e.daysLeft, kind: e.kind })
   }
   for (const line of status.lines) {
-    if (line.pending || line.staple) continue
+    if (line.pending || line.staple || line.alternative) continue
     if (line.currentQuantity > 0) consider(line.ingredientId, line.name)
     for (const sub of line.substitutes) consider(sub.ingredientId, sub.name)
   }
@@ -303,8 +354,8 @@ export function describeSubstitutes(lines, limit = 2) {
 export function buildCookPlan(status) {
   const rows = []
   for (const line of status.lines) {
-    // 確認待ち(食材が未確定)の材料は在庫から引かない
-    if (line.pending) continue
+    // 確認待ち(食材が未確定)の材料と、「どれか1つ」で選ばなかった候補は在庫から引かない
+    if (line.pending || line.alternative) continue
     // 数が分からない分量(1パック・少々)は推測で引かない: 量を入れたときだけ引く
     if (line.amountUnknown || line.vague) {
       rows.push({
@@ -365,7 +416,7 @@ export function scaleRecipe(recipe, factor) {
 
 // 調理のときに在庫から引かない材料(量を入れない限り)。確定画面で明示する
 export function describeNotSubtracted(status, plan) {
-  const pending = status.lines.filter((l) => l.pending && !l.optional).map((l) => l.name)
+  const pending = status.lines.filter((l) => l.pending && !l.optional && !l.alternative).map((l) => l.name)
   // 常備品(適量など)と任意の材料は、もともと選ばない限り在庫から引かないので挙げない
   const unknown = plan.filter((row) => row.unknown && !row.staple && !row.optional && !(row.include && Number(row.quantity) > 0)).map((row) => row.name)
   return { pending, unknown }

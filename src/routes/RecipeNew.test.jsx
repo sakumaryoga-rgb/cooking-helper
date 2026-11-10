@@ -80,12 +80,25 @@ describe('レシピURLの取り込み', () => {
     expect(fetchRecipeFromUrl).not.toHaveBeenCalled()
   })
 
-  it('対応していないサイトは手動登録に案内する', async () => {
+  it('読み込めない URL(IP アドレス・対応サイトのレシピ以外のページ)は、取得せずに手動登録に案内する', async () => {
     renderPage()
-    await userEvent.type(screen.getByLabelText('レシピのURL'), 'https://cookpad.com/recipe/1')
+    await userEvent.type(screen.getByLabelText('レシピのURL'), 'https://192.168.1.1/recipe/1')
     await userEvent.click(screen.getByRole('button', { name: '読み込む' }))
     expect(screen.getByText(/URLを残したまま、料理名と材料を下で入れて保存できます/)).toBeInTheDocument()
     expect(fetchRecipeFromUrl).not.toHaveBeenCalled()
+  })
+
+  it('対応サイト以外のページも読み込みを試し、読み込んだ後に重複を確かめる', async () => {
+    vi.mocked(fetchRecipeFromUrl).mockResolvedValue({
+      recipe: { title: '豚の生姜焼き', servings: 2, ingredients: ['豚ロース 200g'], url: 'https://blog.example.com/r/1', sourceKey: 'web:0123456789abcdef0123456789abcdef', site: 'blog.example.com', method: 'heuristic' },
+    })
+    renderPage()
+    await userEvent.type(screen.getByLabelText('レシピのURL'), 'https://blog.example.com/r/1')
+    expect(screen.getByText(/対応サイト以外のページです/)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '読み込む' }))
+    expect(fetchRecipeFromUrl).toHaveBeenCalledWith('https://blog.example.com/r/1')
+    expect(findDuplicate).toHaveBeenCalledWith(expect.anything(), expect.anything(), 'web:0123456789abcdef0123456789abcdef')
+    expect(await screen.findByText(/「材料」の欄から 1 件を読み込みました。違う行があれば外してください/)).toBeInTheDocument()
   })
 
   it('読み込みに失敗したら理由を出し、手動で続けられる', async () => {

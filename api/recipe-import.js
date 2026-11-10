@@ -1,8 +1,11 @@
-// POST /api/recipe-import { url } → { title, servings, yieldText, ingredients[], url, sourceKey, site }
-// 対応サイト(src/lib/recipeImport/sites.js)のレシピページだけを取得し、JSON-LD から料理名・人数・材料を返す。
-// 調理手順・画像・説明文は返さない。ログイン中のユーザー(Supabase のアクセストークン)だけが使える。
-import { isAllowedFetchHost, parseRecipeUrl } from '../src/lib/recipeImport/sites.js'
-import { extractRecipe } from '../src/lib/recipeImport/jsonld.js'
+// POST /api/recipe-import { url } → { title, servings, yieldText, ingredients[], url, sourceKey, site, method }
+// 対応サイト(src/lib/recipeImport/sites.js)のレシピページと、それ以外の公開ページ(汎用の読み取り)から、
+// 料理名・人数・材料だけを返す。調理手順・画像・説明文は返さない。ログイン中のユーザー(Supabase のアクセストークン)だけが使える。
+// - 汎用の読み取り: robots.txt で禁止されたページは取得しない。宛先は api/_lib/safeFetch.js で確かめる(SSRF 対策)
+// - 読み取れなかったときは、ドメイン・パス・理由・ページの特徴を recipe_import_failures に記録する(読み取りを直すため)
+import { genericSourceKey, isAllowedFetchHost, parseImportUrl } from '../src/lib/recipeImport/sites.js'
+import { extractAnyRecipe, pageFeatures, robotsAllows } from '../src/lib/recipeImport/generic.js'
+import { safeFetch } from './_lib/safeFetch.js'
 
 const MAX_BYTES = 3 * 1024 * 1024
 const TIMEOUT_MS = 8000
@@ -25,18 +28,42 @@ function supabaseConfig() {
 }
 
 // 取り込みの結果を、利用者の権限(RLS: 本人の行の追加だけ)で記録する。失敗しても取り込み自体は続ける
-async function recordRun(authorization, site, outcome) {
+async function insertRow(authorization, table, row) {
   const { url, anonKey } = supabaseConfig()
   try {
-    await fetch(`${url}/rest/v1/recipe_import_runs`, {
+    await fetch(`${url}/rest/v1/${table}`, {
       method: 'POST',
       headers: { apikey: anonKey, Authorization: authorization, 'Content-Type': 'application/json', Prefer: 'return=minimal' },
-      body: JSON.stringify({ site, outcome }),
+      body: JSON.stringify(row),
       signal: AbortSignal.timeout(2000),
     })
   } catch {
     // 記録できなくても取り込みの結果は返す
   }
+}
+
+async function recordRun(authorization, site, outcome, method = null) {
+  await insertRow(authorization, 'recipe_import_runs', method ? { site, outcome, method } : { site, outcome })
+}
+
+// 失敗の記録の行(ドメインとパスだけ。クエリ文字列は記録しない)
+export function failureRow({ site, url, reason, status = null, features = {} }) {
+  let host = ''
+  let path = '/'
+  try {
+    const u = new URL(url)
+    host = u.hostname.toLowerCase().replace(/[^a-z0-9.-]/g, '').slice(0, 253)
+    path = (u.pathname || '/').slice(0, 300)
+  } catch {
+    return null
+  }
+  if (!host) return null
+  return { site, host, path, reason, http_status: Number.isInteger(status) && status >= 100 && status <= 599 ? status : null, features }
+}
+
+async function recordFailure(authorization, info) {
+  const row = failureRow(info)
+  if (row) await insertRow(authorization, 'recipe_import_failures', row)
 }
 
 async function verifyUser(authorization) {
@@ -117,8 +144,10 @@ export default async function handler(req, res) {
   }
 
   const body = typeof req.body === 'string' ? safeParse(req.body) : req.body
-  const parsed = parseRecipeUrl(body?.url)
+  const parsed = parseImportUrl(body?.url)
   if (!parsed) return json(res, 422, { error: 'unsupported_url' })
+  const authorization = req.headers.authorization
+  if (parsed.generic) return importGeneric(res, authorization, parsed)
 
   let page
   try {
@@ -127,18 +156,65 @@ export default async function handler(req, res) {
     page = { error: 'exception' }
   }
   if (page.error) {
-    await recordRun(req.headers.authorization, parsed.site.id, 'fetch_failed')
+    await recordRun(authorization, parsed.site.id, 'fetch_failed')
+    await recordFailure(authorization, { site: parsed.site.id, url: parsed.url, reason: FETCH_REASON[page.error] ?? 'fetch_error', status: page.status })
     return json(res, 502, { error: 'fetch_failed', reason: page.error })
   }
 
-  const recipe = extractRecipe(page.html)
-  if (!recipe || recipe.ingredients.length === 0) {
-    await recordRun(req.headers.authorization, parsed.site.id, 'no_recipe_data')
+  const found = extractAnyRecipe(page.html)
+  if (!found) {
+    const features = pageFeatures(page.html)
+    await recordRun(authorization, parsed.site.id, 'no_recipe_data')
+    await recordFailure(authorization, { site: parsed.site.id, url: parsed.url, reason: noDataReason(features), status: 200, features })
     return json(res, 422, { error: 'no_recipe_data' })
   }
-  await recordRun(req.headers.authorization, parsed.site.id, 'success')
+  await recordRun(authorization, parsed.site.id, 'success', found.method)
 
-  return json(res, 200, { ...recipe, url: parsed.url, sourceKey: parsed.sourceKey, site: parsed.site.name })
+  return json(res, 200, { ...found.recipe, url: parsed.url, sourceKey: parsed.sourceKey, site: parsed.site.name, method: found.method })
+}
+
+// fetchPage の失敗 → 記録の理由
+const FETCH_REASON = { redirect: 'fetch_redirect', status: 'fetch_status', type: 'fetch_type', size: 'fetch_size', exception: 'fetch_error' }
+
+function noDataReason(features) {
+  return features.ld_recipe_without_ingredients ? 'recipe_no_ingredients' : 'no_recipe_data'
+}
+
+// 対応サイト以外のページ: robots.txt を確かめてから、構造化データ → microdata → 材料の見出し の順に読み取る
+export async function importGeneric(res, authorization, parsed, { fetcher = safeFetch } = {}) {
+  const site = parsed.site.id
+  const u = new URL(parsed.url)
+  const robots = await fetcher(`https://${u.hostname}/robots.txt`, { accept: 'text/plain', expectType: null, maxBytes: 512 * 1024, timeoutMs: 3000, maxRedirects: 2 })
+  if (robots.error === 'blocked_host') {
+    await recordRun(authorization, site, 'blocked')
+    await recordFailure(authorization, { site, url: parsed.url, reason: 'blocked_host' })
+    return json(res, 422, { error: 'unsupported_url' })
+  }
+  // robots.txt がない・読めないときは禁止されていないとみなす
+  if (robots.body && !robotsAllows(robots.body, `${u.pathname}${u.search}`)) {
+    await recordRun(authorization, site, 'blocked')
+    await recordFailure(authorization, { site, url: parsed.url, reason: 'robots_disallowed' })
+    return json(res, 422, { error: 'robots_disallowed' })
+  }
+
+  const page = await fetcher(parsed.url)
+  if (page.error) {
+    const blocked = page.error === 'blocked_host'
+    await recordRun(authorization, site, blocked ? 'blocked' : 'fetch_failed')
+    await recordFailure(authorization, { site, url: parsed.url, reason: page.error, status: page.status })
+    return blocked ? json(res, 422, { error: 'unsupported_url' }) : json(res, 502, { error: 'fetch_failed', reason: page.error })
+  }
+
+  const found = extractAnyRecipe(page.body)
+  if (!found) {
+    const features = pageFeatures(page.body)
+    await recordRun(authorization, site, 'no_recipe_data')
+    await recordFailure(authorization, { site, url: parsed.url, reason: noDataReason(features), status: page.status, features })
+    return json(res, 422, { error: 'no_recipe_data' })
+  }
+  await recordRun(authorization, site, 'success', found.method)
+  const sourceKey = await genericSourceKey(parsed.url)
+  return json(res, 200, { ...found.recipe, url: parsed.url, sourceKey, site: parsed.site.name, method: found.method })
 }
 
 function safeParse(text) {
