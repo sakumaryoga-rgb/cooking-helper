@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, render, screen, within, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
-import { Fridge } from './Fridge'
+import { Fridge, stockGauge } from './Fridge'
 import { supabase } from '@/supabaseClient'
 import { useIngredients } from '@/hooks/useIngredients'
 import { useIngredientBatches } from '@/hooks/useIngredientBatches'
@@ -489,3 +489,19 @@ describe('買い物リストに入っている食材は片付けない', () => {
     expect(db.deleted).toEqual([])
   })
 })
+
+describe('在庫ゲージの色', () => {
+  it('50%より多いと黄色、50%以下はオレンジ、25%以下は赤。100%を超えず、異常な値でも壊れない', () => {
+    const level = (quantity, full_quantity) => stockGauge({ unit: '個', quantity, full_quantity }).level
+    expect(level(10, 10)).toBe('high')
+    expect(level(6, 10)).toBe('high')
+    expect(level(5, 10)).toBe('mid')
+    expect(level(3, 10)).toBe('mid')
+    expect(level(2.5, 10)).toBe('low')
+    expect(level(1, 10)).toBe('low')
+    expect(stockGauge({ unit: '個', quantity: 12, full_quantity: 10 }).ratio).toBe(1)
+    expect(stockGauge({ unit: 'g', quantity: -5, full_quantity: null }).ratio).toBe(0)
+    expect(stockGauge({ unit: 'g', quantity: 'abc', full_quantity: 'x' }).ratio).toBe(0)
+  })
+})
+

@@ -44,27 +44,35 @@ export function stockGauge(ingredient) {
   const ratio = full > 0 ? q / full : 0
   // 個数系で満タンが12以下なら、1つごとに目盛りを付ける(½・¼ 減ったのが見える)
   const ticks = !BULK_UNITS.has(ingredient.unit) && full > 1 && full <= 12 && Number.isInteger(full) ? full : 0
-  return { quantity: q, full, ratio, ticks, level: ratio > 0.5 ? 'high' : ratio > 0.2 ? 'mid' : 'low' }
+  // 色: 50%より多い = 黄色、50%以下 = オレンジ、25%以下 = 赤
+  return { quantity: q, full, ratio, ticks, level: ratio > 0.5 ? 'high' : ratio > 0.25 ? 'mid' : 'low' }
 }
-const GAUGE_COLOR = { high: 'bg-emerald-500', mid: 'bg-amber-400', low: 'bg-rose-500' }
+const GAUGE_COLOR = { high: 'bg-yellow-400', mid: 'bg-orange-500', low: 'bg-red-500' }
 
 function StockGauge({ ingredient }) {
   const g = stockGauge(ingredient)
+  const percent = Math.round(g.ratio * 100)
   return (
-    <div
-      className="relative h-2.5 min-w-16 flex-1 overflow-hidden rounded-full bg-muted"
-      role="meter"
-      aria-label={`${ingredient.name}の残り`}
-      aria-valuemin={0}
-      aria-valuemax={g.full}
-      aria-valuenow={g.quantity}
-      aria-valuetext={`${formatQuantity(g.quantity)}${ingredient.unit}(${Math.round(g.ratio * 100)}%)`}
-    >
-      <div className={`h-full rounded-full transition-[width] duration-300 ${GAUGE_COLOR[g.level]}`} style={{ width: `${g.ratio * 100}%` }} />
-      {g.ticks > 0 &&
-        Array.from({ length: g.ticks - 1 }, (_, i) => (
-          <span key={i} className="absolute inset-y-0 w-px bg-background/80" style={{ left: `${((i + 1) / g.ticks) * 100}%` }} aria-hidden="true" />
-        ))}
+    <div className="flex items-center gap-2">
+      {/* 横並びの中で幅だけ伸ばす(縦並びの flex-1 だと高さが0になる)。下地は白いカードの上でも見える色 */}
+      <div
+        className="relative h-3 flex-1 overflow-hidden rounded-full bg-stone-200 dark:bg-stone-700"
+        role="meter"
+        aria-label={`${ingredient.name}の残り`}
+        aria-valuemin={0}
+        aria-valuemax={g.full}
+        aria-valuenow={g.quantity}
+        aria-valuetext={`${formatQuantity(g.quantity)}${ingredient.unit}(${percent}%)`}
+      >
+        <div className={`h-full rounded-full transition-[width] duration-300 ${GAUGE_COLOR[g.level]}`} style={{ width: `${g.ratio * 100}%` }} />
+        {g.ticks > 0 &&
+          Array.from({ length: g.ticks - 1 }, (_, i) => (
+            <span key={i} className="absolute inset-y-0 w-0.5 bg-white/90 dark:bg-stone-900/80" style={{ left: `${((i + 1) / g.ticks) * 100}%` }} aria-hidden="true" />
+          ))}
+      </div>
+      <span className="w-9 shrink-0 text-right text-[11px] font-semibold tabular-nums text-muted-foreground" aria-hidden="true">
+        {percent}%
+      </span>
     </div>
   )
 }
