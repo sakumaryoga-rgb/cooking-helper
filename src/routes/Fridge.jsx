@@ -9,6 +9,8 @@ import { SwipeToDelete } from '@/components/SwipeToDelete'
 import { Button } from '@/components/ui/button'
 import { AlertDialog, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
 import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { QuantityInput } from '@/components/QuantityInput'
 import { supabase } from '@/supabaseClient'
 import { formatQuantity } from '@/lib/format'
 import { snapToStock } from '@/lib/quantity'
@@ -124,7 +126,7 @@ export function Fridge({ groupId }) {
   // 追加のダイアログで保存した食材の ID(保存せずに閉じた食材を片付けるため)
   const savedIds = useRef(new Set())
   // 「追加」で選んだ食材は、在庫0でも通常の一覧に出す(このあと「＋」で増やすため)
-  const { batches } = useIngredientBatches(groupId)
+  const { batches, refresh: refreshBatches } = useIngredientBatches(groupId)
   const { catalog } = useIngredientCatalog()
   const [pickerOpen, setPickerOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -293,7 +295,7 @@ export function Fridge({ groupId }) {
                 size="icon"
                 variant="outline"
                 className="size-8 rounded-full"
-                onClick={() => askUse(ingredient, stepFor(ingredient.unit))}
+                onClick={() => askUse(ingredient, Math.min(stepFor(ingredient.unit), Number(ingredient.quantity)), false, true)}
                 aria-label="減らす"
               >
                 <Minus className="size-3.5" />
@@ -402,13 +404,18 @@ export function Fridge({ groupId }) {
   const latestIngredients = useRef(ingredients)
   latestIngredients.current = ingredients
 
-  function askUse(ingredient, value, all = false) {
-    setConfirmUse({ ingredient, value, all })
+  // editable: －ボタン。減らす量をその場で入れられる(初期値は 1 や 10g)
+  function askUse(ingredient, value, all = false, editable = false) {
+    setConfirmUse({ ingredient, value, all, editable, text: String(value) })
   }
+  const confirmAmount = confirmUse ? (confirmUse.editable ? Number(confirmUse.text) : confirmUse.value) : 0
+  const confirmValid = Boolean(confirmUse) && (confirmUse.all || confirmAmount > 0)
   function consumeConfirmed() {
-    const target = confirmUse
+    if (!confirmValid) return
+    const current = Number(confirmUse.ingredient.quantity) || 0
+    // 残り以上を入れたら全部使う
+    const target = confirmUse.editable && confirmAmount >= current - 1e-9 ? { ...confirmUse, value: current, all: true } : { ...confirmUse, value: confirmAmount }
     setConfirmUse(null)
-    if (!target) return
     flushPendingUse()
     const use = { token: Symbol('use'), id: target.ingredient.id, name: target.ingredient.name, unit: target.ingredient.unit, value: target.value, all: target.all }
     const timer = setTimeout(() => {
@@ -454,6 +461,7 @@ export function Fridge({ groupId }) {
     const next = Number(data?.[0]?.new_quantity)
     if (Number.isFinite(next)) patchLocal?.(use.id, { quantity: next })
     refresh()
+    refreshBatches?.()
   }
 
   return (
@@ -600,7 +608,9 @@ export function Fridge({ groupId }) {
         stapleDefault={Boolean(stockTarget) && !(Number(stockTarget.quantity) > 0) && STAPLE_CATEGORIES.has(categoryOf(stockTarget))}
         onSaved={() => {
           if (stockTarget) savedIds.current.add(stockTarget.id)
+          // 数量と、期限(ロット)の両方を読み直す(リアルタイムの通知が届かない端末でもすぐ反映する)
           refresh()
+          refreshBatches?.()
         }}
         onClose={() => {
           if (stockOffer && stockTarget && !savedIds.current.has(stockTarget.id)) discardUnused([stockTarget])
@@ -633,6 +643,7 @@ export function Fridge({ groupId }) {
           onSaved={(keptIds) => {
             for (const id of keptIds) savedIds.current.add(id)
             refresh()
+            refreshBatches?.()
           }}
         />
       )}
@@ -643,19 +654,33 @@ export function Fridge({ groupId }) {
               <AlertDialogHeader>
                 <AlertDialogTitle>在庫を消費しますか?</AlertDialogTitle>
                 <AlertDialogDescription>
-                  {confirmUse.all ? `${confirmUse.ingredient.name}を全部使います(残り ${formatQuantity(confirmUse.ingredient.quantity)}${confirmUse.ingredient.unit} → 0)。冷蔵庫から消えます` : <>
-                  {confirmUse.ingredient.name}を {formatQuantity(confirmUse.value)}
-                  {confirmUse.ingredient.unit} 使います(残り {formatQuantity(confirmUse.ingredient.quantity)}
-                  {confirmUse.ingredient.unit} → {formatQuantity(Math.max(0, Math.round((Number(confirmUse.ingredient.quantity) - confirmUse.value) * 100) / 100))}
-                  {confirmUse.ingredient.unit})
-                  </>}
+                  {confirmUse.all
+                    ? `${confirmUse.ingredient.name}を全部使います(残り ${formatQuantity(confirmUse.ingredient.quantity)}${confirmUse.ingredient.unit} → 0)。冷蔵庫から消えます`
+                    : confirmAmount > 0
+                      ? `${confirmUse.ingredient.name}を ${formatQuantity(confirmAmount)}${confirmUse.ingredient.unit} 使います(残り ${formatQuantity(confirmUse.ingredient.quantity)}${confirmUse.ingredient.unit} → ${formatQuantity(Math.max(0, Math.round((Number(confirmUse.ingredient.quantity) - confirmAmount) * 100) / 100))}${confirmUse.ingredient.unit})${confirmAmount >= Number(confirmUse.ingredient.quantity) - 1e-9 ? '。冷蔵庫から消えます' : ''}`
+                      : '使った量を入れてください'}
                 </AlertDialogDescription>
               </AlertDialogHeader>
+              {confirmUse.editable && (
+                <div className="flex items-center gap-2">
+                  <Label htmlFor="use-amount" className="shrink-0">
+                    使った量
+                  </Label>
+                  <QuantityInput
+                    id="use-amount"
+                    fractions="always"
+                    className="w-28"
+                    value={confirmUse.text}
+                    onChange={(v) => setConfirmUse((cur) => (cur ? { ...cur, text: v } : cur))}
+                    suffix={<span className="text-sm text-muted-foreground">{confirmUse.ingredient.unit}</span>}
+                  />
+                </div>
+              )}
               <AlertDialogFooter>
                 <Button type="button" variant="outline" onClick={() => setConfirmUse(null)}>
                   やめる
                 </Button>
-                <Button type="button" onClick={consumeConfirmed}>
+                <Button type="button" onClick={consumeConfirmed} disabled={!confirmValid}>
                   消費する
                 </Button>
               </AlertDialogFooter>

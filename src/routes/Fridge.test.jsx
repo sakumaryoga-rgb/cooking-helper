@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, render, screen, within, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, within, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { Fridge, stockGauge } from './Fridge'
@@ -92,6 +92,41 @@ describe('Fridge の数量変更', () => {
     expect(supabase.rpc).not.toHaveBeenCalled()
     expect(await screen.findByLabelText('量')).toHaveValue('10')
     expect(screen.queryByRole('button', { name: '期限を入れて増やす' })).not.toBeInTheDocument()
+  })
+
+  it('＋で賞味期限を入れて増やすと、数量と期限(ロット)の両方を読み直して冷蔵庫に出す', async () => {
+    const refreshIngredients = vi.fn()
+    const refreshBatches = vi.fn()
+    useIngredients.mockReturnValue({ ingredients: [{ id: 'i1', name: '鶏もも肉', unit: 'g', quantity: 200 }], loading: false, refresh: refreshIngredients, removeIngredient, dropLocal, patchLocal })
+    useIngredientBatches.mockReturnValue({ batches: [], refresh: refreshBatches })
+    useIngredientCatalog.mockReturnValue({ catalog: [] })
+    render(<MemoryRouter><Fridge groupId="g1" /></MemoryRouter>)
+    await userEvent.click(screen.getByRole('button', { name: '増やす' }))
+    await userEvent.click(await screen.findByRole('radio', { name: '賞味期限' }))
+    fireEvent.change(screen.getByLabelText('期限の日付'), { target: { value: '2026-11-20' } })
+    await userEvent.click(screen.getByRole('button', { name: '在庫を増やす' }))
+    expect(supabase.rpc).toHaveBeenCalledWith('adjust_stock', expect.objectContaining({ p_ingredient_id: 'i1', p_delta: 10, p_best_before: '2026-11-20' }))
+    await waitFor(() => expect(refreshBatches).toHaveBeenCalled())
+    expect(refreshIngredients).toHaveBeenCalled()
+  })
+
+  it('－は使った量を入れて減らせる(残り以上なら全部使う)', async () => {
+    setup([{ id: 'i2', name: '鶏むね肉', unit: 'g', quantity: 300 }])
+    await userEvent.click(screen.getByRole('button', { name: '減らす' }))
+    const input = screen.getByLabelText('使った量')
+    expect(input).toHaveValue('10')
+    await userEvent.clear(input)
+    await userEvent.type(input, '120')
+    expect(screen.getByRole('alertdialog')).toHaveTextContent('鶏むね肉を 120g 使います(残り 300g → 180g)')
+    await consumeNow()
+    expect(supabase.rpc).toHaveBeenCalledWith('adjust_stock', expect.objectContaining({ p_ingredient_id: 'i2', p_delta: -120 }))
+  })
+
+  it('－で量を空にすると消費できない', async () => {
+    setup([{ id: 'i2', name: '鶏むね肉', unit: 'g', quantity: 300 }])
+    await userEvent.click(screen.getByRole('button', { name: '減らす' }))
+    await userEvent.clear(screen.getByLabelText('使った量'))
+    expect(screen.getByRole('button', { name: '消費する' })).toBeDisabled()
   })
 
   it('個の食材は－で1減らす', async () => {
