@@ -338,12 +338,12 @@ export function RecipeItemsEditor({ groupId, ingredients, items, setItems, empty
                       onClick={() => setMemoKey((cur) => (cur === item.key ? null : item.key))}
                       aria-label={`${item.name}の分量メモ`}
                     >
-                      {isVagueAmount(item) && vagueMemo(item.amountText) ? `メモ: ${vagueMemo(item.amountText)}` : 'メモ'}
+                      {isVagueAmount(item) && vagueMemo(item.amountText) ? `参考量: ${vagueMemo(item.amountText)}` : '参考量メモ'}
                     </button>
                   )}
                   {memoKey === item.key && (
                     <span className="flex w-full flex-wrap items-center gap-1.5 rounded-xl bg-violet-50 px-2 py-1.5 text-xs dark:bg-violet-950/40">
-                      <span className="text-muted-foreground">どのくらい?</span>
+                      <span className="text-muted-foreground">参考の量</span>
                       <QuantityInput
                         className="h-7 w-16 bg-background"
                         value={memoParts(item).count}
@@ -362,7 +362,7 @@ export function RecipeItemsEditor({ groupId, ingredients, items, setItems, empty
                           </option>
                         ))}
                       </select>
-                      <span className="w-full text-muted-foreground">メモを入れると「適量」になります。作るときにメモを見て量を決められます(在庫からは自動で引きません)</span>
+                      <span className="w-full text-muted-foreground">入れると分量は「適量」になり、この量は作るときの参考として表示するだけです。在庫から自動で引くことはありません(作るときに使った量を入れたときだけ引きます)</span>
                     </span>
                   )}
                   {isSeasoning(item) && isVagueAmount(item) && (
@@ -382,7 +382,15 @@ export function RecipeItemsEditor({ groupId, ingredients, items, setItems, empty
               {stapleAskKey === item.key && !isVagueAmount(item) && (
                 <div role="alertdialog" aria-label="常備品に登録しますか" className="ml-6 flex flex-col gap-1.5 rounded-xl border border-violet-200 bg-violet-50 p-2.5 dark:border-violet-900 dark:bg-violet-950/40">
                   <p className="text-xs">
-                    適量は量を数えられないため、常備品(在庫を数えない食材)にする必要があります。「{item.name}」を常備品に登録しますか?
+                    調味料を適量にするには、常備品にする必要があります。「{item.name}」を常備品にすると:
+                  </p>
+                  <ul className="list-disc pl-4 text-xs text-muted-foreground">
+                    <li>冷蔵庫では数を数えず、いつも「ある」とみなします(今の在庫の数は残ります)</li>
+                    <li>このレシピを作っても、在庫から引きません</li>
+                    <li>なくなったら、冷蔵庫の常備品から買い物リストに入れられます。あとで常備品から外すこともできます</li>
+                  </ul>
+                  <p className="text-xs font-medium">
+                    常備品に登録しますか?
                   </p>
                   <div className="flex flex-wrap gap-1.5">
                     <Button type="button" size="sm" className="h-7 rounded-full text-xs" disabled={stapleBusy} onClick={() => registerStapleAndSetVague(item)}>

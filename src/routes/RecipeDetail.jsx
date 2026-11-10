@@ -30,6 +30,7 @@ import { ExtraIngredientAdder } from '@/components/ExtraIngredientAdder'
 import { RequiredToggle } from '@/components/RequiredToggle'
 import { categoryInfo, categoryOf } from '@/lib/recipeCategory'
 import { StarRatingInput } from '@/components/StarRating'
+import { vagueMemo } from '@/lib/recipeItems'
 
 
 // 材料の行を、「どれか1つ」の組(候補が2つ以上)ごとにまとめる。それ以外の行は1行ずつ
@@ -330,7 +331,9 @@ export function RecipeDetail({ groupId }) {
         {row.unknown && (
           <div className="flex flex-col gap-1 pl-6 text-xs text-muted-foreground">
             <p>
-              レシピの分量は「{row.amountText || '分量不明'}」です。使った量を入れたときだけ在庫から引きます
+              {vagueMemo(row.amountText)
+                ? `レシピの分量は「適量」です(メモ: ${vagueMemo(row.amountText)} は参考の量で、自動では引きません)。使った量を入れたときだけ在庫から引きます`
+                : `レシピの分量は「${row.amountText || '分量不明'}」です。使った量を入れたときだけ在庫から引きます`}
             </p>
             {row.estimate && (
               <p className="text-violet-700 dark:text-violet-400">
@@ -456,11 +459,14 @@ export function RecipeDetail({ groupId }) {
               ) : line?.amountUnknown || line?.vague ? (
                 // 数で分からない分量(1パック・少々): 元の表記のまま。在庫と比べられない
                 <>
-                  {ri.amount_text || '分量不明'}
+                  {vagueMemo(ri.amount_text) ? '適量' : ri.amount_text || '分量不明'}
                   {line.amountUnknown && <span className="ml-1 text-violet-700 dark:text-violet-400">・分量を確認</span>}
                   {' '}/ 在庫 {formatQuantity(current?.quantity ?? 0)}
                   {unit}
                   {line.estimate && <span className="block text-[11px] text-muted-foreground">{line.estimate.text}</span>}
+                  {vagueMemo(ri.amount_text) && (
+                    <span className="block text-[11px] text-violet-700 dark:text-violet-400">メモ(参考): {vagueMemo(ri.amount_text)}・自動では引きません</span>
+                  )}
                 </>
               ) : (
                 <>

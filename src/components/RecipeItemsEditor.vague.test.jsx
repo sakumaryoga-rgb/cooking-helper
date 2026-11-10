@@ -153,7 +153,7 @@ describe('分量のメモ', () => {
     expect(latest[0].amountText).toBe('適量(大さじ2)')
     // メモは閉じても見える
     await userEvent.click(screen.getByRole('button', { name: '玉ねぎの分量メモ' }))
-    expect(screen.getByRole('button', { name: '玉ねぎの分量メモ' })).toHaveTextContent('メモ: 大さじ2')
+    expect(screen.getByRole('button', { name: '玉ねぎの分量メモ' })).toHaveTextContent('参考量: 大さじ2')
     // 数を入れると適量とメモをやめる
     await userEvent.type(screen.getByLabelText('玉ねぎの分量'), '1')
     expect(latest[0]).toMatchObject({ requiredQuantity: '1', amountText: '' })

@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams, Link } from 'react-router-dom'
 import { Plus, Minus, Search, CalendarPlus, ChevronDown, Infinity as InfinityIcon, ShoppingCart, X } from 'lucide-react'
 import { useIngredients } from '@/hooks/useIngredients'
@@ -127,6 +127,8 @@ export function Fridge({ groupId }) {
   const { catalog } = useIngredientCatalog()
   const [pickerOpen, setPickerOpen] = useState(false)
   const [query, setQuery] = useState('')
+  // 「全部」を押して、在庫を0にするのを待っている食材({ id, name })。待っている間は一覧に出さない
+  const [pendingAll, setPendingAll] = useState(null)
 
   const catalogById = useMemo(() => new Map(catalog.map((c) => [c.id, c])), [catalog])
 
@@ -166,7 +168,7 @@ export function Fridge({ groupId }) {
   const staples = filtered.filter((r) => r.ingredient.is_staple)
   const counted = filtered.filter((r) => !r.ingredient.is_staple)
   // 在庫0の食材(レシピの材料として残っている行など)は、検索中も含めて冷蔵庫には出さない
-  const inStock = counted.filter(visible)
+  const inStock = counted.filter((r) => visible(r) && r.ingredient.id !== pendingAll?.id)
   // 数を記録している調味料(まとめて常備品にできるもの)
   const countedSeasonings = ingredients.filter((i) => !i.is_staple && Number(i.quantity) > 0 && STAPLE_CATEGORIES.has(categoryOf(i)))
 
@@ -387,20 +389,51 @@ export function Fridge({ groupId }) {
     )
   }
 
-  // 「全部」: 押したらすぐ冷蔵庫から消し(在庫0の行は冷蔵庫に出さない)、在庫を0にする。
-  // レシピで使う食材は行が残る(在庫0として読み直す)。失敗したら読み直して元に戻す
-  async function finishAll(ingredient) {
-    dropLocal(ingredient.id)
-    const { data, error } = await supabase.rpc('adjust_stock', {
-      p_ingredient_id: ingredient.id,
-      p_delta: -Number(ingredient.quantity),
-      p_dated_today: true,
-      p_best_before: null,
-      p_use_by: null,
-    })
-    if (error) console.error('数量の更新に失敗しました', error)
-    if (error || !data?.[0]?.deleted) refresh()
+  // 「全部」: 押したらすぐ冷蔵庫の一覧から消し、少し待ってから在庫を0にする(その間は「取り消す」で元どおり。DB は変えていない)。
+  // 0 にするときの量は、その時点の在庫(別の端末で変わっていても残りすべて)。
+  // レシピで使う食材は行が残り(在庫0は冷蔵庫に出さない)、レシピの材料・調理の記録はそのまま
+  const UNDO_MS = 5000
+  const pendingTimer = useRef(null)
+  const latestIngredients = useRef(ingredients)
+  latestIngredients.current = ingredients
+
+  async function commitAll(id) {
+    const row = latestIngredients.current.find((i) => i.id === id)
+    const qty = Number(row?.quantity) || 0
+    if (qty <= 0) return
+    const { data, error } = await supabase.rpc('adjust_stock', { p_ingredient_id: id, p_delta: -qty, p_dated_today: true, p_best_before: null, p_use_by: null })
+    if (error) {
+      console.error('数量の更新に失敗しました', error)
+      refresh()
+      return
+    }
+    if (data?.[0]?.deleted) dropLocal(id)
+    else refresh()
   }
+  function flushPendingAll() {
+    if (!pendingTimer.current) return
+    clearTimeout(pendingTimer.current.timer)
+    const { id } = pendingTimer.current
+    pendingTimer.current = null
+    commitAll(id)
+  }
+  function finishAll(ingredient) {
+    flushPendingAll()
+    const timer = setTimeout(() => {
+      pendingTimer.current = null
+      setPendingAll(null)
+      commitAll(ingredient.id)
+    }, UNDO_MS)
+    pendingTimer.current = { id: ingredient.id, timer }
+    setPendingAll({ id: ingredient.id, name: ingredient.name })
+  }
+  function undoAll() {
+    if (pendingTimer.current) clearTimeout(pendingTimer.current.timer)
+    pendingTimer.current = null
+    setPendingAll(null)
+  }
+  // 画面を離れるときは、待っている「全部」をすぐ反映する
+  useEffect(() => () => flushPendingAll(), []) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function adjustQuantity(ingredient, rawDelta) {
     // 1/3 を3回減らしたときなどに 0.000001 のような端数を残さない
@@ -604,6 +637,18 @@ export function Fridge({ groupId }) {
             refresh()
           }}
         />
+      )}
+      {pendingAll && (
+        <div
+          role="status"
+          className="fixed inset-x-4 z-40 mx-auto flex max-w-md items-center justify-between gap-3 rounded-2xl bg-foreground px-4 py-3 text-sm text-background shadow-lg"
+          style={{ bottom: 'calc(5.5rem + env(safe-area-inset-bottom, 0px))' }}
+        >
+          <span className="min-w-0 truncate">「{pendingAll.name}」を全部使いました</span>
+          <button type="button" className="shrink-0 rounded-full bg-background px-3 py-1 text-xs font-bold text-foreground" onClick={undoAll}>
+            取り消す
+          </button>
+        </div>
       )}
     </div>
   )

@@ -264,12 +264,36 @@ describe('常備品と分数の在庫', () => {
     expect(within(screen.getByRole('group', { name: '牛乳を使った量' })).getAllByRole('button').map((b) => b.textContent)).toEqual(['−50ml', '−100ml', '全部'])
   })
 
-  it('「全部」はどの食材にもあり、押すとすぐ冷蔵庫から消える', async () => {
-    supabase.rpc.mockResolvedValue({ data: [{ new_quantity: 0, deleted: true }], error: null })
-    setup([{ id: 'm', name: '牛乳', unit: 'ml', quantity: 500, full_quantity: 1000 }])
-    await userEvent.click(screen.getByRole('button', { name: '全部使った(牛乳)' }))
-    expect(supabase.rpc).toHaveBeenCalledWith('adjust_stock', expect.objectContaining({ p_ingredient_id: 'm', p_delta: -500 }))
-    expect(dropLocal).toHaveBeenCalledWith('m')
+  it('「全部」はどの食材にもあり、押すとすぐ冷蔵庫から消え、少し待ってから在庫を0にする', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      supabase.rpc.mockResolvedValue({ data: [{ new_quantity: 0, deleted: true }], error: null })
+      setup([{ id: 'm', name: '牛乳', unit: 'ml', quantity: 500, full_quantity: 1000 }])
+      await userEvent.click(screen.getByRole('button', { name: '全部使った(牛乳)' }))
+      expect(screen.queryByRole('meter', { name: '牛乳の残り' })).not.toBeInTheDocument()
+      expect(screen.getByRole('status')).toHaveTextContent('「牛乳」を全部使いました')
+      expect(supabase.rpc).not.toHaveBeenCalled()
+      await act(async () => vi.advanceTimersByTime(5000))
+      expect(supabase.rpc).toHaveBeenCalledWith('adjust_stock', expect.objectContaining({ p_ingredient_id: 'm', p_delta: -500 }))
+      expect(dropLocal).toHaveBeenCalledWith('m')
+      expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('「全部」を押し間違えたら「取り消す」で元に戻る(在庫は変えない)', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      setup([{ id: 'm', name: '牛乳', unit: 'ml', quantity: 500, full_quantity: 1000 }])
+      await userEvent.click(screen.getByRole('button', { name: '全部使った(牛乳)' }))
+      await userEvent.click(screen.getByRole('button', { name: '取り消す' }))
+      expect(screen.getByRole('meter', { name: '牛乳の残り' })).toBeInTheDocument()
+      await act(async () => vi.advanceTimersByTime(6000))
+      expect(supabase.rpc).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('残り以上の量のボタンは出さない(残りすべては「全部」)', async () => {
