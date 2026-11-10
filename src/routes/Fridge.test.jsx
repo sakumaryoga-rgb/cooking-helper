@@ -23,9 +23,10 @@ vi.mock('@/components/IngredientPicker', () => ({
 
 const removeIngredient = vi.fn()
 const dropLocal = vi.fn()
+const patchLocal = vi.fn()
 
 function setup(ingredients, catalog = []) {
-  useIngredients.mockReturnValue({ ingredients, loading: false, refresh: vi.fn(), removeIngredient, dropLocal })
+  useIngredients.mockReturnValue({ ingredients, loading: false, refresh: vi.fn(), removeIngredient, dropLocal, patchLocal })
   useIngredientBatches.mockReturnValue({ batches: [] })
   useIngredientCatalog.mockReturnValue({ catalog })
   return render(<MemoryRouter><Fridge groupId="g1" /></MemoryRouter>)
@@ -69,6 +70,7 @@ describe('Fridge の数量変更', () => {
   beforeEach(() => {
     removeIngredient.mockReset()
     dropLocal.mockReset()
+    patchLocal.mockReset()
     supabase.rpc.mockReset()
     supabase.rpc.mockResolvedValue({ data: [{ new_quantity: 1, deleted: false }], error: null })
   })
@@ -83,6 +85,10 @@ describe('Fridge の数量変更', () => {
       p_best_before: null,
       p_use_by: null,
     })
+    supabase.rpc.mockResolvedValueOnce({ data: [{ new_quantity: 210, deleted: false }], error: null })
+    await userEvent.click(screen.getByRole('button', { name: '増やす' }))
+    // 増やした後の量がゲージの満タン
+    await waitFor(() => expect(patchLocal).toHaveBeenCalledWith('i1', { quantity: 210, full_quantity: 210 }))
   })
 
   it('個の食材は－で1減らす', async () => {
@@ -257,8 +263,11 @@ describe('常備品と分数の在庫', () => {
     // 開かなくても押せる。単位つきで出す
     const onion = within(screen.getByRole('group', { name: '玉ねぎを使った量' }))
     expect(onion.getAllByRole('button').map((b) => b.textContent)).toEqual(['−¼個', '−½個', '−1個', '全部'])
+    supabase.rpc.mockResolvedValueOnce({ data: [{ new_quantity: 1.5, deleted: false }], error: null })
     await userEvent.click(onion.getByRole('button', { name: '½個使った(玉ねぎ)' }))
     expect(supabase.rpc).toHaveBeenCalledWith('adjust_stock', expect.objectContaining({ p_ingredient_id: 'o', p_delta: -0.5 }))
+    // 読み直しを待たずに、減った量をすぐ画面(ゲージ)に出す。満タンの量は変えない
+    expect(patchLocal).toHaveBeenCalledWith('o', { quantity: 1.5, full_quantity: 3 })
     // 残りが多い個数の食材は 1・2・3
     expect(within(screen.getByRole('group', { name: '卵を使った量' })).getAllByRole('button').map((b) => b.textContent)).toEqual(['−1個', '−2個', '−3個', '全部'])
     expect(within(screen.getByRole('group', { name: '牛乳を使った量' })).getAllByRole('button').map((b) => b.textContent)).toEqual(['−50ml', '−100ml', '全部'])

@@ -61,6 +61,11 @@ export function useIngredientsSource(groupId) {
     setIngredients((prev) => prev.filter((i) => i.id !== id))
   }, [])
 
+  // 数量ボタンの結果を、読み直しを待たずに画面へ反映する(リアルタイムの通知が届かない端末でもすぐ変わる)
+  const patchLocal = useCallback((id, patch) => {
+    setIngredients((prev) => prev.map((i) => (i.id === id ? { ...i, ...patch } : i)))
+  }, [])
+
   useEffect(() => {
     if (!groupId) return
 
@@ -80,5 +85,5 @@ export function useIngredientsSource(groupId) {
     }
   }, [groupId, refresh])
 
-  return useMemo(() => ({ ingredients, loading, refresh, removeIngredient, dropLocal }), [ingredients, loading, refresh, removeIngredient, dropLocal])
+  return useMemo(() => ({ ingredients, loading, refresh, removeIngredient, dropLocal, patchLocal }), [ingredients, loading, refresh, removeIngredient, dropLocal, patchLocal])
 }

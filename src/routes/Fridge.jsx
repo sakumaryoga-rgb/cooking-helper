@@ -42,10 +42,8 @@ export function stockGauge(ingredient) {
   const q = Math.max(0, Number(ingredient.quantity) || 0)
   const full = Math.max(Number(ingredient.full_quantity) || 0, q)
   const ratio = full > 0 ? q / full : 0
-  // 個数系で満タンが12以下なら、1つごとに目盛りを付ける(½・¼ 減ったのが見える)
-  const ticks = !BULK_UNITS.has(ingredient.unit) && full > 1 && full <= 12 && Number.isInteger(full) ? full : 0
   // 色: 50%より多い = 黄色、50%以下 = オレンジ、25%以下 = 赤
-  return { quantity: q, full, ratio, ticks, level: ratio > 0.5 ? 'high' : ratio > 0.25 ? 'mid' : 'low' }
+  return { quantity: q, full, ratio, level: ratio > 0.5 ? 'high' : ratio > 0.25 ? 'mid' : 'low' }
 }
 const GAUGE_COLOR = { high: 'bg-yellow-400', mid: 'bg-orange-500', low: 'bg-red-500' }
 
@@ -56,7 +54,7 @@ function StockGauge({ ingredient }) {
     <div className="flex items-center gap-2">
       {/* 横並びの中で幅だけ伸ばす(縦並びの flex-1 だと高さが0になる)。下地は白いカードの上でも見える色 */}
       <div
-        className="relative h-3 flex-1 overflow-hidden rounded-full bg-stone-200 dark:bg-stone-700"
+        className="h-3 flex-1 overflow-hidden rounded-full bg-stone-200 dark:bg-stone-700"
         role="meter"
         aria-label={`${ingredient.name}の残り`}
         aria-valuemin={0}
@@ -65,10 +63,6 @@ function StockGauge({ ingredient }) {
         aria-valuetext={`${formatQuantity(g.quantity)}${ingredient.unit}(${percent}%)`}
       >
         <div className={`h-full rounded-full transition-[width] duration-300 ${GAUGE_COLOR[g.level]}`} style={{ width: `${g.ratio * 100}%` }} />
-        {g.ticks > 0 &&
-          Array.from({ length: g.ticks - 1 }, (_, i) => (
-            <span key={i} className="absolute inset-y-0 w-0.5 bg-white/90 dark:bg-stone-900/80" style={{ left: `${((i + 1) / g.ticks) * 100}%` }} aria-hidden="true" />
-          ))}
       </div>
       <span className="w-9 shrink-0 text-right text-[11px] font-semibold tabular-nums text-muted-foreground" aria-hidden="true">
         {percent}%
@@ -117,7 +111,7 @@ function FridgeDoor({ children }) {
 }
 
 export function Fridge({ groupId }) {
-  const { ingredients, loading, refresh, removeIngredient, dropLocal } = useIngredients(groupId)
+  const { ingredients, loading, refresh, removeIngredient, dropLocal, patchLocal } = useIngredients(groupId)
   const [expandedId, setExpandedId] = useState(null)
   // 絞り込み(設計書 4 章): 'all' / 'expiring'(期限が3日以内・期限切れ)/ カテゴリ名
   const [searchParams] = useSearchParams()
@@ -463,7 +457,18 @@ export function Fridge({ groupId }) {
     }
     if (data?.[0]?.deleted) {
       dropLocal(ingredient.id)
+      return
     }
+    // 結果の数量をすぐ画面に出す(増やしたときは、増やした後の量がゲージの満タン: migration 033 と同じ)。
+    // そのあと読み直して、DB の値(ほかの端末の変更を含む)にそろえる
+    const next = Number(data?.[0]?.new_quantity)
+    if (Number.isFinite(next)) {
+      patchLocal?.(ingredient.id, {
+        quantity: next,
+        full_quantity: delta > 0 ? next : Math.max(Number(ingredient.full_quantity) || Number(ingredient.quantity) || 0, next) || null,
+      })
+    }
+    refresh()
   }
 
   return (
