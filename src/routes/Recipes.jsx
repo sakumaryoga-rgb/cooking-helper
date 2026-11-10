@@ -10,6 +10,7 @@ import { MakeableBadge } from '@/components/MakeableBadge'
 import { dishLook } from '@/lib/foodLook'
 import { CATEGORIES, categoryOf } from '@/lib/recipeCategory'
 import { StarRatingView } from '@/components/StarRating'
+import { CookingLoader } from '@/components/CookingLoader'
 
 // 畳んだカテゴリ(この端末で覚える)
 const COLLAPSED_KEY = 'cookdoor:recipeCategoriesCollapsed'
@@ -114,7 +115,7 @@ export function Recipes({ groupId }) {
       </div>
 
       {loading ? (
-        <p className="text-sm text-muted-foreground">読み込み中...</p>
+        <CookingLoader />
       ) : sorted.length === 0 ? (
         <p className="py-10 text-center text-sm text-muted-foreground">まだレシピがありません。「追加」から登録しましょう。</p>
       ) : groups.length === 0 ? (

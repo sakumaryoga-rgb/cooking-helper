@@ -31,6 +31,7 @@ import { RequiredToggle } from '@/components/RequiredToggle'
 import { categoryInfo, categoryOf } from '@/lib/recipeCategory'
 import { StarRatingInput } from '@/components/StarRating'
 import { vagueMemo } from '@/lib/recipeItems'
+import { CookingLoader } from '@/components/CookingLoader'
 
 
 // 材料の行を、「どれか1つ」の組(候補が2つ以上)ごとにまとめる。それ以外の行は1行ずつ
@@ -509,7 +510,7 @@ export function RecipeDetail({ groupId }) {
         </li>
       )
   }
-  if (loading) return <p className="text-sm text-muted-foreground">読み込み中...</p>
+  if (loading) return <CookingLoader />
   if (!recipe)
     return (
       <div className="flex flex-col items-start gap-3">

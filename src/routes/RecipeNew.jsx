@@ -23,6 +23,7 @@ import { RecipeCategoryField } from '@/components/RecipeCategoryField'
 import { StockOnSave } from '@/components/StockOnSave'
 import { applyStockChoices, stockCandidates } from '@/lib/stockOnSave'
 import { withSpoon } from '@/lib/spoon'
+import { CookingLoader } from '@/components/CookingLoader'
 
 const HOW_IT_WORKS = ['レシピサイトでページの URL をコピー', 'ここに貼って「読み込む」', '材料を確かめて保存']
 
@@ -257,6 +258,7 @@ export function RecipeNew({ groupId, userId }) {
                 {importing ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
                 {importing ? '読み込み中...' : '読み込む'}
               </Button>
+              {importing && <CookingLoader className="py-3" label="レシピを読み込んでいます..." />}
               {url.trim() && !importing && (
                 <p className="px-1 text-xs text-muted-foreground">
                   {!supported

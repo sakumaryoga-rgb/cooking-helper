@@ -6,6 +6,7 @@ import { BrandMark } from '@/components/BrandMark'
 import { HouseBadge } from '@/components/HouseSwitcher'
 import { KitchenDataProvider } from '@/components/KitchenDataProvider'
 import { APP_NAME } from '@/lib/brand'
+import { CookingLoader } from '@/components/CookingLoader'
 
 // 下部タブ4つ(設計書 4 章)。親指が届く下側に置き、iPhone の安全領域の分だけ余白を足す
 const NAV_ITEMS = [
@@ -40,7 +41,7 @@ export function Layout({ groupId, groupName, notice, onDismissNotice }) {
             </button>
           </div>
         )}
-        <Suspense fallback={<p className="text-sm text-muted-foreground">読み込み中...</p>}>
+        <Suspense fallback={<CookingLoader />}>
           {groupId ? (
             // 家を切り替えたら作り直す(前の家のデータを一瞬でも出さず、遅れて届いた前の家の結果も使わない)
             <KitchenDataProvider key={groupId} groupId={groupId}>
