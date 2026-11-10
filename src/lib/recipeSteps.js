@@ -1,3 +1,4 @@
+import { isVagueAmount } from '@/lib/recipeItems'
 // オリジナルレシピの手順(手順ごとの文と、使う材料・量)。
 // 編集中: [{ id, text, uses: [{ itemKey, quantity }] }](itemKey は材料の一覧の行の key)
 // 保存(recipes.steps): [{ text, uses: [{ ingredient_id | source_name, quantity }] }]
@@ -127,7 +128,7 @@ export function applyStepTotals(items, steps, keys) {
     if (!changed.has(item.key)) return item
     const u = usage.get(item.key)
     if (!u || !(u.total > 0)) return item
-    if (item.amountText === '適量' && !(Number(item.requiredQuantity) > 0)) return item
+    if (isVagueAmount(item)) return item
     if (Number(item.requiredQuantity) === u.total) return item
     // 手順の量は食材の単位で入れるので、大さじ・小さじの入力はやめて総量の数にする
     return { ...item, requiredQuantity: String(u.total), needsCheck: false, amountText: '', spoon: null, spoonCount: '' }

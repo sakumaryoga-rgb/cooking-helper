@@ -138,3 +138,36 @@ describe('調味料の大さじ・小さじ', () => {
     expect(latest[0]).toMatchObject({ spoon: null, amountText: '', requiredQuantity: '30' })
   })
 })
+
+describe('分量のメモ', () => {
+  it('単位が決まった食材でも g・大さじ・小さじでメモを残せ、メモを入れると「適量(メモ)」になる', async () => {
+    render(<Harness fridge={[onion]} />)
+    await userEvent.click(screen.getByRole('button', { name: '玉ねぎの分量メモ' }))
+    await userEvent.type(screen.getByLabelText('玉ねぎのメモの量'), '150')
+    expect(latest[0]).toMatchObject({ requiredQuantity: '', amountText: '適量(150g)' })
+    expect(screen.getByRole('button', { name: '適量' })).toHaveAttribute('aria-pressed', 'true')
+    await userEvent.selectOptions(screen.getByLabelText('玉ねぎのメモの単位'), '大さじ')
+    expect(latest[0].amountText).toBe('適量(大さじ150)')
+    await userEvent.clear(screen.getByLabelText('玉ねぎのメモの量'))
+    await userEvent.type(screen.getByLabelText('玉ねぎのメモの量'), '2')
+    expect(latest[0].amountText).toBe('適量(大さじ2)')
+    // メモは閉じても見える
+    await userEvent.click(screen.getByRole('button', { name: '玉ねぎの分量メモ' }))
+    expect(screen.getByRole('button', { name: '玉ねぎの分量メモ' })).toHaveTextContent('メモ: 大さじ2')
+    // 数を入れると適量とメモをやめる
+    await userEvent.type(screen.getByLabelText('玉ねぎの分量'), '1')
+    expect(latest[0]).toMatchObject({ requiredQuantity: '1', amountText: '' })
+  })
+
+  it('常備品でない調味料は、メモを入れると常備品にするか確かめ、登録したらメモつきの適量にする', async () => {
+    eq.mockResolvedValueOnce({ error: null })
+    render(<Harness fridge={[soy]} />)
+    await userEvent.click(screen.getByRole('button', { name: 'しょうゆの分量メモ' }))
+    await userEvent.selectOptions(screen.getByLabelText('しょうゆのメモの単位'), '小さじ')
+    await userEvent.type(screen.getByLabelText('しょうゆのメモの量'), '1')
+    expect(screen.getByRole('alertdialog', { name: '常備品に登録しますか' })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '常備品に登録して適量にする' }))
+    await waitFor(() => expect(latest[0]).toMatchObject({ requiredQuantity: '', amountText: '適量(小さじ1)' }))
+  })
+})
+

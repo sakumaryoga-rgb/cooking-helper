@@ -23,24 +23,50 @@ function stepFor(unit) {
   return STEP_BY_UNIT[unit] ?? 1
 }
 
-// 使った量のボタン(各行に常に出す)。単位と残りの量で変える
-// - g・ml など: 50・100・全部
+// 使った量のボタン(各行に常に出す)。単位と残りの量で変える。押すとゲージがその分だけ減る
+// - g・ml など: 50・100
 // - 個数系で残りが少ない(3以下): ¼・½・1(キャベツ1玉の半分など)
 // - 個数系で残りが多い: 1・2・3(卵など)
-// 残りより多いボタンは出さない。「全部」は残りすべて
+// 残り以上のボタンは出さない(残りすべては、どの食材でも共通の「全部」ボタン)
 const BULK_UNITS = new Set(['g', 'ml', 'cc'])
 const FRACTION_LABEL = { 0.25: '¼', 0.5: '½', 0.75: '¾' }
 export function quickUses(unit, quantity) {
   const q = Number(quantity) || 0
   if (q <= 0) return []
-  if (BULK_UNITS.has(unit)) {
-    const steps = [50, 100].filter((v) => v < q).map((v) => ({ label: `−${v}${unit}`, value: v }))
-    return [...steps, { label: '全部', value: q, all: true }]
-  }
-  const steps = q <= 3 ? [0.25, 0.5, 1] : [1, 2, 3]
-  return steps
-    .filter((v) => v <= q + 1e-9)
-    .map((v) => ({ label: `−${FRACTION_LABEL[v] ?? v}`, value: v, all: Math.abs(v - q) < 1e-9 }))
+  const steps = BULK_UNITS.has(unit) ? [50, 100] : q <= 3 ? [0.25, 0.5, 1] : [1, 2, 3]
+  return steps.filter((v) => v < q - 1e-9).map((v) => ({ label: `−${FRACTION_LABEL[v] ?? v}${unit}`, amount: `${FRACTION_LABEL[v] ?? v}${unit}`, value: v }))
+}
+
+// 在庫のゲージ: 最後に在庫を増やしたときの量(full_quantity, migration 033)を満タンとして、残りの割合を出す
+export function stockGauge(ingredient) {
+  const q = Math.max(0, Number(ingredient.quantity) || 0)
+  const full = Math.max(Number(ingredient.full_quantity) || 0, q)
+  const ratio = full > 0 ? q / full : 0
+  // 個数系で満タンが12以下なら、1つごとに目盛りを付ける(½・¼ 減ったのが見える)
+  const ticks = !BULK_UNITS.has(ingredient.unit) && full > 1 && full <= 12 && Number.isInteger(full) ? full : 0
+  return { quantity: q, full, ratio, ticks, level: ratio > 0.5 ? 'high' : ratio > 0.2 ? 'mid' : 'low' }
+}
+const GAUGE_COLOR = { high: 'bg-emerald-500', mid: 'bg-amber-400', low: 'bg-rose-500' }
+
+function StockGauge({ ingredient }) {
+  const g = stockGauge(ingredient)
+  return (
+    <div
+      className="relative h-2.5 min-w-16 flex-1 overflow-hidden rounded-full bg-muted"
+      role="meter"
+      aria-label={`${ingredient.name}の残り`}
+      aria-valuemin={0}
+      aria-valuemax={g.full}
+      aria-valuenow={g.quantity}
+      aria-valuetext={`${formatQuantity(g.quantity)}${ingredient.unit}(${Math.round(g.ratio * 100)}%)`}
+    >
+      <div className={`h-full rounded-full transition-[width] duration-300 ${GAUGE_COLOR[g.level]}`} style={{ width: `${g.ratio * 100}%` }} />
+      {g.ticks > 0 &&
+        Array.from({ length: g.ticks - 1 }, (_, i) => (
+          <span key={i} className="absolute inset-y-0 w-px bg-background/80" style={{ left: `${((i + 1) / g.ticks) * 100}%` }} aria-hidden="true" />
+        ))}
+    </div>
+  )
 }
 
 // 冷蔵庫に新しく入れるとき、最初から「常備品(数えない)」を選んでおくカテゴリ
@@ -280,22 +306,31 @@ export function Fridge({ groupId }) {
               </Button>
             </div>
           </div>
-          {quickUses(ingredient.unit, ingredient.quantity).length > 0 && (
-            // 使った量をワンタップで減らす(開かなくても押せる)
-            <div className="flex flex-wrap items-center gap-1.5 px-3 pb-2.5 pl-[3.875rem]" role="group" aria-label={`${ingredient.name}を使った量`}>
-              {quickUses(ingredient.unit, ingredient.quantity).map((u) => (
+          {Number(ingredient.quantity) > 0 && (
+            // 残りのゲージと、使った量をワンタップで減らすボタン(開かなくても押せる)。「全部」はどの食材も同じで、押すと冷蔵庫から消える
+            <div className="flex flex-col gap-1.5 px-3 pb-2.5 pl-[3.875rem]">
+              <StockGauge ingredient={ingredient} />
+              <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label={`${ingredient.name}を使った量`}>
+                {quickUses(ingredient.unit, ingredient.quantity).map((u) => (
+                  <button
+                    key={u.label}
+                    type="button"
+                    className="rounded-full border bg-background px-3 py-1 text-xs font-semibold tabular-nums transition-colors hover:border-primary hover:bg-primary/10 active:scale-95"
+                    onClick={() => adjustQuantity(ingredient, -u.value)}
+                    aria-label={`${u.amount}使った(${ingredient.name})`}
+                  >
+                    {u.label}
+                  </button>
+                ))}
                 <button
-                  key={u.label}
                   type="button"
-                  className={`rounded-full border px-3 py-1 text-xs font-semibold tabular-nums transition-colors active:scale-95 ${
-                    u.all ? 'border-destructive/30 text-destructive hover:bg-destructive/5' : 'bg-background hover:border-primary hover:bg-primary/10'
-                  }`}
-                  onClick={() => adjustQuantity(ingredient, -u.value)}
-                  aria-label={u.all ? `全部使った(${ingredient.name})` : `${u.label.slice(1)}${BULK_UNITS.has(ingredient.unit) ? '' : ingredient.unit}使った(${ingredient.name})`}
+                  className="ml-auto rounded-full border border-destructive/30 px-3 py-1 text-xs font-semibold text-destructive transition-colors hover:bg-destructive/5 active:scale-95"
+                  onClick={() => finishAll(ingredient)}
+                  aria-label={`全部使った(${ingredient.name})`}
                 >
-                  {u.label}
+                  全部
                 </button>
-              ))}
+              </div>
             </div>
           )}
         </SwipeToDelete>
@@ -350,6 +385,21 @@ export function Fridge({ groupId }) {
         </li>
       </ul>
     )
+  }
+
+  // 「全部」: 押したらすぐ冷蔵庫から消し(在庫0の行は冷蔵庫に出さない)、在庫を0にする。
+  // レシピで使う食材は行が残る(在庫0として読み直す)。失敗したら読み直して元に戻す
+  async function finishAll(ingredient) {
+    dropLocal(ingredient.id)
+    const { data, error } = await supabase.rpc('adjust_stock', {
+      p_ingredient_id: ingredient.id,
+      p_delta: -Number(ingredient.quantity),
+      p_dated_today: true,
+      p_best_before: null,
+      p_use_by: null,
+    })
+    if (error) console.error('数量の更新に失敗しました', error)
+    if (error || !data?.[0]?.deleted) refresh()
   }
 
   async function adjustQuantity(ingredient, rawDelta) {

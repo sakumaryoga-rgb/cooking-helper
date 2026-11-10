@@ -3,7 +3,30 @@ import { guessCategory } from '@/lib/ingredientCategory'
 import { normalizeName } from '@/lib/recipeImport/match'
 
 export const VAGUE_AMOUNT = '適量'
-export const isVagueAmount = (item) => item.amountText === VAGUE_AMOUNT && !(Number(item.requiredQuantity) > 0)
+// 適量には、どのくらいかのメモ(200g・大さじ1 など)を付けられる。「適量(200g)」の形で amount_text に保存する
+// (在庫の計算では、ほかの適量と同じく「在庫があれば足りる」とみなす)
+const VAGUE_WITH_MEMO = /^適量[(（](.*)[)）]$/
+export const isVagueText = (text) => text === VAGUE_AMOUNT || VAGUE_WITH_MEMO.test(text ?? '')
+export const isVagueAmount = (item) => isVagueText(item.amountText) && !(Number(item.requiredQuantity) > 0)
+export const vagueMemo = (text) => (text ?? '').match(VAGUE_WITH_MEMO)?.[1] ?? ''
+export const vagueText = (memo) => {
+  const m = String(memo ?? '').trim().slice(0, 50)
+  return m ? `${VAGUE_AMOUNT}(${m})` : VAGUE_AMOUNT
+}
+// メモの単位(g・大さじ・小さじ)。大さじ・小さじは数の前、g は数の後ろに付ける
+export const MEMO_UNITS = ['g', '大さじ', '小さじ']
+export function memoText(count, unit) {
+  const c = String(count ?? '').trim()
+  if (!c) return ''
+  return unit === 'g' ? `${c}g` : `${unit}${c}`
+}
+// 「200g」「大さじ1」を数と単位に分ける(ほかの書き方なら null)
+export function parseMemo(memo) {
+  const m = String(memo ?? '').match(/^(大さじ|小さじ)\s*([\d.\/]+)$/) ?? null
+  if (m) return { unit: m[1], count: m[2] }
+  const g = String(memo ?? '').match(/^([\d.\/]+)\s*g$/i)
+  return g ? { unit: 'g', count: g[1] } : null
+}
 
 // 調味料(食材マスタのカテゴリ「調味料・油」)か。確認待ち(どの食材か未確定)の行は false
 export function isSeasoningItem(item, catalogById = new Map()) {
