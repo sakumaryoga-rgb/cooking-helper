@@ -19,6 +19,7 @@ import { StockDialog } from '@/components/StockDialog'
 import { BatchStockDialog } from '@/components/BatchStockDialog'
 import { categoryLook } from '@/lib/foodLook'
 import { addToShoppingList } from '@/lib/shopping'
+import { CookingLoader } from '@/components/CookingLoader'
 
 // g/ml のような細かい単位はまとめて増減、個数系は1ずつ増減する
 const STEP_BY_UNIT = { g: 10, ml: 10 }
@@ -511,7 +512,7 @@ export function Fridge({ groupId }) {
       </div>
 
       {loading ? (
-        <p className="text-sm text-muted-foreground">読み込み中...</p>
+        <CookingLoader />
       ) : rows.length === 0 ? (
         <p className="py-10 text-center text-sm text-muted-foreground">まだ食材がありません。「追加」から登録しましょう。</p>
       ) : (

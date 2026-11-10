@@ -12,6 +12,7 @@ import { MakeableBadge } from '@/components/MakeableBadge'
 import { InstallGuide } from '@/components/InstallGuide'
 import { StarRatingView } from '@/components/StarRating'
 import { compareRating } from '@/lib/rating'
+import { CookingLoader } from '@/components/CookingLoader'
 
 const EXPIRING_DAYS = 3
 
@@ -83,7 +84,7 @@ export function Home({ groupId }) {
       .sort((a, b) => a.expiry.daysLeft - b.expiry.daysLeft)
   }, [batches, ingredients, catalogById])
 
-  if (loading) return <p className="text-sm text-muted-foreground">読み込み中...</p>
+  if (loading) return <CookingLoader />
 
   const hello = greeting()
   const shopping = shoppingItems(ingredients).length

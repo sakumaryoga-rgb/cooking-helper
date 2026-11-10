@@ -3,6 +3,7 @@ import { supabase } from '@/supabaseClient'
 import { Button } from '@/components/ui/button'
 import { CONTACT_CATEGORIES } from '@/routes/Contact'
 import { requestContactNotification } from '@/lib/contactNotify'
+import { CookingLoader } from '@/components/CookingLoader'
 
 const GATE_MESSAGES = {
   forbidden: 'この画面は運営者だけが使えます',
@@ -279,7 +280,7 @@ export function Admin() {
     load()
   }
 
-  if (loading && !data) return <p className="text-sm text-muted-foreground">読み込み中...</p>
+  if (loading && !data) return <CookingLoader />
   if (gate !== 'ok') return <p className="text-sm text-muted-foreground">{GATE_MESSAGES[gate] ?? '読み込めませんでした'}</p>
 
   const counts = data.contact_counts ?? {}

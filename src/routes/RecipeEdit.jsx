@@ -26,6 +26,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
+import { CookingLoader } from '@/components/CookingLoader'
 
 // 保存したレシピを自分好みに変える(料理名・材料と分量・人数・作り方・メモ・絵)
 export function RecipeEdit({ groupId }) {
@@ -35,7 +36,7 @@ export function RecipeEdit({ groupId }) {
   const { catalog } = useIngredientCatalog()
   const { aliases } = useIngredientAliases()
   const recipe = recipes.find((r) => r.id === id)
-  if (loading) return <p className="text-sm text-muted-foreground">読み込み中...</p>
+  if (loading) return <CookingLoader />
   if (!recipe) return <p className="text-sm text-muted-foreground">レシピが見つかりません</p>
   return <RecipeEditForm key={recipe.id} recipe={recipe} groupId={groupId} ingredients={ingredients} catalog={catalog} aliases={aliases} />
 }

@@ -1,6 +1,5 @@
 import { Suspense, lazy, useCallback, useEffect, useState } from 'react'
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
-import { Loader2 } from 'lucide-react'
 import { useSession } from '@/hooks/useSession'
 import { useGroup } from '@/hooks/useGroup'
 import { Login } from '@/routes/Login'
@@ -22,6 +21,7 @@ import { capturePendingInvite } from '@/lib/invite'
 import { OpenInBrowserGate, CONTINUE_KEY } from '@/components/OpenInBrowserGate'
 import { detectInAppBrowser } from '@/lib/inAppBrowser'
 import { ConnectionProblem, HouseChooser } from '@/components/HouseGate'
+import { CookingLoader } from '@/components/CookingLoader'
 
 // めったに開かない画面は、開いたときに読み込む(起動時に読み込む量を減らす)
 const Onboarding = lazy(() => import('@/routes/Onboarding').then((m) => ({ default: m.Onboarding })))
@@ -36,11 +36,9 @@ const Admin = lazy(() => import('@/routes/Admin').then((m) => ({ default: m.Admi
 
 function FullScreenLoader() {
   return (
-    <div role="status" className="min-h-svh flex flex-col items-center justify-center gap-4">
-      <BrandMark size="lg" className="flex-col text-lg" />
-      <Loader2 className="size-5 animate-spin text-brand-tomato" />
-      <span className="sr-only">読み込み中</span>
-    </div>
+    <CookingLoader className="min-h-svh justify-center">
+      <BrandMark size="lg" className="mb-2 flex-col text-lg" />
+    </CookingLoader>
   )
 }
 
