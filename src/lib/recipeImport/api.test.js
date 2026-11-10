@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import handler from '../../../api/recipe-import.js'
+import { safeFetch } from '../../../api/_lib/safeFetch.js'
+
+// 汎用の読み取りの取得は、ネットワークに出ずに差し替える
+vi.mock('../../../api/_lib/safeFetch.js', () => ({ safeFetch: vi.fn() }))
 
 function call(body, headers = { authorization: 'Bearer good.token.x' }) {
   const res = { statusCode: 0, headers: {}, body: '', setHeader(k, v) { this.headers[k] = v }, end(b) { this.body = b } }
@@ -9,6 +13,8 @@ function call(body, headers = { authorization: 'Bearer good.token.x' }) {
 const page = `<script type="application/ld+json">${JSON.stringify({ '@type': 'Recipe', name: 'バンバンジー', recipeYield: '2人分', recipeIngredient: ['鶏むね肉 1枚(250g)'], recipeInstructions: ['秘密の手順'] })}</script>`
 
 beforeEach(() => {
+  safeFetch.mockReset()
+  safeFetch.mockResolvedValue({ error: 'fetch_status', status: 404 })
   vi.stubEnv('VITE_SUPABASE_URL', 'https://proj.supabase.co')
   vi.stubEnv('VITE_SUPABASE_ANON_KEY', 'anon')
   vi.stubGlobal(
@@ -38,7 +44,7 @@ describe('/api/recipe-import', () => {
     // 成功を利用者の権限で記録する(サイトと結果だけ)
     const record = fetch.mock.calls.find(([url]) => String(url).endsWith('/rest/v1/recipe_import_runs'))
     expect(record[1].headers.Authorization).toBe('Bearer good.token.x')
-    expect(JSON.parse(record[1].body)).toEqual({ site: 'delishkitchen', outcome: 'success' })
+    expect(JSON.parse(record[1].body)).toEqual({ site: 'delishkitchen', outcome: 'success', method: 'jsonld' })
   })
 
   it('取得に失敗した取り込みも記録する', async () => {
@@ -55,7 +61,7 @@ describe('/api/recipe-import', () => {
 
   it('対応サイト以外の URL と、他のホストへのリダイレクトはたどらない', async () => {
     expect((await call({ url: 'http://169.254.169.254/latest/meta-data' })).json.error).toBe('unsupported_url')
-    expect((await call({ url: 'https://cookpad.com/recipe/1' })).status).toBe(422)
+    expect((await call({ url: 'https://www.kurashiru.com/articles/1' })).status).toBe(422)
     const redirected = await call({ url: 'https://oceans-nadia.com/user/1/recipe/2' })
     expect(redirected).toMatchObject({ status: 502, json: { reason: 'redirect' } })
     expect(fetch).not.toHaveBeenCalledWith('https://evil.example/', expect.anything())
@@ -115,5 +121,59 @@ describe('/api/recipe-import の回数の上限', () => {
     vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', '')
     const { status } = await call({ url: 'https://delishkitchen.tv/recipes/194135459369058708' })
     expect(status).toBe(200)
+  })
+})
+
+describe('/api/recipe-import の汎用の読み取り(対応サイト以外)', () => {
+  const rowsOf = (table) => fetch.mock.calls.filter(([u]) => String(u).endsWith(`/rest/v1/${table}`)).map(([, init]) => JSON.parse(init.body))
+  const html = (body) => ({ body, type: 'text/html', status: 200, url: 'https://blog.example.com/hamburg' })
+
+  it('構造化データ(microdata)があれば読み取り、URL から重複を見分けるキーを作る', async () => {
+    const micro = `<div itemscope itemtype="https://schema.org/Recipe"><h1 itemprop="name">ハンバーグ</h1><span itemprop="recipeYield">2人分</span>
+      <li itemprop="recipeIngredient">合い挽き肉 300g</li><li itemprop="recipeIngredient">玉ねぎ 1個</li><div itemprop="recipeInstructions">秘密の手順</div></div>`
+    safeFetch.mockImplementation(async (url) => (url.endsWith('/robots.txt') ? { body: 'User-agent: *\nDisallow: /private/', type: 'text/plain', status: 200 } : html(micro)))
+    const { status, json } = await call({ url: 'https://blog.example.com/hamburg?utm_source=x' })
+    expect(status).toBe(200)
+    expect(json).toMatchObject({ title: 'ハンバーグ', servings: 2, ingredients: ['合い挽き肉 300g', '玉ねぎ 1個'], site: 'blog.example.com', method: 'microdata', url: 'https://blog.example.com/hamburg' })
+    expect(json.sourceKey).toMatch(/^web:[0-9a-f]{32}$/)
+    expect(JSON.stringify(json)).not.toContain('秘密の手順')
+    expect(rowsOf('recipe_import_runs')).toEqual([{ site: 'generic', outcome: 'success', method: 'microdata' }])
+  })
+
+  it('robots.txt で禁止されたページは取得しない(記録する)', async () => {
+    safeFetch.mockImplementation(async (url) => (url.endsWith('/robots.txt') ? { body: 'User-agent: *\nDisallow: /', type: 'text/plain', status: 200 } : html('x')))
+    const { status, json } = await call({ url: 'https://blog.example.com/hamburg' })
+    expect(status).toBe(422)
+    expect(json.error).toBe('robots_disallowed')
+    expect(safeFetch).toHaveBeenCalledTimes(1)
+    expect(rowsOf('recipe_import_failures')).toEqual([{ site: 'generic', host: 'blog.example.com', path: '/hamburg', reason: 'robots_disallowed', http_status: null, features: {} }])
+  })
+
+  it('読み取れなかったページは、理由とページの特徴(本文は含めない)を記録する。クエリ文字列は記録しない', async () => {
+    const article = `<script type="application/ld+json">${JSON.stringify({ '@type': 'Article', headline: '日記' })}</script><p>今日の晩ごはん</p>`
+    safeFetch.mockImplementation(async (url) => (url.endsWith('/robots.txt') ? { error: 'fetch_status', status: 404 } : html(article)))
+    const { status, json } = await call({ url: 'https://blog.example.com/diary?id=secret' })
+    expect(status).toBe(422)
+    expect(json.error).toBe('no_recipe_data')
+    const [row] = rowsOf('recipe_import_failures')
+    expect(row).toMatchObject({ site: 'generic', host: 'blog.example.com', path: '/diary', reason: 'no_recipe_data', http_status: 200 })
+    expect(row.features).toMatchObject({ ld_blocks: 1, ld_types: ['Article'], microdata_recipe: false })
+    expect(JSON.stringify(row)).not.toContain('晩ごはん')
+    expect(JSON.stringify(row)).not.toContain('secret')
+  })
+
+  it('社内のアドレスに向かう名前は、取得しないで記録する', async () => {
+    safeFetch.mockResolvedValue({ error: 'blocked_host' })
+    const { status, json } = await call({ url: 'https://internal-looking.example.com/x' })
+    expect(status).toBe(422)
+    expect(json.error).toBe('unsupported_url')
+    expect(rowsOf('recipe_import_runs')).toEqual([{ site: 'generic', outcome: 'blocked' }])
+  })
+
+  it('IP アドレス・社内向けの名前・https/http 以外は、取得する前に断る', async () => {
+    for (const url of ['https://10.0.0.1/r', 'https://[::1]/r', 'https://printer.local/r', 'https://localhost/r', 'ftp://a.example.com/r', 'https://a.example.com:8443/r', 'https://user:pw@a.example.com/r']) {
+      expect((await call({ url })).json.error).toBe('unsupported_url')
+    }
+    expect(safeFetch).not.toHaveBeenCalled()
   })
 })

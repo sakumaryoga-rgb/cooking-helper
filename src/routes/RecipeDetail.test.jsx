@@ -515,3 +515,74 @@ describe('必須・任意の切り替え(レシピの画面)', () => {
     expect(updateEq).toHaveBeenCalledWith('id', 'm1')
   })
 })
+
+describe('「どれか1つ」の材料(レシピの画面)', () => {
+  const hamburg = {
+    id: 'r1',
+    title: 'ハンバーグ',
+    url: null,
+    recipe_ingredients: [
+      { id: 'h1', ingredient_id: 'aibiki', required_quantity: 300, choice_group: 1, ingredient: { id: 'aibiki', name: '合い挽き肉', unit: 'g' } },
+      { id: 'h2', ingredient_id: 'gyu', required_quantity: 300, choice_group: 1, ingredient: { id: 'gyu', name: '牛ひき肉', unit: 'g' } },
+      { id: 'h3', ingredient_id: 'buta', required_quantity: 250, choice_group: 1, ingredient: { id: 'buta', name: '豚こま切れ肉', unit: 'g' } },
+      { id: 'h4', ingredient_id: 'onion', required_quantity: 1, ingredient: { id: 'onion', name: '玉ねぎ', unit: '個' } },
+    ],
+  }
+  const stock = [
+    { id: 'gyu', name: '牛ひき肉', unit: 'g', quantity: 300 },
+    { id: 'buta', name: '豚こま切れ肉', unit: 'g', quantity: 500 },
+    { id: 'onion', name: '玉ねぎ', unit: '個', quantity: 2 },
+  ]
+  function setupHamburg() {
+    useIngredients.mockReturnValue({ ingredients: stock, refresh: refreshIngredients })
+    useRecipes.mockReturnValue({ recipes: [hamburg], loading: false, refresh: vi.fn() })
+    render(
+      <MemoryRouter initialEntries={['/recipes/r1']}>
+        <Routes>
+          <Route path="/recipes/:id" element={<RecipeDetail groupId="g1" />} />
+        </Routes>
+      </MemoryRouter>
+    )
+  }
+  beforeEach(() => {
+    supabase.rpc.mockReset()
+    supabase.rpc.mockImplementation((name) => Promise.resolve(name === 'cook_recipe_v2' ? { data: 'log-new', error: null } : { error: null }))
+    update.mockClear()
+    updateIn.mockClear()
+  })
+  afterEach(() => __resetForTests())
+
+  it('候補をまとめて出し、在庫がある候補で「作れます」。必須の材料は組で1品と数える', () => {
+    setupHamburg()
+    expect(screen.getByText('作れます')).toBeInTheDocument()
+    const box = screen.getByRole('region', { name: 'どれか1つの材料' })
+    expect(within(box).getAllByRole('listitem')).toHaveLength(3)
+    expect(screen.getByText(/2品・そろうと/)).toBeInTheDocument()
+    expect(within(box).getByRole('button', { name: '牛ひき肉を使う' })).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('「これを使う」で選んだ候補だけを、作ったときに在庫から引く', async () => {
+    setupHamburg()
+    await userEvent.click(screen.getByRole('button', { name: '豚こま切れ肉を使う' }))
+    expect(screen.getByRole('button', { name: '豚こま切れ肉を使う' })).toHaveAttribute('aria-pressed', 'true')
+    await userEvent.click(screen.getByRole('button', { name: /これを作る/ }))
+    const dialog = await screen.findByRole('dialog')
+    await userEvent.click(within(dialog).getByRole('button', { name: '確定' }))
+    await waitFor(() =>
+      expect(supabase.rpc).toHaveBeenCalledWith('cook_recipe_v2', expect.objectContaining({
+        p_items: [
+          { ingredient_id: 'buta', quantity: 250, substitute_for: null, kind: 'required' },
+          { ingredient_id: 'onion', quantity: 1, substitute_for: null, kind: 'required' },
+        ],
+      }))
+    )
+  })
+
+  it('組の必須・任意は、組の候補をそろえて変える', async () => {
+    setupHamburg()
+    const group = screen.getByRole('radiogroup', { name: '合い挽き肉は必須か任意か' })
+    await userEvent.click(within(group).getByRole('radio', { name: '任意' }))
+    expect(update).toHaveBeenCalledWith({ optional: true })
+    expect(updateIn).toHaveBeenCalledWith('id', ['h1', 'h2', 'h3'])
+  })
+})

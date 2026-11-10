@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { useState } from 'react'
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { RecipeItemsEditor } from './RecipeItemsEditor'
 
@@ -82,5 +82,32 @@ describe('取り込んだ材料の付け替え', () => {
     await userEvent.click(screen.getByRole('button', { name: '新しい食材「じゃが芋」' }))
     expect(latest[0]).toMatchObject({ kind: 'new', name: 'じゃが芋', needsChoice: false })
     expect(latest[0].learnAlias).toBeUndefined()
+  })
+})
+
+describe('「どれか1つ」の材料', () => {
+  const sato = { id: 'i-sato', name: 'さつまいも', unit: '個', quantity: 1 }
+  const base = { key: 'k1', kind: 'existing', ingredient: sato, name: 'さつまいも', unit: '個', requiredQuantity: 2, include: true }
+
+  it('「＋代わりの材料」で選んだ食材を同じ組に入れ、組を表示する。組から外すと解除する', async () => {
+    render(<Harness initial={[base]} />)
+    await userEvent.click(screen.getByRole('button', { name: 'さつまいもの代わりの材料を追加' }))
+    await userEvent.click(screen.getByRole('button', { name: 'じゃがいもを選ぶ' }))
+    expect(latest.map((i) => [i.name, i.choiceGroup, i.requiredQuantity])).toEqual([
+      ['さつまいも', 1, 2],
+      ['じゃがいも', 1, 2],
+    ])
+    expect(screen.getByText(/どれか1つ/)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'じゃがいもを「どれか1つ」から外す' }))
+    expect(latest.map((i) => i.choiceGroup)).toEqual([null, null])
+    expect(screen.queryByText(/どれか1つ/)).not.toBeInTheDocument()
+  })
+
+  it('必須・任意は組でそろえる', async () => {
+    const alt = { ...base, key: 'k2', ingredient: potato, name: 'じゃがいも', choiceGroup: 1 }
+    render(<Harness initial={[{ ...base, choiceGroup: 1 }, alt]} />)
+    const group = screen.getByRole('radiogroup', { name: 'じゃがいもは必須か任意か' })
+    await userEvent.click(within(group).getByRole('radio', { name: '任意' }))
+    expect(latest.map((i) => i.optional)).toEqual([true, true])
   })
 })

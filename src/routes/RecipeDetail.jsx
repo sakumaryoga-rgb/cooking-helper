@@ -31,6 +31,27 @@ import { RequiredToggle } from '@/components/RequiredToggle'
 import { categoryInfo, categoryOf } from '@/lib/recipeCategory'
 
 
+// 材料の行を、「どれか1つ」の組(候補が2つ以上)ごとにまとめる。それ以外の行は1行ずつ
+function toBlocks(rows) {
+  const size = new Map()
+  for (const ri of rows) if (ri.choice_group != null) size.set(ri.choice_group, (size.get(ri.choice_group) ?? 0) + 1)
+  const blocks = []
+  const byGroup = new Map()
+  for (const ri of rows) {
+    const g = ri.choice_group != null && size.get(ri.choice_group) >= 2 ? ri.choice_group : null
+    if (g == null) {
+      blocks.push({ group: null, rows: [ri] })
+    } else if (byGroup.has(g)) {
+      byGroup.get(g).rows.push(ri)
+    } else {
+      const block = { group: g, rows: [ri] }
+      byGroup.set(g, block)
+      blocks.push(block)
+    }
+  }
+  return blocks
+}
+
 export function RecipeDetail({ groupId }) {
   const { id } = useParams()
   const location = useLocation()
@@ -44,6 +65,8 @@ export function RecipeDetail({ groupId }) {
   const { conversions, remember } = useUnitConversions(groupId)
   const [resolvingId, setResolvingId] = useState(null)
   const [resolveError, setResolveError] = useState('')
+  // 「どれか1つ」の材料で、使うと選んだ候補(choice_group → ingredientId)。選ばなければ在庫が足りる候補を自動で選ぶ
+  const [groupChoices, setGroupChoices] = useState(() => new Map())
   const { catalog } = useIngredientCatalog()
   const { logs, refresh: refreshLogs } = useCookLogs(id)
   const [servings, setServings] = useState(null) // 作る人数(null は元の人数)
@@ -71,7 +94,7 @@ export function RecipeDetail({ groupId }) {
   // 「作れる」の判定は、消費期限が切れたロットを除いた在庫で行う(引く量の計算は実際の在庫のまま)
   const usableById = useMemo(() => usableIngredientsById(ingredients, batches, catalogById), [ingredients, batches, catalogById])
   const commonConversions = useCommonConversions()
-  const status = scaled ? getRecipeStatus(scaled, usableById, { catalogById, conversions, commonConversions }) : null
+  const status = scaled ? getRecipeStatus(scaled, usableById, { catalogById, conversions, commonConversions, groupChoices }) : null
   const nameIndex = useMemo(() => buildNameIndex({ ingredients, catalog, aliases }), [ingredients, catalog, aliases])
 
   // 確認待ちの材料(どの食材か未確定)を1タップで決める。候補・新しい食材を選んだら行を更新し、表記を家の別名として覚える
@@ -154,7 +177,10 @@ export function RecipeDetail({ groupId }) {
   async function setOptional(ri, optional) {
     setResolvingId(ri.id)
     setResolveError('')
-    const { error } = await supabase.from('recipe_ingredients').update({ optional }).eq('id', ri.id)
+    // 「どれか1つ」の組は、組の候補をそろえて変える
+    const groupIds = ri.choice_group != null ? (recipe?.recipe_ingredients ?? []).filter((x) => x.choice_group === ri.choice_group).map((x) => x.id) : []
+    const query = supabase.from('recipe_ingredients').update({ optional })
+    const { error } = await (groupIds.length >= 2 ? query.in('id', groupIds) : query.eq('id', ri.id))
     setResolvingId(null)
     if (error) {
       setResolveError('材料の必須・任意を変えられませんでした。選んでいる家のレシピか確かめてください')
@@ -360,8 +386,9 @@ export function RecipeDetail({ groupId }) {
       const line = status.lines.find((l) => l.ingredientId === ri.ingredient_id)
       const shortfall = status.shortfalls.find((s) => s.ingredientId === ri.ingredient_id)
       const optional = Boolean(ri.optional)
-      // 任意の材料は不足にしない(在庫があるかだけを見せる)
-      const enough = optional ? line?.optionalStock === 'enough' : !shortfall
+      const grouped = line?.choiceGroup != null
+      // 任意の材料は不足にしない(在庫があるかだけを見せる)。「どれか1つ」の候補は、その候補の在庫が足りるか
+      const enough = grouped ? line.choiceStock === 'enough' : optional ? line?.optionalStock === 'enough' : !shortfall
       const unit = ri.ingredient?.unit ?? current?.unit ?? ''
       return (
         <li key={ri.id} className="flex flex-col gap-1 px-3 py-2.5">
@@ -369,19 +396,35 @@ export function RecipeDetail({ groupId }) {
             <div className="flex items-center gap-2 min-w-0">
               {enough ? (
                 <Check className={`size-4 shrink-0 ${optional ? 'text-sky-600' : 'text-emerald-600'}`} />
-              ) : optional ? (
+              ) : optional || (grouped && !line.chosen) ? (
+                // 任意の材料と、「どれか1つ」で使わない候補は、在庫がなくても不足の印にしない
                 <span className="size-2 shrink-0 rounded-full border border-muted-foreground/60" />
               ) : (
                 <span className="size-2 shrink-0 rounded-full bg-destructive" />
               )}
               <span className="text-sm truncate">{ri.ingredient?.name ?? current?.name}</span>
-              {optional && (
+              {grouped && (
+                <button
+                  type="button"
+                  aria-pressed={Boolean(line.chosen)}
+                  aria-label={`${ri.ingredient?.name ?? current?.name}を使う`}
+                  onClick={() => setGroupChoices((prev) => new Map(prev).set(line.choiceGroup, ri.ingredient_id))}
+                  className={`shrink-0 rounded-full border px-2 py-px text-[10px] font-semibold ${
+                    line.chosen
+                      ? 'border-amber-500 bg-amber-400 text-amber-950'
+                      : 'border-border bg-background text-muted-foreground hover:border-amber-400'
+                  }`}
+                >
+                  {line.chosen ? '使う' : 'これを使う'}
+                </button>
+              )}
+              {optional && !grouped && (
                 <span className="shrink-0 rounded-full bg-sky-100 px-1.5 py-px text-[10px] font-semibold text-sky-800 dark:bg-sky-950 dark:text-sky-300">
                   任意・{line?.optionalStock === 'enough' ? '在庫あり' : line?.optionalStock === 'partial' ? '在庫が少ない' : '在庫なし'}
                 </span>
               )}
             </div>
-            <span className={`text-xs text-right ${enough || optional ? 'text-muted-foreground' : 'text-destructive'}`}>
+            <span className={`text-xs text-right ${enough || optional || (grouped && !line.chosen) ? 'text-muted-foreground' : 'text-destructive'}`}>
               {staple ? (
                 '常備品'
               ) : line?.amountUnknown || line?.vague ? (
@@ -539,10 +582,22 @@ export function RecipeDetail({ groupId }) {
           <section key={sec.key} className="flex flex-col gap-1.5" aria-label={sec.title}>
             <h2 className="flex items-baseline gap-2 px-1 text-sm font-semibold">
               {sec.title}
-              <span className="text-xs font-normal text-muted-foreground">{sec.rows.length}品・{sec.note}</span>
+              <span className="text-xs font-normal text-muted-foreground">{toBlocks(sec.rows).length}品・{sec.note}</span>
             </h2>
             <ul className={`flex flex-col divide-y divide-border rounded-lg border bg-card ${sec.key === 'optional' ? 'border-sky-200 dark:border-sky-900' : ''}`}>
-              {sec.rows.map(renderIngredient)}
+              {toBlocks(sec.rows).map((block) =>
+                block.group == null ? (
+                  renderIngredient(block.rows[0])
+                ) : (
+                  // 「どれか1つ」の候補: 在庫があるものを1つ使う
+                  <li key={`g${block.group}`} className="border-l-4 border-l-amber-400 bg-amber-50/60 dark:bg-amber-950/30">
+                    <section aria-label="どれか1つの材料">
+                      <p className="px-3 pt-2 text-[11px] font-bold text-amber-800 dark:text-amber-300">どれか1つ(在庫があるものを使います。「これを使う」で選べます)</p>
+                      <ul className="flex flex-col divide-y divide-amber-200/70 dark:divide-amber-900/60">{block.rows.map(renderIngredient)}</ul>
+                    </section>
+                  </li>
+                )
+              )}
             </ul>
           </section>
         ))}

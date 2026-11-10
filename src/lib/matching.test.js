@@ -411,3 +411,53 @@ describe('必須・任意の材料', () => {
     expect(describeNotSubtracted(status, plan)).toEqual({ pending: [], unknown: [] })
   })
 })
+
+describe('「どれか1つ」の材料(choice_group)', () => {
+  const grp = (id, q, name, g = 1, extra = {}) => ({ ...line(id, q, name, 'g'), choice_group: g, ...extra })
+  const recipe = {
+    id: 'r1',
+    recipe_ingredients: [grp('aibiki', 300, '合い挽き肉'), grp('gyu', 300, '牛ひき肉'), grp('buta', 250, '豚こま切れ肉'), line('onion', 1, '玉ねぎ')],
+  }
+  const onion = { id: 'onion', name: '玉ねぎ', unit: '個', quantity: 2 }
+
+  it('候補のどれか1つの在庫が足りれば作れる。選ばなかった候補は判定・品数・調理に入れない', () => {
+    const status = getRecipeStatus(recipe, stock([onion, { id: 'buta', name: '豚こま切れ肉', unit: 'g', quantity: 300 }]))
+    expect(status).toMatchObject({ makeable: true, level: 'makeable', shortfallCount: 0, choiceGroupCount: 1 })
+    const chosen = status.lines.find((l) => l.chosen)
+    expect(chosen).toMatchObject({ ingredientId: 'buta', choiceGroup: 1, choiceStock: 'enough' })
+    expect(status.lines.filter((l) => l.alternative).map((l) => [l.ingredientId, l.choiceStock])).toEqual([
+      ['aibiki', 'none'],
+      ['gyu', 'none'],
+    ])
+    expect(buildCookPlan(status).map((r) => r.ingredientId)).toEqual(['buta', 'onion'])
+  })
+
+  it('足りる候補がなければ、足りない量がいちばん少ない候補の不足として1品で数える', () => {
+    const status = getRecipeStatus(recipe, stock([onion, { id: 'gyu', name: '牛ひき肉', unit: 'g', quantity: 200 }]))
+    expect(status).toMatchObject({ makeable: false, level: 'almost', shortfallCount: 1 })
+    expect(status.shortfalls[0]).toMatchObject({ ingredientId: 'gyu', missingQuantity: 100 })
+    expect(status.lines.find((l) => l.ingredientId === 'gyu').choiceStock).toBe('partial')
+  })
+
+  it('使う候補を選べる(選んだ候補が足りなければ不足になる)', () => {
+    const fridge = stock([onion, { id: 'aibiki', name: '合い挽き肉', unit: 'g', quantity: 500 }, { id: 'gyu', name: '牛ひき肉', unit: 'g', quantity: 100 }])
+    expect(getRecipeStatus(recipe, fridge).lines.find((l) => l.chosen).ingredientId).toBe('aibiki')
+    const picked = getRecipeStatus(recipe, fridge, { groupChoices: new Map([[1, 'gyu']]) })
+    expect(picked.lines.find((l) => l.chosen).ingredientId).toBe('gyu')
+    expect(picked.level).toBe('almost')
+  })
+
+  it('候補を比べても在庫を重ねて割り当てない(ほかの材料の在庫を奪わない)', () => {
+    const r = { id: 'r2', recipe_ingredients: [line('gyu', 300, '牛ひき肉', 'g'), grp('gyu', 300, '牛ひき肉', 1), grp('buta', 250, '豚こま切れ肉', 1)] }
+    const status = getRecipeStatus(r, stock([{ id: 'gyu', name: '牛ひき肉', unit: 'g', quantity: 400 }]))
+    // 単独の材料に300g割り当てた残り100gでは、組の牛ひき肉は足りない
+    expect(status.level).toBe('almost')
+  })
+
+  it('候補が1つしかない組は普通の材料として扱う', () => {
+    const r = { id: 'r3', recipe_ingredients: [grp('gyu', 300, '牛ひき肉', 5)] }
+    const status = getRecipeStatus(r, stock([]))
+    expect(status.lines[0].alternative).toBeUndefined()
+    expect(status.shortfallCount).toBe(1)
+  })
+})

@@ -59,6 +59,7 @@ function RecipeEditForm({ recipe, groupId, ingredients, catalog = [], aliases = 
         include: true,
         needsCheck: ri.required_quantity == null && Boolean(ri.amount_text),
         optional: Boolean(ri.optional),
+        choiceGroup: ri.choice_group ?? null,
       }
       if (!ri.ingredient_id) {
         // 確認待ちの材料: 候補を出す(このまま保存しても確認待ちのまま)

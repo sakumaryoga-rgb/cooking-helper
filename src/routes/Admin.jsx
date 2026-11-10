@@ -141,6 +141,87 @@ function ContactRow({ contact, onSave, onRetryNotify }) {
 }
 
 // 運営者の管理画面。運営者かどうかはサーバー(admin_dashboard RPC)が判断し、運営者でなければデータを返さない
+// 取り込みの失敗の理由(recipe_import_failures.reason)
+const FAILURE_REASONS = {
+  no_recipe_data: '材料が見つからない',
+  recipe_no_ingredients: 'Recipe に材料なし',
+  robots_disallowed: 'robots.txt で禁止',
+  blocked_host: '宛先を拒否',
+  fetch_status: 'HTTP エラー',
+  fetch_type: 'HTML でない',
+  fetch_size: '大きすぎる',
+  fetch_redirect: 'リダイレクト',
+  fetch_timeout: '時間切れ',
+  fetch_error: '通信エラー',
+}
+const METHOD_LABELS = { jsonld: 'JSON-LD', microdata: 'microdata', heuristic: '材料の見出し' }
+
+function describeFeatures(f) {
+  if (!f) return ''
+  const parts = []
+  if (f.ld_types?.length) parts.push(`JSON-LD: ${f.ld_types.join('/')}`)
+  if (f.ld_parse_errors) parts.push(`JSON-LD 解析エラー ${f.ld_parse_errors}`)
+  if (f.microdata_recipe) parts.push('microdata の Recipe あり')
+  if (f.itemprop_ingredient) parts.push('itemprop の材料あり')
+  if (f.ingredient_heading) parts.push('「材料」の文字あり')
+  if (f.spa_hint) parts.push('JavaScript で描くページ')
+  if (f.generator) parts.push(f.generator)
+  return parts.join('・')
+}
+
+// 取り込めなかったページ(migration 031)。ドメインごとの件数・理由と、最近の例(ページの特徴つき)
+function ImportFailures({ days }) {
+  const [data, setData] = useState(null)
+  useEffect(() => {
+    let alive = true
+    supabase.rpc('admin_import_failures', { p_days: days }).then(({ data: result, error }) => {
+      if (alive) setData(error || result?.error ? null : result)
+    })
+    return () => {
+      alive = false
+    }
+  }, [days])
+  if (!data) return null
+  const reasons = (r) =>
+    Object.entries(r ?? {})
+      .map(([k, n]) => `${FAILURE_REASONS[k] ?? k} ${n}`)
+      .join('・')
+  return (
+    <>
+      <Table
+        caption="取り込めなかったサイト(件数の多い順。読み取りを直す候補)"
+        columns={[
+          { key: 'host', label: 'ドメイン' },
+          { key: 'count', label: '件数' },
+          { key: 'users', label: '人数' },
+          { key: 'reasons', label: '理由', render: (r) => reasons(r.reasons) },
+          { key: 'last_seen', label: '最後', render: (r) => new Date(r.last_seen).toLocaleDateString('ja-JP') },
+        ]}
+        rows={data.by_host ?? []}
+      />
+      <Table
+        caption="取り込めなかったページ(最近の50件)"
+        columns={[
+          { key: 'created_at', label: '日時', render: (r) => new Date(r.created_at).toLocaleString('ja-JP') },
+          { key: 'page', label: 'ページ', render: (r) => <span className="break-all">{r.host}{r.path}</span> },
+          { key: 'reason', label: '理由', render: (r) => `${FAILURE_REASONS[r.reason] ?? r.reason}${r.http_status ? `(${r.http_status})` : ''}` },
+          { key: 'features', label: 'ページの特徴', render: (r) => describeFeatures(r.features) },
+        ]}
+        rows={data.recent ?? []}
+      />
+      <Table
+        caption="読み取れた方法(成功した取り込み)"
+        columns={[
+          { key: 'site', label: 'サイト' },
+          { key: 'method', label: '方法', render: (r) => METHOD_LABELS[r.method] ?? '(記録なし)' },
+          { key: 'count', label: '件数' },
+        ]}
+        rows={data.methods ?? []}
+      />
+    </>
+  )
+}
+
 export function Admin() {
   const [days, setDays] = useState(30)
   const [data, setData] = useState(null)
@@ -283,6 +364,7 @@ export function Admin() {
         ]}
         rows={imports}
       />
+      <ImportFailures days={days} />
 
       <section className="flex flex-col gap-1.5">
         <h2 className="text-sm font-medium">保存期間(90日)</h2>

@@ -45,3 +45,65 @@ export function isAllowedFetchHost(hostname) {
   const host = String(hostname).toLowerCase()
   return SUPPORTED_SITES.some((s) => s.hosts.includes(host))
 }
+
+// ------------------------------------------------------------
+// 対応サイト以外のページ(汎用の読み取り): schema.org/Recipe の構造化データなどがあれば読み込む
+// ここでは URL の形だけを確かめる。実際の宛先(社内のアドレスなどでないか)は、取得する直前に
+// サーバー(api/_lib/safeFetch.js)が名前解決の結果で確かめる
+// ------------------------------------------------------------
+export const GENERIC_SITE_ID = 'generic'
+const BLOCKED_SUFFIXES = ['.local', '.localhost', '.internal', '.test', '.example', '.invalid', '.home.arpa', '.lan', '.intranet', '.corp']
+const TRACKING_PARAMS = /^(utm_[a-z]+|fbclid|gclid|yclid|mc_[a-z]+|igshid|_ga|ref|ref_src)$/i
+
+// 公開されているドメイン名か(IP アドレスの直接指定・ドメインの付かない名前・社内向けの名前は使わない)
+export function isPublicHostname(hostname) {
+  const host = String(hostname ?? '').toLowerCase().replace(/\.$/, '')
+  if (!host || host.length > 253 || host.includes(':') || host.startsWith('[')) return false
+  if (/^\d+(\.\d+){0,3}$/.test(host) || /^0x[0-9a-f]+/i.test(host)) return false
+  if (host === 'localhost' || BLOCKED_SUFFIXES.some((s) => host.endsWith(s))) return false
+  const labels = host.split('.')
+  if (labels.length < 2 || labels.some((l) => !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(l))) return false
+  return /^[a-z]{2,63}$|^xn--[a-z0-9-]{1,59}$/.test(labels.at(-1))
+}
+
+// 汎用の読み取りで試せる URL なら { site: { id: 'generic', name: ドメイン }, url(https に正規化), generic: true } を返す
+export function parseGenericUrl(input) {
+  let u
+  try {
+    u = new URL(String(input ?? '').trim())
+  } catch {
+    return null
+  }
+  if (u.protocol !== 'https:' && u.protocol !== 'http:') return null
+  if (u.username || u.password) return null
+  if (u.port && !(u.protocol === 'https:' && u.port === '443') && !(u.protocol === 'http:' && u.port === '80')) return null
+  const host = u.hostname.toLowerCase().replace(/\.$/, '')
+  if (!isPublicHostname(host)) return null
+  for (const key of [...u.searchParams.keys()]) if (TRACKING_PARAMS.test(key)) u.searchParams.delete(key)
+  const search = u.searchParams.toString()
+  const url = `https://${host}${u.pathname}${search ? `?${search}` : ''}`
+  if (url.length > 2000) return null
+  return { site: { id: GENERIC_SITE_ID, name: host.slice(0, 40) }, url, generic: true, sourceKey: null }
+}
+
+// 取り込む URL: 対応サイトのドメインならそのサイトの形(レシピのページでなければ null)、それ以外は汎用の読み取り
+export function parseImportUrl(input) {
+  const supported = parseRecipeUrl(input)
+  if (supported) return supported
+  let host = ''
+  try {
+    host = new URL(String(input ?? '').trim()).hostname.toLowerCase()
+  } catch {
+    return null
+  }
+  if (isAllowedFetchHost(host)) return null
+  return parseGenericUrl(input)
+}
+
+// 汎用の読み取りで取り込んだレシピの重複を見分けるキー(URL の SHA-256 の先頭32桁)。recipes.source_key の形に合う
+export async function genericSourceKey(url) {
+  const data = new TextEncoder().encode(String(url))
+  const digest = await globalThis.crypto.subtle.digest('SHA-256', data)
+  const hex = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('')
+  return `web:${hex.slice(0, 32)}`
+}
