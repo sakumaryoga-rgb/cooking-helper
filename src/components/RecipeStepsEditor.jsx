@@ -1,4 +1,7 @@
+import { useState } from 'react'
 import { ArrowDown, ArrowUp, Plus, X } from 'lucide-react'
+import { IngredientPicker } from '@/components/IngredientPicker'
+import { pickedItem } from '@/components/RecipeItemsEditor'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { emptyStep, usageMismatches } from '@/lib/recipeSteps'
@@ -7,8 +10,11 @@ import { QuantityInput } from '@/components/QuantityInput'
 // 作り方(オリジナルレシピ)。手順ごとに、そのレシピの材料から使うものと量を選べる(どちらも任意)。
 // 手順の量は目安で、在庫はレシピの材料の分量で引く(手順の量では引かない)
 // onUsesChanged(nextSteps, itemKeys): 手順で使う材料・量が変わったとき(上の材料の分量を手順の合計にそろえるため)
-export function RecipeStepsEditor({ steps, setSteps, items, onUsesChanged }) {
+// setItems を渡すと、手順から新しい材料を足せる(上の材料にも入り、保存時の「家にある材料」の候補にもなる)
+const NEW_ITEM = '__new__'
+export function RecipeStepsEditor({ steps, setSteps, items, onUsesChanged, setItems, groupId, ingredients }) {
   const available = items.filter((i) => i.include)
+  const [pickerStepId, setPickerStepId] = useState(null) // 新しい材料を足す手順
   const update = (id, patch) => setSteps((prev) => prev.map((s) => (s.id === id ? { ...s, ...patch } : s)))
   const move = (index, d) =>
     setSteps((prev) => {
@@ -18,6 +24,10 @@ export function RecipeStepsEditor({ steps, setSteps, items, onUsesChanged }) {
     })
   const remove = (id) => setSteps((prev) => (prev.length === 1 ? [emptyStep()] : prev.filter((s) => s.id !== id)))
   const addUse = (step, itemKey) => {
+    if (itemKey === NEW_ITEM) {
+      setPickerStepId(step.id)
+      return
+    }
     if (!itemKey || step.uses.some((u) => u.itemKey === itemKey)) return
     setUses(step, [...step.uses, { itemKey, quantity: '' }], itemKey)
   }
@@ -30,6 +40,21 @@ export function RecipeStepsEditor({ steps, setSteps, items, onUsesChanged }) {
   const setUse = (step, itemKey, quantity) => setUses(step, step.uses.map((u) => (u.itemKey === itemKey ? { ...u, quantity } : u)), itemKey)
   const removeUse = (step, itemKey) => setUses(step, step.uses.filter((u) => u.itemKey !== itemKey), itemKey)
   const mismatches = usageMismatches(steps, items)
+  // 上の材料にない食材を選んだら、上の材料に足してから、この手順で使う材料にする
+  function handlePicked(ingredient) {
+    const step = steps.find((s) => s.id === pickerStepId)
+    setPickerStepId(null)
+    if (!step) return
+    const existing = items.find((i) => i.kind === 'existing' && i.ingredient?.id === ingredient.id)
+    if (existing) {
+      if (!existing.include) setItems((prev) => prev.map((i) => (i.key === existing.key ? { ...i, include: true } : i)))
+      addUse(step, existing.key)
+      return
+    }
+    const added = pickedItem(ingredient)
+    setItems((prev) => [...prev, added])
+    addUse(step, added.key)
+  }
 
   return (
     <fieldset className="flex flex-col gap-3">
@@ -86,7 +111,7 @@ export function RecipeStepsEditor({ steps, setSteps, items, onUsesChanged }) {
                   </div>
                 )
               })}
-              {available.length > 0 ? (
+              {available.length > 0 || setItems ? (
                 <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
                   <Plus className="size-3.5" />
                   <select
@@ -103,6 +128,7 @@ export function RecipeStepsEditor({ steps, setSteps, items, onUsesChanged }) {
                           {x.name}
                         </option>
                       ))}
+                    {setItems && <option value={NEW_ITEM}>＋ 上の材料にない食材を選ぶ</option>}
                   </select>
                 </label>
               ) : (
@@ -129,6 +155,16 @@ export function RecipeStepsEditor({ steps, setSteps, items, onUsesChanged }) {
             ))}
           </ul>
         </div>
+      )}
+      {setItems && (
+        <IngredientPicker
+          title="手順で使う材料を選ぶ"
+          open={pickerStepId != null}
+          onOpenChange={(open) => !open && setPickerStepId(null)}
+          groupId={groupId}
+          ingredients={ingredients}
+          onSelect={handlePicked}
+        />
       )}
     </fieldset>
   )

@@ -312,7 +312,7 @@ export function RecipeNew({ groupId, userId }) {
           emptyText={original ? 'まだ材料がありません。「材料を選択」から追加してください' : imported ? '材料がありません' : 'URLを読み込むと、ここに材料が並びます。手動で追加することもできます'}
         />
 
-        {original && <RecipeStepsEditor steps={steps} setSteps={setSteps} items={items} onUsesChanged={(next, keys) => setItems((prev) => applyStepTotals(prev, next, keys))} />}
+        {original && <RecipeStepsEditor steps={steps} setSteps={setSteps} items={items} setItems={setItems} groupId={groupId} ingredients={ingredients} onUsesChanged={(next, keys) => setItems((prev) => applyStepTotals(prev, next, keys))} />}
 
         <RecipeExtrasFields value={extras} onChange={(patch) => setExtras((prev) => ({ ...prev, ...patch }))} />
 
