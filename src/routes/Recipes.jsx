@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input'
 import { MakeableBadge } from '@/components/MakeableBadge'
 import { dishLook } from '@/lib/foodLook'
 import { CATEGORIES, categoryOf } from '@/lib/recipeCategory'
+import { StarRatingView } from '@/components/StarRating'
 
 // 畳んだカテゴリ(この端末で覚える)
 const COLLAPSED_KEY = 'cookdoor:recipeCategoriesCollapsed'
@@ -76,6 +77,7 @@ export function Recipes({ groupId }) {
           </span>
           <span className="flex min-w-0 flex-1 flex-col">
             <span className="text-sm font-semibold truncate">{recipe.title}</span>
+            <StarRatingView value={recipe.rating} />
             {status.expiring?.length > 0 && (
               <span className="truncate text-xs font-medium text-amber-700 dark:text-amber-400">⏰ {describeExpiring(status.expiring)}を使える</span>
             )}

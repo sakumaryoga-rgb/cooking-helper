@@ -237,7 +237,9 @@ export function IngredientPicker({ open, onOpenChange, groupId, ingredients, onS
   // カテゴリの一覧から選んだとき: 冷蔵庫にすでにあればその行、なければ在庫0で作る。
   // 複数選択のときはタップで選択/解除するだけ(冷蔵庫の行は「決定」で作る)
   function handlePick(item) {
-    const existing = item.fridgeRow ?? fridgeByCatalog.get(item.id)
+    // 家の別名でほかの食材にまとめた品目(「豚バラ肉」→「豚バラ」)は、まとめた先の冷蔵庫の行を使う(同じ食材を二重に作らない)
+    const aliasedTo = nameIndex.ownAlias.get(nameKey(item.name))
+    const existing = item.fridgeRow ?? fridgeByCatalog.get(item.id) ?? (aliasedTo && aliasedTo.id !== item.id ? fridgeByCatalog.get(aliasedTo.id) : undefined)
     if (multiple) {
       setPicked((prev) => {
         const next = new Map(prev)

@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams, Link } from 'react-router-dom'
 import { Plus, Minus, Search, CalendarPlus, ChevronDown, Infinity as InfinityIcon, ShoppingCart, X } from 'lucide-react'
 import { useIngredients } from '@/hooks/useIngredients'
 import { useIngredientBatches } from '@/hooks/useIngredientBatches'
@@ -341,6 +341,12 @@ export function Fridge({ groupId }) {
             <InfinityIcon className="size-3.5" />
             常備品にする(数えない)
           </button>
+          <Link
+            to={`/settings/aliases?keep=${ingredient.id}`}
+            className="ml-1.5 inline-flex items-center gap-1 rounded-full bg-background px-2.5 py-1 font-medium text-muted-foreground ring-1 ring-border hover:text-foreground"
+          >
+            ほかの食材とまとめる
+          </Link>
         </li>
       </ul>
     )

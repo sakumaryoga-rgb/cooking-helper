@@ -10,13 +10,14 @@ import { buildNameIndex, matchIngredientName } from '@/lib/ingredientName'
 import { RecipeItemsEditor, keyOf } from '@/components/RecipeItemsEditor'
 import { RecipeExtrasFields, normalizeExtras } from '@/components/RecipeExtrasFields'
 import { RecipeStepsEditor } from '@/components/RecipeStepsEditor'
-import { stepsFromSaved } from '@/lib/recipeSteps'
+import { stepsFromSaved, applyStepTotals, stepUsage } from '@/lib/recipeSteps'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { updateRecipe } from '@/lib/recipeImport/save'
 import { classifyRecipe } from '@/lib/recipeCategory'
 import { RecipeCategoryField } from '@/components/RecipeCategoryField'
+import { withSpoon } from '@/lib/spoon'
 import {
   AlertDialog,
   AlertDialogContent,
@@ -49,6 +50,7 @@ function RecipeEditForm({ recipe, groupId, ingredients, catalog = [], aliases = 
   const [title, setTitle] = useState(recipe.title)
   const [items, setItems] = useState(() => {
     const index = buildNameIndex({ ingredients, catalog, aliases })
+    const catalogById = new Map(catalog.map((c) => [c.id, c]))
     return (recipe.recipe_ingredients ?? []).map((ri) => {
       const common = {
         key: keyOf(),
@@ -76,7 +78,8 @@ function RecipeEditForm({ recipe, groupId, ingredients, catalog = [], aliases = 
         }
       }
       const ingredient = ingredients.find((i) => i.id === ri.ingredient_id) ?? ri.ingredient ?? { id: ri.ingredient_id, name: '(不明な食材)', unit: '' }
-      return { ...common, kind: 'existing', ingredient, name: ingredient.name, unit: ingredient.unit }
+      // 調味料の「大さじ2」は、大さじ・小さじの入力の形で開く
+      return withSpoon({ ...common, kind: 'existing', ingredient, name: ingredient.name, unit: ingredient.unit }, catalogById)
     })
   })
   // 作り方(オリジナルレシピだけ。URL から取り込んだレシピは元のページで見るので編集しない。保存済みの作り方は消さない)
@@ -175,13 +178,14 @@ function RecipeEditForm({ recipe, groupId, ingredients, catalog = [], aliases = 
         <RecipeItemsEditor
           groupId={groupId}
           ingredients={ingredients}
+          stepUsage={steps ? stepUsage(steps) : undefined}
           items={items}
           setItems={setItems}
           emptyText="材料がありません。「材料を選択」から追加してください"
         />
 
         {original ? (
-          <RecipeStepsEditor steps={steps} setSteps={setSteps} items={items} />
+          <RecipeStepsEditor steps={steps} setSteps={setSteps} items={items} onUsesChanged={(next, keys) => setItems((prev) => applyStepTotals(prev, next, keys))} />
         ) : (
           <p className="rounded-2xl bg-muted/60 px-3 py-2 text-xs text-muted-foreground">
             作り方は元のレシピのページで見られます(このレシピの画面の「元のレシピで作り方を見る」から)

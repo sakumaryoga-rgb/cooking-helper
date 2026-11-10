@@ -279,7 +279,12 @@ export function buildNameIndex({ ingredients = [], catalog = [], aliases = [] })
 
 // 食材マスタの品目を、冷蔵庫にあればその行に置き換える(同じ食材を二重に作らない)
 function toOption(index, catalogItem) {
-  const row = index.fridgeByCatalog.get(catalogItem.id) ?? index.fridgeByKey.get(nameKey(catalogItem.name))
+  const aliased = index.ownAlias.get(nameKey(catalogItem.name))
+  const row =
+    index.fridgeByCatalog.get(catalogItem.id) ??
+    index.fridgeByKey.get(nameKey(catalogItem.name)) ??
+    // 家の別名でほかの食材にまとめた品目は、まとめた先の冷蔵庫の行
+    (aliased && aliased.id !== catalogItem.id ? index.fridgeByCatalog.get(aliased.id) : undefined)
   return row ? existingOption(row) : catalogOption(catalogItem)
 }
 

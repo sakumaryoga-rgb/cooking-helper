@@ -10,6 +10,8 @@ import { describeExpiry, getExpiryInfo, getExpiryState } from '@/lib/shelfLife'
 import { categoryLook, dishLook, greeting } from '@/lib/foodLook'
 import { MakeableBadge } from '@/components/MakeableBadge'
 import { InstallGuide } from '@/components/InstallGuide'
+import { StarRatingView } from '@/components/StarRating'
+import { compareRating } from '@/lib/rating'
 
 const EXPIRING_DAYS = 3
 
@@ -43,6 +45,7 @@ function DishCards({ items, detail }) {
                 <span className="text-4xl drop-shadow-sm">{look.emoji}</span>
               </span>
               <span className="line-clamp-2 text-sm font-semibold leading-snug">{recipe.title}</span>
+              <StarRatingView value={recipe.rating} />
               {detail && <span className="line-clamp-2 text-[11px] text-muted-foreground">{detail(status)}</span>}
               <span className="mt-auto">
                 <MakeableBadge status={status} />
@@ -60,11 +63,12 @@ export function Home({ groupId }) {
   const { sorted, ingredients, catalogById, loading, refreshIngredients } = useKitchen(groupId)
   const { batches } = useIngredientBatches(groupId)
 
-  const makeable = sorted.filter((s) => s.status.level === 'makeable')
-  // 期限が近い食材を使って、今の在庫で作れるレシピ(期限の近い順)
+  // 今すぐ作れるレシピは評価の高い順(お気に入りを先に。未評価は後ろ、同じ評価は期限の近さなどの元の順)
+  const makeable = sorted.filter((s) => s.status.level === 'makeable').sort((a, b) => compareRating(a.recipe.rating, b.recipe.rating))
+  // 期限が近い食材を使って、今の在庫で作れるレシピ(期限の近い順。同じ日なら評価の高い順)
   const useSoon = sorted
     .filter((s) => s.status.level === 'makeable' && s.status.expiring?.length > 0)
-    .sort((a, b) => a.status.expiring[0].daysLeft - b.status.expiring[0].daysLeft)
+    .sort((a, b) => a.status.expiring[0].daysLeft - b.status.expiring[0].daysLeft || compareRating(a.recipe.rating, b.recipe.rating))
 
   const expiring = useMemo(() => {
     const byIngredient = new Map()

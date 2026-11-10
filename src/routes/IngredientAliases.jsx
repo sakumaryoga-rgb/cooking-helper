@@ -1,17 +1,24 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { ArrowLeft, Search, X } from 'lucide-react'
 import { supabase } from '@/supabaseClient'
 import { useIngredientCatalog } from '@/hooks/useIngredientCatalog'
 import { useIngredientAliases } from '@/hooks/useIngredientAliases'
 import { nameKey } from '@/lib/ingredientName'
 import { Input } from '@/components/ui/input'
+import { IngredientMerge } from '@/components/IngredientMerge'
+import { useIngredients } from '@/hooks/useIngredients'
+import { useRecipes } from '@/hooks/useRecipes'
 
 // 覚えた食材の別名(設定から開く別ページ。タブには出さない)。
 // レシピの取り込みで付け替えたときに覚えた表記。件数が多くなるので、食材ごとにまとめて検索できるようにする。誤って覚えたものは消せる
 export function IngredientAliases({ groupId }) {
-  const { catalog } = useIngredientCatalog()
+  const { catalog, refresh: refreshCatalog } = useIngredientCatalog()
   const { aliases, refresh } = useIngredientAliases()
+  const { ingredients, refresh: refreshIngredients } = useIngredients(groupId)
+  const { refresh: refreshRecipes } = useRecipes(groupId)
+  // 冷蔵庫の「ほかの食材とまとめる」から開いたときは、その食材を残す側に入れておく
+  const [params] = useSearchParams()
   const [query, setQuery] = useState('')
   const [error, setError] = useState('')
   const [busyAlias, setBusyAlias] = useState(null)
@@ -56,11 +63,17 @@ export function IngredientAliases({ groupId }) {
         設定
       </Link>
       <div>
-        <h1 className="text-lg font-medium">覚えた食材の別名</h1>
+        <h1 className="text-lg font-medium">食材の別名・まとめる</h1>
         <p className="text-sm text-muted-foreground">
-          レシピの取り込みで選んだ表記です。この家だけで使い、次から自動でその食材になります。間違って覚えたものは「忘れる」で消せます
+          レシピの取り込みで選んだ表記と、まとめた食材の名前です。この家だけで使い、次から自動でその食材になります。間違って覚えたものは「忘れる」で消せます
         </p>
       </div>
+
+      <IngredientMerge
+        ingredients={ingredients}
+        initialKeepId={params.get('keep') ?? ''}
+        onMerged={() => Promise.all([refreshIngredients?.(), refreshRecipes?.(), refresh?.(), refreshCatalog?.()])}
+      />
 
       {own.length === 0 ? (
         <p className="rounded-lg border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">

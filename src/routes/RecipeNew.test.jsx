@@ -5,8 +5,21 @@ import { MemoryRouter } from 'react-router-dom'
 import { RecipeNew } from './RecipeNew'
 import { fetchRecipeFromUrl } from '@/lib/recipeImport/client'
 import { findDuplicate, saveRecipe } from '@/lib/recipeImport/save'
+import { supabase } from '@/supabaseClient'
 
-vi.mock('@/supabaseClient', () => ({ supabase: {} }))
+// update(...).in(...) の呼び出しを記録する。ほかの読み込みは空の結果を返す
+const updates = []
+vi.mock('@/supabaseClient', () => {
+  const chain = () => {
+    const result = Promise.resolve({ data: [], error: null })
+    const c = new Proxy(function () {}, {
+      get: (_, k) => (k === 'then' ? result.then.bind(result) : k === 'update' ? (patch) => ({ in: (col, ids) => (updates.push({ patch, col, ids }), Promise.resolve({ error: null })) }) : () => c),
+      apply: () => c,
+    })
+    return c
+  }
+  return { supabase: { rpc: vi.fn().mockResolvedValue({ error: null }), from: vi.fn(() => chain()) } }
+})
 vi.mock('@/hooks/useIngredients', () => ({ useIngredients: () => ({ ingredients: [{ id: 'i1', name: 'きゅうり', unit: '本', quantity: 2 }] }) }))
 vi.mock('@/hooks/useIngredientCatalog', () => ({ useIngredientCatalog: () => ({ catalog: [{ id: 'c1', name: '鶏むね肉', unit: 'g' }] }) }))
 vi.mock('@/hooks/useIngredientAliases', () => ({ useIngredientAliases: () => ({ aliases: [{ alias: '鶏胸肉', catalog_id: 'c1', group_id: null }] }) }))
@@ -47,6 +60,9 @@ describe('レシピURLの取り込み', () => {
     await userEvent.clear(screen.getByLabelText('きゅうりの分量'))
     await userEvent.type(screen.getByLabelText('きゅうりの分量'), '2')
     await userEvent.click(screen.getByRole('button', { name: 'レシピ帳に保存' }))
+    // 冷蔵庫にまだない材料(鶏むね肉・塩)は、家にあるか聞いてから保存する
+    expect(screen.getByRole('dialog', { name: '家にある材料' })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'この内容で保存' }))
     const args = vi.mocked(saveRecipe).mock.calls[0][0]
     expect(args).toMatchObject({ title: 'バンバンジー', url: URL_, sourceKey: 'delishkitchen:194135459369058708', sourceSite: 'DELISH KITCHEN', servings: 2 })
     expect(args.items.find((i) => i.name === 'きゅうり').requiredQuantity).toBe('2')
@@ -141,5 +157,57 @@ describe('自分で考えたレシピ', () => {
         steps: [expect.objectContaining({ text: '具を切る', uses: [] }), expect.objectContaining({ text: '煮る', uses: [] })],
       })
     )
+  })
+})
+
+describe('保存のときの「家にある材料」', () => {
+  beforeEach(() => {
+    updates.length = 0
+    supabase.rpc.mockClear()
+    vi.mocked(findDuplicate).mockResolvedValue(null)
+    vi.mocked(saveRecipe).mockResolvedValue({ recipeId: 'r1', ingredientIds: new Map() })
+    vi.mocked(fetchRecipeFromUrl).mockResolvedValue({
+      recipe: { title: 'バンバンジー', servings: 2, url: URL_, sourceKey: 'delishkitchen:1', site: 'DELISH KITCHEN', ingredients: ['鶏むね肉 250g', 'きゅうり 1本', 'しょうゆ 大さじ1'] },
+    })
+  })
+
+  it('冷蔵庫にない材料だけ聞き、調味料は常備品・ほかは「ない」を選んでおく。選んだ材料を冷蔵庫と常備品に入れる', async () => {
+    renderPage()
+    await userEvent.type(screen.getByLabelText('レシピのURL'), URL_)
+    await userEvent.click(screen.getByRole('button', { name: '読み込む' }))
+    await userEvent.click(screen.getByRole('button', { name: 'レシピ帳に保存' }))
+    const dialog = screen.getByRole('dialog', { name: '家にある材料' })
+    // きゅうりは冷蔵庫にあるので聞かない
+    expect(within(dialog).queryByText('きゅうり')).not.toBeInTheDocument()
+    const chicken = within(dialog).getByRole('radiogroup', { name: '鶏むね肉は家にあるか' })
+    const soy = within(dialog).getByRole('radiogroup', { name: 'しょうゆは家にあるか' })
+    expect(within(chicken).getByRole('radio', { name: 'ない' })).toHaveAttribute('aria-checked', 'true')
+    expect(within(soy).getByRole('radio', { name: '常備品' })).toHaveAttribute('aria-checked', 'true')
+    await userEvent.click(within(chicken).getByRole('radio', { name: '家にある' }))
+    expect(within(dialog).getByLabelText('鶏むね肉の今ある量')).toHaveValue('250')
+    await userEvent.clear(within(dialog).getByLabelText('鶏むね肉の今ある量'))
+    await userEvent.type(within(dialog).getByLabelText('鶏むね肉の今ある量'), '300')
+
+    // 保存先の食材 ID(saveRecipe の結果)で冷蔵庫・常備品に入れる
+    const items = () => vi.mocked(saveRecipe).mock.calls.at(-1)[0].items
+    vi.mocked(saveRecipe).mockImplementation(async (args) => ({
+      recipeId: 'r1',
+      ingredientIds: new Map(args.items.map((i) => [i.key, i.name === '鶏むね肉' ? 'id-chicken' : i.name === 'しょうゆ' ? 'id-soy' : 'id-x'])),
+    }))
+    await userEvent.click(within(dialog).getByRole('button', { name: 'この内容で保存' }))
+    expect(items().length).toBeGreaterThan(0)
+    expect(supabase.rpc).toHaveBeenCalledWith('adjust_stock', { p_ingredient_id: 'id-chicken', p_delta: 300, p_dated_today: true, p_best_before: null, p_use_by: null })
+    expect(updates).toEqual([{ patch: { is_staple: true }, col: 'id', ids: ['id-soy'] }])
+  })
+
+  it('「戻る」で編集に戻れる(保存しない)', async () => {
+    vi.mocked(saveRecipe).mockClear()
+    renderPage()
+    await userEvent.type(screen.getByLabelText('レシピのURL'), URL_)
+    await userEvent.click(screen.getByRole('button', { name: '読み込む' }))
+    await userEvent.click(screen.getByRole('button', { name: 'レシピ帳に保存' }))
+    await userEvent.click(screen.getByRole('button', { name: '戻る' }))
+    expect(screen.queryByRole('dialog', { name: '家にある材料' })).not.toBeInTheDocument()
+    expect(saveRecipe).not.toHaveBeenCalled()
   })
 })

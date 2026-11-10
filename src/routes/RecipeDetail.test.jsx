@@ -586,3 +586,33 @@ describe('「どれか1つ」の材料(レシピの画面)', () => {
     expect(updateIn).toHaveBeenCalledWith('id', ['h1', 'h2', 'h3'])
   })
 })
+
+describe('レシピの評価', () => {
+  beforeEach(() => {
+    update.mockClear()
+    updateEq.mockClear()
+  })
+  afterEach(() => __resetForTests())
+
+  it('星の半分で 0.5 刻みに評価を付け、同じ評価をもう一度押すと外す', async () => {
+    const refresh = vi.fn()
+    useIngredients.mockReturnValue({ ingredients: [], refresh: refreshIngredients })
+    useRecipes.mockReturnValue({ recipes: [{ ...recipe, rating: 3 }], loading: false, refresh })
+    render(
+      <MemoryRouter initialEntries={['/recipes/r1']}>
+        <Routes>
+          <Route path="/recipes/:id" element={<RecipeDetail groupId="g1" />} />
+        </Routes>
+      </MemoryRouter>
+    )
+    const group = screen.getByRole('radiogroup', { name: 'このレシピの評価' })
+    expect(within(group).getAllByRole('radio')).toHaveLength(10)
+    expect(within(group).getByRole('radio', { name: '評価 3' })).toHaveAttribute('aria-checked', 'true')
+    await userEvent.click(within(group).getByRole('radio', { name: '評価 4.5' }))
+    expect(update).toHaveBeenCalledWith({ rating: 4.5 })
+    expect(updateEq).toHaveBeenCalledWith('id', 'r1')
+    await waitFor(() => expect(refresh).toHaveBeenCalled())
+    await userEvent.click(within(group).getByRole('radio', { name: '評価 3' }))
+    expect(update).toHaveBeenLastCalledWith({ rating: null })
+  })
+})
