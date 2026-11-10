@@ -456,7 +456,13 @@ export function RecipeDetail({ groupId }) {
             </div>
             <span className={`text-xs text-right ${enough || optional || (grouped && !line.chosen) ? 'text-muted-foreground' : 'text-destructive'}`}>
               {staple ? (
-                '常備品'
+                // 常備品(適量の調味料など)も、参考量メモがあれば作るときの目安として見せる
+                <>
+                  常備品{vagueMemo(ri.amount_text) && '・適量'}
+                  {vagueMemo(ri.amount_text) && (
+                    <span className="block text-[11px] text-violet-700 dark:text-violet-400">メモ(参考): {vagueMemo(ri.amount_text)}</span>
+                  )}
+                </>
               ) : line?.amountUnknown || line?.vague ? (
                 // 数で分からない分量(1パック・少々): 元の表記のまま。在庫と比べられない
                 <>
@@ -524,6 +530,8 @@ export function RecipeDetail({ groupId }) {
   const shownServings = servings ?? baseServings
   const stepMismatches = savedUsageMismatches(recipe.steps, recipe.recipe_ingredients ?? [])
   const nameOfUse = (u) => (u.ingredient_id ? ingredientsById.get(u.ingredient_id)?.name ?? (recipe.recipe_ingredients ?? []).find((r) => r.ingredient_id === u.ingredient_id)?.ingredient?.name : u.source_name) ?? '(材料)'
+  // 手順で量を決めていない材料は、材料の参考量メモ(適量(200g))を目安として見せる
+  const memoOfUse = (u) => (u.ingredient_id ? vagueMemo((recipe.recipe_ingredients ?? []).find((r) => r.ingredient_id === u.ingredient_id)?.amount_text) : '')
   const unitOfUse = (u) => (u.ingredient_id ? ingredientsById.get(u.ingredient_id)?.unit ?? '' : '')
 
   return (
@@ -675,7 +683,7 @@ export function RecipeDetail({ groupId }) {
                       {step.uses.map((u, k) => (
                         <li key={k} className="rounded-full bg-muted px-2 py-0.5 text-xs">
                           {nameOfUse(u)}
-                          {u.quantity ? ` ${formatQuantity(u.quantity)}${unitOfUse(u)}` : ''}
+                          {u.quantity ? ` ${formatQuantity(u.quantity)}${unitOfUse(u)}` : memoOfUse(u) ? ` 適量(${memoOfUse(u)})` : ''}
                         </li>
                       ))}
                     </ul>
